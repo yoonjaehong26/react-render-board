@@ -8,14 +8,17 @@ import {
   useReactFlow,
   useStore,
   useViewport,
+  type NodeMouseHandler,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import './flow.css';
 import type { RenderStore } from '../data/store';
-import { normalizeForCanvas, PENDING_GROUP } from './lib/normalize';
+import { resolveHostElements } from '../hooking/domInteraction';
+import { normalizeForCanvas, PENDING_GROUP, resolveVisibleId } from './lib/normalize';
 import { createLayoutEngine, type Rect } from './lib/layout';
 import { toFlow } from './lib/toFlow';
 import { worldRectFromViewport, expandRect, rectsIntersect } from './lib/geometry';
+import { createInteractionStore, type InteractionStore } from './lib/interactionStore';
 import { GroupNode } from './components/GroupNode';
 import { ComponentNode } from './components/ComponentNode';
 import { SemanticZoomController, MAP_MODE_THRESHOLD } from './components/SemanticZoomController';
@@ -86,24 +89,43 @@ function useAutoRefit(groupNames: Set<string>) {
 }
 
 interface BoardContentProps {
+  store: RenderStore;
+  interactionStore: InteractionStore;
   snapshot: ReturnType<RenderStore['getSnapshot']>;
   includeHostNodes: boolean;
   onIncludeHostNodesChange: (value: boolean) => void;
   engine: ReturnType<typeof createLayoutEngine>;
 }
 
-function BoardContent({ snapshot, includeHostNodes, onIncludeHostNodesChange, engine }: BoardContentProps) {
+function BoardContent({
+  store,
+  interactionStore,
+  snapshot,
+  includeHostNodes,
+  onIncludeHostNodesChange,
+  engine,
+}: BoardContentProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const viewport = useSettledViewport();
   const paneWidth = useStore((s) => s.width);
   const paneHeight = useStore((s) => s.height);
   const isMapMode = viewport.zoom < MAP_MODE_THRESHOLD;
+  const { fitView } = useReactFlow();
+  const { navigateToNodeId, navigateRequestId } = useSyncExternalStore(
+    interactionStore.subscribe,
+    interactionStore.getSnapshot,
+  );
+  // 역방향 인터랙션(ADR-0024/0025)이 착지시킨 노드 — toFlow가 ComponentNode에 강조 스타일을
+  // 입히는 데 쓴다. interactionStore가 아니라 로컬 state인 이유: "화면에 실제로 보이는 id로
+  // 해석된 뒤"의 결과라서(navigateToNodeId는 아직 해석 전 raw id) 이 Canvas 인스턴스만의 관심사다.
+  const [highlightedNodeId, setHighlightedNodeId] = useState<number | null>(null);
 
-  const { flowNodes, flowEdges, visibleCount, totalCount, groupNames } = useMemo(() => {
+  const { flowNodes, flowEdges, visibleCount, totalCount, groupNames, visibleIds } = useMemo(() => {
     const visible = normalizeForCanvas(snapshot.nodes, { includeHostNodes });
     // PENDING_GROUP은 groupHint가 아직 비동기로 안 채워졌을 뿐인 "임시" 상태라, 이 그룹의
     // 등장/소멸만으로 카메라를 다시 맞추면 안 된다 — 실제 그룹 집합 변화만 추적한다.
     const groupNames = new Set(visible.map((n) => n.group).filter((g) => g !== PENDING_GROUP));
+    const visibleIds = new Set(visible.map((n) => n.id));
 
     // 뷰포트 기반 부분 재계산 (ADR-0016 ①). 프로파일링 결과 normalizeForCanvas/toFlow 자체는
     // 5,000노드 규모에서도 수 ms에 불과했다 — 진짜 비용은 그 결과물(flowNodes 배열)의
@@ -123,11 +145,48 @@ function BoardContent({ snapshot, includeHostNodes, onIncludeHostNodesChange, en
       return rectsIntersect(frame, viewRect);
     };
 
-    const { flowNodes, flowEdges } = toFlow(visible, engine, { shouldExpandGroup });
-    return { flowNodes, flowEdges, visibleCount: visible.length, totalCount: snapshot.nodes.length, groupNames };
-  }, [snapshot, includeHostNodes, engine, viewport, paneWidth, paneHeight, isMapMode]);
+    const { flowNodes, flowEdges } = toFlow(visible, engine, { shouldExpandGroup, highlightedNodeId });
+    return {
+      flowNodes,
+      flowEdges,
+      visibleCount: visible.length,
+      totalCount: snapshot.nodes.length,
+      groupNames,
+      visibleIds,
+    };
+  }, [snapshot, includeHostNodes, engine, viewport, paneWidth, paneHeight, isMapMode, highlightedNodeId]);
 
   useAutoRefit(groupNames);
+
+  // 역방향 인터랙션(ADR-0024/0025): DOM 클릭이 domInteraction.ts를 거쳐 interactionStore에
+  // 남긴 "이 raw id로 이동해줘" 요청을 처리한다. navigateRequestId(호출마다 증가하는 nonce)를
+  // 의존성으로 쓴다 — 도킹 패널(ADR-0025)에서는 보드가 이미 열린 채로 같은 DOM 요소를 다시
+  // 클릭하는 게 실제로 가능한데, 그 경우 navigateToNodeId 값 자체는 이전과 같아서 그것만
+  // 의존성으로 쓰면 두 번째 요청을 놓친다.
+  useEffect(() => {
+    if (navigateToNodeId === null) return;
+    const visibleId = resolveVisibleId(snapshot.nodes, visibleIds, navigateToNodeId);
+    if (visibleId !== null) {
+      setHighlightedNodeId(visibleId);
+      fitView({ nodes: [{ id: String(visibleId) }], duration: 400 });
+    }
+    interactionStore.consumeNavigate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigateRequestId]);
+
+  // 정방향 인터랙션(ADR-0024/0025): 보드 노드 클릭 → 대응하는 실제 DOM 요소를 하이라이트한다.
+  // 도킹 패널(ADR-0025)이라 보드를 닫을 필요가 없다 — 계측 대상 앱은 패널이 열려 있는 동안에도
+  // 항상 화면에 보이고 조작 가능하다. 그룹 프레임 클릭(node.type !== 'component')은 무시한다
+  // — ADR-0024 결정 5가 DOM 오버레이를 요소 단위로 제한했다.
+  const handleNodeClick: NodeMouseHandler = (_event, node) => {
+    if (node.type !== 'component') return;
+    const id = Number(node.id);
+    const fiber = store.getFiber(id);
+    if (!fiber) return;
+    const elements = resolveHostElements(fiber);
+    if (elements.length === 0) return;
+    interactionStore.highlight(elements);
+  };
 
   return (
     <div className="board">
@@ -154,6 +213,7 @@ function BoardContent({ snapshot, includeHostNodes, onIncludeHostNodesChange, en
           nodes={flowNodes}
           edges={flowEdges}
           nodeTypes={nodeTypes}
+          onNodeClick={handleNodeClick}
           fitView
           // 0.05(5%) 바닥에 막히면 대규모(그룹 100+/노드 수천)에서 fitView가 요구하는 줌이
           // 그보다 낮아도 못 내려가 콘텐츠 대부분이 화면 밖에 남는다 (ADR-0014, P2). 순수
@@ -174,19 +234,35 @@ function BoardContent({ snapshot, includeHostNodes, onIncludeHostNodesChange, en
   );
 }
 
-export function Canvas({ store }: { store: RenderStore }) {
+export interface CanvasProps {
+  store: RenderStore;
+  /**
+   * 보드↔DOM 양방향 인터랙션(ADR-0024/0025) 공유 상태. 생략하면 내부에서 하나 만들어 쓴다 —
+   * 정방향(노드 클릭 → DOM 하이라이트)은 그 자체로 동작하고, 역방향(DOM 클릭 → 보드 이동)은
+   * 호출자가 별도로 startDomClickBridge를 안 붙였다면 자연히 비활성 상태로 남는다. 이 하위
+   * 호환 경로는 experiments/real-app-validation의 검증용 사본처럼 interactionStore를 아직
+   * 모르는 통합이 깨지지 않게 하기 위한 것이다.
+   */
+  interactionStore?: InteractionStore;
+}
+
+export function Canvas({ store, interactionStore }: CanvasProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [includeHostNodes, setIncludeHostNodes] = useState(false);
   // 레이아웃 엔진은 커밋을 넘나들며 그룹 순서/그룹별 내부 배치를 기억해야 하므로 ref에 한 번만 만든다
   // (layout.ts 참고 — 매 렌더마다 새로 만들면 "그룹 순서 고정 + 그룹 단위 메모이제이션"이 무의미해진다).
   const engineRef = useRef<ReturnType<typeof createLayoutEngine> | null>(null);
   if (!engineRef.current) engineRef.current = createLayoutEngine();
+  const interactionStoreRef = useRef<InteractionStore | null>(null);
+  if (!interactionStoreRef.current) interactionStoreRef.current = interactionStore ?? createInteractionStore();
 
   return (
     // BoardContent가 뷰포트(useViewport/useStore)를 읽어야 해서 ReactFlowProvider 안에 있어야
     // 한다 — Provider 자체는 DOM을 만들지 않으므로 .board/.toolbar/.canvas 구조는 그대로다.
     <ReactFlowProvider>
       <BoardContent
+        store={store}
+        interactionStore={interactionStoreRef.current}
         snapshot={snapshot}
         includeHostNodes={includeHostNodes}
         onIncludeHostNodesChange={setIncludeHostNodes}

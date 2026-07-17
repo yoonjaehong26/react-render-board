@@ -9,6 +9,9 @@ export interface ComponentNodeData extends Record<string, unknown> {
   isAnonymous: boolean;
   crossGroup: boolean;
   pending: boolean;
+  /** 보드↔DOM 양방향 인터랙션의 역방향(DOM 클릭 → 보드 이동)이 착지한 노드인지 (ADR-0024/0025).
+   * RenderNode 스키마와 무관한 순수 프레젠테이션 상태 — data 레이어는 이 값을 모른다. */
+  highlighted: boolean;
 }
 
 export interface GroupNodeData extends Record<string, unknown> {
@@ -30,12 +33,14 @@ export interface ToFlowOptions {
    * 아예 빼야 그 비용이 사라진다.
    */
   shouldExpandGroup: (frame: Rect, group: string) => boolean;
+  /** 지금 강조 표시할 노드 id (ADR-0024/0025 역방향 인터랙션). 없으면 아무 노드도 강조 안 함. */
+  highlightedNodeId?: number | null;
 }
 
 export function toFlow(
   nodes: VisibleNode[],
   engine: LayoutEngine,
-  { shouldExpandGroup }: ToFlowOptions,
+  { shouldExpandGroup, highlightedNodeId = null }: ToFlowOptions,
 ): { flowNodes: Node[]; flowEdges: Edge[] } {
   const { groups, nodePositions } = engine.computeLayout(nodes);
   const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -83,6 +88,7 @@ export function toFlow(
           isAnonymous: n.isAnonymous,
           crossGroup,
           pending,
+          highlighted: n.id === highlightedNodeId,
         } satisfies ComponentNodeData,
       });
       expandedIds.add(id);

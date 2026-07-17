@@ -74,6 +74,23 @@ describe('toFlow', () => {
     expect(data2.crossGroup).toBe(true); // parent's group (A) differs from own group (B)
   });
 
+  it('marks only the node matching highlightedNodeId as highlighted (ADR-0024/0025)', () => {
+    const nodes = [vnode(1, 'A'), vnode(2, 'A', 1)];
+    const engine = createLayoutEngine();
+    const { flowNodes } = toFlow(nodes, engine, { shouldExpandGroup: () => true, highlightedNodeId: 2 });
+
+    expect((flowNodes.find((n) => n.id === '1')!.data as ComponentNodeData).highlighted).toBe(false);
+    expect((flowNodes.find((n) => n.id === '2')!.data as ComponentNodeData).highlighted).toBe(true);
+  });
+
+  it('marks no node as highlighted when highlightedNodeId is omitted', () => {
+    const nodes = [vnode(1, 'A')];
+    const engine = createLayoutEngine();
+    const { flowNodes } = toFlow(nodes, engine, { shouldExpandGroup: () => true });
+
+    expect((flowNodes.find((n) => n.id === '1')!.data as ComponentNodeData).highlighted).toBe(false);
+  });
+
   // ADR-0016/0017 viewport culling: collapsed groups must never put their members
   // into the flowNodes array at all, not just visually hide them.
   it('creates no component nodes and no edges for a collapsed group', () => {

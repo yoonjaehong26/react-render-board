@@ -11,6 +11,7 @@ function baseData(overrides: Partial<ComponentNodeData> = {}): ComponentNodeData
     isAnonymous: false,
     crossGroup: false,
     pending: false,
+    highlighted: false,
     ...overrides,
   };
 }
@@ -87,6 +88,16 @@ describe('ComponentNode', () => {
   it('omits component-node--pending when pending is false', () => {
     const { container } = renderComponentNode(baseData({ pending: false }));
     expect(container.querySelector('.component-node')).not.toHaveClass('component-node--pending');
+  });
+
+  it('adds component-node--highlighted when highlighted is true (ADR-0024/0025 reverse navigation)', () => {
+    const { container } = renderComponentNode(baseData({ highlighted: true }));
+    expect(container.querySelector('.component-node')).toHaveClass('component-node--highlighted');
+  });
+
+  it('omits component-node--highlighted when highlighted is false', () => {
+    const { container } = renderComponentNode(baseData({ highlighted: false }));
+    expect(container.querySelector('.component-node')).not.toHaveClass('component-node--highlighted');
   });
 
   it('renders only the base + kind classes when no boolean flags are set', () => {

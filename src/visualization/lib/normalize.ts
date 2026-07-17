@@ -55,3 +55,26 @@ export function normalizeForCanvas(nodes: RenderNode[], options: NormalizeOption
   }
   return result;
 }
+
+/**
+ * 보드↔DOM 양방향 인터랙션(ADR-0024/0025)의 역방향(DOM 클릭)이 쓴다. bippy로 실제 DOM
+ * 요소에서 얻은 raw id는 host 노드일 수 있는데, 지금 보드가 host 노드를 숨기고 있으면
+ * (includeHostNodes: false) 그 id는 현재 화면(VisibleNode[])에 없다 — `findVisibleAncestor`
+ * 위의 것과 같은 기법으로, rawId 자신부터 시작해 parentId 체인을 타고 올라가며 처음으로
+ * 화면에 실제로 있는(visibleIds에 속한) id를 찾는다. 끝까지 못 찾으면(트리에서 사라진 id 등) null.
+ */
+export function resolveVisibleId(
+  nodes: RenderNode[],
+  visibleIds: ReadonlySet<number>,
+  rawId: number,
+): number | null {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  let current: number | null = rawId;
+  while (current !== null) {
+    if (visibleIds.has(current)) return current;
+    const node = byId.get(current);
+    if (!node) return null;
+    current = node.parentId;
+  }
+  return null;
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeForCanvas, PENDING_GROUP } from './normalize';
+import { normalizeForCanvas, PENDING_GROUP, resolveVisibleId } from './normalize';
 import type { RenderNode } from '../../data/types';
 
 function node(
@@ -77,5 +77,37 @@ describe('normalizeForCanvas', () => {
     const result = normalizeForCanvas(nodes, { includeHostNodes: true });
     expect(result.find((n) => n.id === 1)!.kind).toBe('composite');
     expect(result.find((n) => n.id === 2)!.kind).toBe('host');
+  });
+});
+
+describe('resolveVisibleId', () => {
+  // composite(A=1) -> host(B=2) -> host(C=3) -> composite(D=4), matching the chain
+  // normalizeForCanvas's own tests use above (A and D are the only visible ids when
+  // includeHostNodes is false).
+  const nodes = [
+    node(1, 'composite', null, 'App.tsx'),
+    node(2, 'host', 1),
+    node(3, 'host', 2),
+    node(4, 'composite', 3, 'App.tsx'),
+  ];
+  const visibleIds = new Set([1, 4]);
+
+  it('returns the id unchanged when it is already visible', () => {
+    expect(resolveVisibleId(nodes, visibleIds, 4)).toBe(4);
+  });
+
+  it('walks up the parentId chain to the nearest visible ancestor when the raw id is hidden', () => {
+    // 3 (hidden host) -> 2 (hidden host) -> 1 (visible composite)
+    expect(resolveVisibleId(nodes, visibleIds, 3)).toBe(1);
+    expect(resolveVisibleId(nodes, visibleIds, 2)).toBe(1);
+  });
+
+  it('returns null when the id is not present in nodes at all', () => {
+    expect(resolveVisibleId(nodes, visibleIds, 999)).toBeNull();
+  });
+
+  it('returns null when walking up the chain runs off the tree without hitting a visible id', () => {
+    const disconnected = [node(10, 'host', 11)]; // parentId 11 does not exist in nodes
+    expect(resolveVisibleId(disconnected, new Set([1]), 10)).toBeNull();
   });
 });
