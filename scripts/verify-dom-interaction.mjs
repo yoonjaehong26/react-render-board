@@ -15,6 +15,11 @@
 //    대응 노드가 강조 스타일(.component-node--highlighted)로 나타나며, 클릭한 DOM 요소에도
 //    하이라이트 박스가 뜬다. 이때는 대상 앱 자신의 클릭 핸들러는 실행되지 않는다(캡처 단계
 //    가로채기, domInteraction.ts) — 알림 패널 토글 상태가 안 바뀌는 것으로 확인한다.
+// 4. (ADR-0027 추가) 역방향 착지 지점이 지금 지도 모드로 접혀 있는 그룹 안에 있어도 실제로
+//    그 그룹까지 카메라가 이동하는가 — 애초에 이 회귀 시나리오를 검증하다가 gap을 발견했다:
+//    shouldExpandGroup이 highlightedNodeId의 그룹을 강제로 펼치지 않으면, 지도 모드에서
+//    Alt+클릭해도 fitView가 flowNodes에 존재하지 않는 노드 id를 대상으로 호출돼 조용히
+//    실패한다(카메라가 안 움직인다).
 import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -41,6 +46,19 @@ async function zoomIntoGroup(page, labelText, maxAttempts = 8) {
     await page.waitForTimeout(700);
   }
   await page.waitForTimeout(300);
+}
+
+// ADR-0027 회귀 시나리오용 — 보드 카메라를 지도 모드까지 줌아웃해 모든 그룹을 접은 상태로
+// 만든다(뷰포트 밖만이 아니라 isMapMode 자체가 무조건 접으므로 더 확실한 재현이다).
+async function zoomToMapMode(page, maxAttempts = 20) {
+  const zoomOutButton = page.getByRole('button', { name: /zoom out/i });
+  for (let i = 0; i < maxAttempts; i++) {
+    const badge = await page.locator('.zoom-badge').textContent().catch(() => '');
+    if (badge?.includes('지도 모드')) break;
+    await zoomOutButton.click();
+    await page.waitForTimeout(150);
+  }
+  await page.waitForTimeout(300); // 뷰포트 안정화(VIEWPORT_SETTLE_MS=200ms) 대기
 }
 
 async function main() {
@@ -149,6 +167,25 @@ async function main() {
     .count()
     .then((n) => n > 0);
   console.log(`[verify-dom] 픽 모드: 픽 성공 후 자동으로 꺼짐(1회성): ${pickModeAutoOff}`);
+
+  // --- 5. (ADR-0027) 지도 모드로 접힌 그룹 안 노드를 역방향으로 가리킬 수 있는가 ---
+  await zoomToMapMode(page);
+  const mapModeConfirmed = (await page.locator('.zoom-badge').textContent().catch(() => ''))?.includes('지도 모드');
+  console.log(`[verify-dom] ADR-0027: 보드를 지도 모드로 줌아웃함: ${mapModeConfirmed}`);
+
+  await page.getByRole('button', { name: '알림 패널 보이기' }).click({ modifiers: ['Alt'] });
+  await page.waitForTimeout(600); // 강제 확장 반영 + fitView 애니메이션(400ms) 대기
+
+  const zoomBadgeAfterMapModeAltClick = await page.locator('.zoom-badge').textContent().catch(() => '');
+  console.log(
+    `[verify-dom] ADR-0027: 지도 모드에서 Alt+클릭한 뒤 상세 모드로 전환됨(=강제 확장이 실제로 반영되고 카메라가 이동함): ${zoomBadgeAfterMapModeAltClick?.includes('상세 모드')}`,
+  );
+
+  const highlightedAfterMapModeAltClick = await page.locator('.component-node--highlighted').count();
+  console.log(
+    `[verify-dom] ADR-0027: 지도 모드로 접혀 있던 그룹 안에서도 강조 표시된 노드가 발견됨: ${highlightedAfterMapModeAltClick > 0}`,
+  );
+  await page.screenshot({ path: outPath('03-reverse-from-map-mode.png') });
 
   console.log(`[verify-dom] 콘솔 에러 개수: ${consoleErrors.length}`);
   if (consoleErrors.length > 0) {
