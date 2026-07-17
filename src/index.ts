@@ -4,15 +4,22 @@
 //
 // 사용 예 (src/main.tsx가 실제로 이렇게 쓴다):
 //   const store = createRenderStore();
+//   const interactionStore = createInteractionStore();
 //   startFiberInspector(store, subjectContainer);
-//   createRoot(boardContainer).render(<Canvas store={store} />);
+//   startDomClickBridge(subjectContainer, interactionStore); // 역방향(DOM→보드) 인터랙션, 선택
+//   createRoot(overlayHost).render(<BoardOverlay store={store} interactionStore={interactionStore} />);
 //
-// Canvas는 자체 CSS(@xyflow/react/dist/style.css + flow.css)에 의존한다. 라이브러리로
-// 소비할 때는 별도로 CSS를 import해야 한다 — 이 엔트리는 JS/TSX만 다룬다.
+// BoardOverlay/Canvas는 자체 CSS(@xyflow/react/dist/style.css + flow.css)에 의존한다.
+// 라이브러리로 소비할 때는 별도로 CSS를 import해야 한다 — 이 엔트리는 JS/TSX만 다룬다.
 export { createRenderStore } from './data/store';
 export type { RenderStore, SnapshotListener } from './data/store';
 export type { RenderNode, RenderSnapshot, FiberKind } from './data/types';
 
 export { startFiberInspector } from './hooking/fiberInspector';
+export { startDomClickBridge, findFiberIdForElement, resolveHostElements } from './hooking/domInteraction';
 
-export { Canvas } from './visualization/Canvas';
+export { Canvas, type CanvasProps } from './visualization/Canvas';
+export { BoardOverlay, type BoardOverlayProps } from './visualization/BoardOverlay';
+export { DomHighlightOverlay } from './visualization/components/DomHighlightOverlay';
+export { createInteractionStore } from './visualization/lib/interactionStore';
+export type { InteractionStore, InteractionSnapshot, InteractionListener } from './visualization/lib/interactionStore';

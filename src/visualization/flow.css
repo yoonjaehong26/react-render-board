@@ -161,3 +161,97 @@
   font-size: 12px;
   font-family: ui-monospace, monospace;
 }
+
+/* --- 보드↔DOM 양방향 인터랙션 (ADR-0024/0025) --- */
+
+/* 정방향(보드 노드 클릭) 착지 지점 표시. --cross-group(주황, "경고"에 가까운 톤)과는 다른
+   색으로 구분한다 — 여기는 "지금 이걸 가리키고 있다"는 안내 강조다. */
+.component-node--highlighted {
+  animation: rrb-highlight-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes rrb-highlight-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 3px #6366f1,
+      0 0 14px 3px #6366f199;
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px #6366f1,
+      0 0 22px 6px #6366f1cc;
+  }
+}
+
+/* ADR-0020의 플로팅 버튼 + 전체화면 오버레이 셸(BoardOverlay.tsx). 2147483000 근방의 매우
+   높은 z-index는 experiments/real-app-validation의 mount.tsx 검증에서 그대로 가져왔다 —
+   이 도구가 임의의 호스트 앱(어떤 z-index를 쓰든)에 얹혀도 항상 최상단에 있어야 한다. */
+.board-toggle-group {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 2147483000;
+  display: flex;
+  gap: 8px;
+}
+
+.board-toggle {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid #6366f1;
+  background: #eef2ff;
+  color: #312e81;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* "요소 선택" 모드(ADR-0025 후속 수정) — 켜져 있는 동안은 계측 대상 앱의 클릭이 정상 동작
+   대신 역방향 인터랙션으로 소비된다(domInteraction.ts). 눌려 있는 상태를 눈에 띄게 보여준다. */
+.board-toggle--pick-active {
+  background: #6366f1;
+  color: #eef2ff;
+}
+
+/* 픽 모드 중에는 계측 대상 앱 전체(패널 제외)에서 커서를 바꿔 "지금 클릭하면 요소가
+   선택된다"는 걸 알려준다 — 브라우저 네이티브 "요소 검사"와 같은 관례. */
+body.rrb-pick-mode {
+  cursor: crosshair;
+}
+
+/* 도킹 패널(ADR-0025) — TanStack Query Devtools 패턴. 화면 하단에 고정폭으로 붙어, 계측
+   대상 앱(위쪽 나머지 화면)은 패널이 열려 있는 동안에도 항상 보이고 조작 가능하다. 원래
+   ADR-0020이 정한 "전체화면을 덮는" 모델은 보드가 열려 있는 동안 실제 앱과의 상호작용
+   자체가 물리적으로 막혀 정방향/역방향 인터랙션(ADR-0024)의 전제와 충돌한다는 게 실측으로
+   드러나 ADR-0025로 수정했다. */
+.board-panel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 45vh;
+  z-index: 2147482999;
+  background: #fff;
+  border-top: 1px solid #d0d3da;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+}
+
+/* DomHighlightOverlay.tsx가 document.body에 포탈로 그리는 "React Scan 스타일" 테두리.
+   pointer-events: none으로 실제 페이지 인터랙션을 절대 막지 않는다(architecture.md 원칙). */
+.dom-highlight-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  pointer-events: none;
+}
+
+.dom-highlight-overlay__box {
+  position: fixed;
+  border: 2px solid #6366f1;
+  border-radius: 4px;
+  background: rgba(99, 102, 241, 0.08);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+}

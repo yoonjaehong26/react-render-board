@@ -37,44 +37,22 @@ body {
   color: #9ca3af;
 }
 
-.app-split {
+/* ADR-0020/0024/0025: 계측 대상 앱은 좌우 분할의 한쪽이 아니라 화면 전체를 그대로 쓴다 —
+   보드는 BoardOverlay.tsx가 별도 root(#board-overlay-root, document.body 직속)로 얹는
+   플로팅 버튼 + 하단 도킹 패널(ADR-0025)이라 여기서 자리를 안 잡아줘도 된다. */
+.subject-root {
   flex: 1;
   min-height: 0;
-  display: flex;
-}
-
-.pane {
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.pane--subject {
-  width: 340px;
-  flex-shrink: 0;
   overflow: auto;
   padding: 16px;
-  border-right: 1px solid #d0d3da;
-  background: #ffffff;
 }
 
-.pane--subject h2 {
-  margin-top: 0;
-  font-size: 13px;
-  color: #6b7280;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.pane--board {
-  flex: 1;
-}
-
-#board-root {
-  flex: 1;
-  min-height: 0;
-  display: flex;
+/* 패널이 도킹된 동안(BoardOverlay.tsx가 document.body에 다는 클래스) 화면 하단이
+   .board-panel(45vh, flow.css)에 가려지므로, 그 아래 콘텐츠를 스크롤로 끌어올릴 수 있게
+   여유를 둔다 — 안 그러면 패널이 열려 있는 동안 마지막 콘텐츠를 영영 클릭할 수 없다
+   (ADR-0025가 도킹 패널로 바꾼 이유 자체가 "실제 앱과 항상 상호작용 가능해야 한다"였다). */
+body.rrb-board-open .subject-root {
+  padding-bottom: calc(45vh + 16px);
 }
 
 .demo-app {
