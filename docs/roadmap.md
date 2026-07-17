@@ -124,6 +124,16 @@ ADR-0012~0015가 확인하고 [`project-status.md`](project-status.md)가 정식
 
 이번 라운드가 건드린 소스 로직은 `Canvas.tsx`의 순수 기하 계산 3개를 `visualization/lib/geometry.ts`로 옮긴 것 하나뿐이다(동작 변화 없음, react-refresh lint 규칙 대응). 재검증 결과 자체 fixture(`scripts/verify.mjs`)와 excalidraw 실제 앱(`scripts/verify-real-app.mjs`, 그룹 67개 전부 클린·응답 배율 0.92배) 모두 콘솔 에러 0건으로 회귀 없음을 확인했다. 세부 내용은 [`decisions/0023`](decisions/0023-production-hardening-tests-and-package-prep.md) 참고.
 
+### 보드 ↔ 실제 DOM 양방향 인터랙션 구현 + 배포 셸 수정 ✅ 완료 (2026-07-18)
+
+[ADR-0024](decisions/0024-board-dom-bidirectional-interaction.md)가 정한 방향(정방향: 보드 노드 클릭 → 실제 DOM 하이라이트, 역방향: 실제 DOM 클릭 → 보드 이동+하이라이트)을 실제로 구현했다. 데이터 스키마는 그대로 두고(`fibersById` 보조 채널, `interactionStore`라는 완전히 분리된 인터랙션 상태로 얹었다), bippy의 `getFiberFromHostInstance`/`getNearestHostFibers`로 Fiber↔DOM 매핑을 직접 구현하지 않고 재사용했다.
+
+구현 과정에서 실측으로 두 가지 설계 결함을 발견하고 그 자리에서 고쳤다:
+1. **셸 충돌** — ADR-0024/0020이 전제한 "전체화면 오버레이"는 보드가 열려 있는 동안 실제 앱과 상호작용 자체가 물리적으로 불가능하다는 게 `scripts/verify.mjs` 재실행 중 드러났다(React Flow pane이 클릭을 가로챔). TanStack Query Devtools 패턴의 **화면 하단 도킹 패널**(45vh)로 바꿔 계측 대상 앱이 패널이 열려 있는 동안에도 항상 보이고 조작 가능하게 했다 — [ADR-0025](decisions/0025-docked-panel-shell-amendment.md).
+2. **역방향이 모든 클릭에 반응하는 부작용** — 도킹 패널로 바꾼 뒤에도 검증이 계속 실패했는데, 원인은 계측 대상 앱의 **모든** 클릭(예: "항목 추가")이 역방향 인터랙션을 오작동시켜 정상적인 앱 사용 자체를 막고 있었기 때문이었다. Alt(⌥)+클릭 또는 별도 "요소 선택" 토글 모드일 때만 개입하도록 좁혔다(React DevTools 엘리먼트 피커 모델) — 캡처 단계 리스너로 React의 델리게이트 리스너보다 먼저 가로채야 `preventDefault`가 실제로 앱 자신의 클릭을 막을 수 있다는 것도 실측으로 확인했다.
+
+레이어별 유닛 테스트 39개 추가(전체 130개), `scripts/verify.mjs`·`verify-advanced-patterns.mjs`·`verify-lazy-suspense.mjs`·`verify-stress-scale-live.mjs`·`verify-high-frequency.mjs`(보드 열기 단계 추가) + 신규 `verify-dom-interaction.mjs` 6개 스크립트 전부 콘솔 에러 0건으로 통과. excalidraw 실제 앱 재검증(67개 그룹 전부 클린)도 회귀 없음을 확인했다. 세부 내용은 [`decisions/0025`](decisions/0025-docked-panel-shell-amendment.md)·[`decisions/0026`](decisions/0026-bidirectional-interaction-implementation.md) 참고.
+
 ## 생존 전략을 처음부터 정한다
 
 2단계 조사 결과([`research/prior-art.md`](research/prior-art.md)) 죽은 선행 프로젝트 5개 중 4개가 부트캠프 코호트 프로젝트였고, 코호트 종료와 함께 유지관리가 끊겼다. 살아남은 사례는 두 갈래뿐이었다: 회사가 자사 도구로 매일 쓰는 dogfooding(Reactotron), 또는 커뮤니티 채택이 임계질량을 넘는 경우(React Scan). 판단 지점("정식 재구현" 여부)에 도달하기 전에, 이 프로젝트를 어느 쪽으로 끌고 갈지(자기 프로젝트에 계속 쓸 것인지, 커뮤니티 채택을 목표할 것인지) 스스로 답을 갖고 있어야 "완성 후 방치"를 피할 수 있다.

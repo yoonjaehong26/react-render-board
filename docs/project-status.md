@@ -2,9 +2,9 @@
 
 > 이 문서는 지금까지의 모든 조사·실험·검증을 한 곳에 체계화한 **살아있는 스냅샷**이다. 세부 근거는 각 [`decisions/`](decisions/) ADR에 있고, 여기서는 "지금 우리가 어디 있고, 무엇이 확실하며, 무엇이 남았는가"만 요약한다.
 >
-> - 최종 갱신: 2026-07-17
-> - 현재 단계: **판단 지점 통과 + 백로그 5건(P0~P4) 해소 완료 + 정식 재구현 1라운드(테스트 커버리지·배포 준비·훅킹 라이브러리 확정) 완료 → 엔진은 완성이자 코드 품질도 라이브러리 수준. UX 레이어(필터/주석/코드접근/테마)는 조사만 되고 미구현 → 다음 경로 미결정(7-3)**
-> - 엔진(훅킹→데이터→시각화)은 vitest 유닛 테스트 91개 + 기존 Playwright 통합 검증으로 뒷받침되고, `src/index.ts` 공개 API·라이브러리 빌드(`npm run build:lib`)까지 준비됐다(ADR-0023). 다만 실행 경험 자체(`npm run dev`)는 그대로다 — 계측 대상 데모 앱 + 실시간 보드가 뜨고(2절 참고), 사용자가 조작할 편의 기능(필터/주석/코드접근/테마)은 여전히 없다.
+> - 최종 갱신: 2026-07-18
+> - 현재 단계: **판단 지점 통과 + 백로그 5건(P0~P4) 해소 완료 + 정식 재구현 1라운드(테스트 커버리지·배포 준비·훅킹 라이브러리 확정) 완료 + 보드↔실제 DOM 양방향 인터랙션 구현 완료(ADR-0024/0025/0026) → 엔진 + 배포 셸(도킹 패널) + 첫 번째 실사용 편의 기능까지 갖춤. UX 레이어 나머지(필터/주석/코드접근/테마)는 아직 조사만 되고 미구현**
+> - 엔진(훅킹→데이터→시각화)은 vitest 유닛 테스트 130개 + 기존 Playwright 통합 검증으로 뒷받침되고, `src/index.ts` 공개 API·라이브러리 빌드(`npm run build:lib`)까지 준비됐다(ADR-0023). 실행 경험(`npm run dev`)도 바뀌었다 — 계측 대상 데모 앱이 전체 화면을 쓰고, 화면 하단 도킹 패널(ADR-0025)로 보드를 열고 닫으며, 보드 노드 클릭↔실제 화면 요소 클릭이 서로 연결된다(ADR-0026, 2절 참고). 필터/주석/코드접근/테마는 여전히 없다.
 
 ---
 
@@ -17,7 +17,7 @@
 | 실제 제3자 앱에서 버티는가? | **소~중 규모(수백 개)는 통과.** 대규모(수천 개)는 명확한 한계 확인 | ADR-0009·0014·0015 |
 | 다양한 React 패턴을 커버하는가? | **커버한다** (class/에러바운더리/concurrent/lazy+Suspense/라우팅/포털 전부 통과) | ADR-0010·0011·0015 |
 | 지금 정식 재구현을 시작해도 되는가? | **된다.** 아래 "확인된 결함" 5건(P0~P4)을 이번 라운드에서 전부 해소했다 | ADR-0012~0019 |
-| 지금 실제로 "쓸 수 있는 도구"인가? | **아직 아니다.** 엔진(훅킹→데이터→기본 시각화)은 완성·검증됐지만, 필터/주석/코드접근/테마 같은 사용자 편의 기능은 하나도 없다 | 아래 2절 |
+| 지금 실제로 "쓸 수 있는 도구"인가? | **엔진+배포 셸+양방향 인터랙션까지는 그렇다.** 보드 열고 닫기, 노드↔실제 화면 요소 서로 찾기가 실사용 가능한 수준으로 구현됐다. 필터/주석/코드접근/테마는 여전히 없다 | 아래 2절 |
 | 장기 생존이 보장되는가? | **전략 논의 의도적 보류** — 기능 완성 후 재개(7-2). 지금은 "전부 완성"이 기본값 | vision.md, 7-2 |
 
 **한 줄 요약:** 기술·철학·호환성은 실제 앱에서 검증 완료. 대규모 성능/시각화에 있던 구체적 결함 5건(전부 시각화·직렬화 레이어의 국소적 문제, 데이터 스키마 같은 근본 결함 아님)도 이번 라운드에서 전부 해소했다(ADR-0016~0019). 다만 이건 "엔진"이 완성됐다는 뜻이지 "제품"이 완성됐다는 뜻은 아니다 — 사용자가 만질 편의 기능은 조사만 됐고 구현은 안 됐다(2절). 생존 전략은 완성 후로 미뤄뒀으니, 지금 할 일은 이 엔진 위에 실제 기능을 얹는 것이다.
@@ -26,17 +26,23 @@
 
 ## 2. 지금 구현된 기능 (실행하면 뭐가 보이는가)
 
-`npm run dev`로 실행하면 좌우 분할 화면이 뜬다. 왼쪽은 계측 대상 데모 앱, 오른쪽은 그 앱의 렌더 트리를 실시간으로 보여주는 보드 — 이게 이 프로젝트의 실제 결과물이다.
+`npm run dev`로 실행하면 계측 대상 데모 앱이 전체 화면을 채우고, 우측 하단 플로팅 버튼으로 화면 하단 도킹 패널(높이 45vh)을 열어 그 앱의 렌더 트리를 실시간으로 볼 수 있다(ADR-0025) — 이게 이 프로젝트의 실제 결과물이다.
 
 ### 🟢 엔진 — 완성, 실제 앱 3개(excalidraw·berry-admin·shadcn-admin)로 검증됨
 
 | 레이어 | 파일 | 하는 일 |
 |---|---|---|
-| 훅킹 | `src/hooking/fiberInspector.ts` | bippy로 커밋마다 Fiber 트리 접근 |
-| 데이터 | `src/data/{serialize,sourceHints,store,types}.ts` | Fiber → 정규화 노드, groupHint 비동기 해석, 구독 가능한 store |
-| 시각화 | `src/visualization/` | React Flow 기반 그룹 프레임+노드, 그룹 경계 횡단 엣지, semantic zoom(지도↔상세), host 노드 기본 숨김 |
+| 훅킹 | `src/hooking/{fiberInspector,domInteraction}.ts` | bippy로 커밋마다 Fiber 트리 접근, DOM↔Fiber 양방향 매핑 |
+| 데이터 | `src/data/{serialize,sourceHints,store,types}.ts` | Fiber → 정규화 노드, groupHint 비동기 해석, 구독 가능한 store(+id→Fiber 보조 조회) |
+| 시각화 | `src/visualization/` | React Flow 기반 그룹 프레임+노드, 그룹 경계 횡단 엣지, semantic zoom(지도↔상세), host 노드 기본 숨김, 도킹 패널 셸(`BoardOverlay.tsx`) |
 
 보드에서 실제로 되는 것: 실시간 렌더 트리 관찰, 도메인별 그룹 프레임, 줌아웃 시 지도 모드/줌인 시 상세 모드 전환, host 노드 토글, 수천 개 노드까지 안 뭉개짐(P0~P4 반영 후).
+
+### 🟢 보드 ↔ 실제 DOM 양방향 인터랙션 — 구현됨 (ADR-0024/0025/0026)
+
+- **정방향**: 보드에서 컴포넌트 노드를 클릭하면 대응하는 실제 화면 요소에 하이라이트 테두리가 잠깐(1.6초) 뜬다. 도킹 패널이라 보드를 안 닫아도 실제 화면이 항상 보인다.
+- **역방향**: 계측 대상 앱에서 Alt(⌥)+클릭하거나 "🎯 요소 선택" 모드를 켠 채 클릭하면, 그 요소에 대응하는 보드 노드로 자동 이동+강조되고 그 실제 요소에도 하이라이트가 뜬다. 평소 클릭(Alt 없음, 픽 모드 꺼짐)은 전혀 건드리지 않는다 — 처음 구현은 모든 클릭에 반응해 정상적인 앱 조작을 막는 회귀가 있었고, 실측(`scripts/verify.mjs`)으로 발견해 고쳤다(ADR-0026).
+- 데이터 스키마(`RenderNode`)는 그대로다 — id→Fiber 보조 조회(`fibersById`)와 완전히 분리된 `interactionStore`로 얹었다.
 
 ### ⚪ 왼쪽 "계측 대상 앱"에 있는 테스트용 컴포넌트 (`src/fixtures/`)
 
@@ -152,11 +158,11 @@
 
 | 레이어 | 상태 | 요약 |
 |---|---|---|
-| **1. 훅킹/백엔드** | 🟢 견고 | 실제 앱 3개에서 크래시 0. 남은 결함 없음. **라이브러리 확정됨(bippy, ADR-0022)**. bippy API 드리프트만 주의(버전업 시 `.d.ts` 직접 확인 규칙 — ADR-0002). 유닛 테스트 5개(`fiberInspector.test.ts`) |
-| **2. 데이터** | 🟢 견고 | 정합성·호환성 완벽. **P0 MAX_DEPTH 버그 해소됨**(ADR-0016). 유닛 테스트 21개(`serialize`·`sourceHints`·`store`) |
-| **3. 시각화** | 🟢 견고, 대규모까지 검증됨 | 소~중 규모는 물론 대규모(9,000+ 노드, 74개 그룹)에서도 응답성·지도 모드·카메라 추적·그룹 품질 전부 확인. **P1~P4 결함 4건 해소됨**(ADR-0017~0019). 유닛 테스트 65개(`lib/*` 38개 + 컴포넌트 27개) |
+| **1. 훅킹/백엔드** | 🟢 견고 | 실제 앱 3개에서 크래시 0. 남은 결함 없음. **라이브러리 확정됨(bippy, ADR-0022)**. bippy API 드리프트만 주의(버전업 시 `.d.ts` 직접 확인 규칙 — ADR-0002). `domInteraction.ts`(DOM↔Fiber 매핑, ADR-0026) 추가. 유닛 테스트 17개(`fiberInspector`·`domInteraction`) |
+| **2. 데이터** | 🟢 견고 | 정합성·호환성 완벽. **P0 MAX_DEPTH 버그 해소됨**(ADR-0016). `fibersById` 보조 조회 추가(ADR-0026, `RenderNode` 스키마 자체는 불변). 유닛 테스트 25개(`serialize`·`sourceHints`·`store`) |
+| **3. 시각화** | 🟢 견고, 대규모까지 검증됨 | 소~중 규모는 물론 대규모(9,000+ 노드, 74개 그룹)에서도 응답성·지도 모드·카메라 추적·그룹 품질 전부 확인. **P1~P4 결함 4건 해소됨**(ADR-0017~0019). 도킹 패널 셸(`BoardOverlay.tsx`, ADR-0025) + 양방향 인터랙션(`interactionStore.ts`/`DomHighlightOverlay.tsx`, ADR-0026) 추가. 유닛 테스트 88개(`lib/*` 62개 + 컴포넌트 26개) |
 
-레이어별 유닛 테스트(총 91개, vitest) + 기존 Playwright 통합 검증(`scripts/verify*.mjs`)의 역할 분리와 세부 내용은 [ADR-0023](decisions/0023-production-hardening-tests-and-package-prep.md) 참고. `npm run test`로 실행한다.
+레이어별 유닛 테스트(총 130개, vitest) + 기존 Playwright 통합 검증(`scripts/verify*.mjs`)의 역할 분리와 세부 내용은 [ADR-0023](decisions/0023-production-hardening-tests-and-package-prep.md)·[ADR-0026](decisions/0026-bidirectional-interaction-implementation.md) 참고. `npm run test`로 실행한다.
 
 ---
 
@@ -180,10 +186,11 @@ vision.md가 던진 성공 질문("완성 후에도 계속 붙잡을 동기가 �
 
 ### 7-3. 권장 다음 단계 (전략 보류 = 전부 완성 우선)
 1. ~~P0(MAX_DEPTH)를 지금 MVP 코드에서 즉시 수정~~ — 완료(ADR-0016), P1~P4도 같은 라운드에서 함께 완료(ADR-0017~0019).
-2. **남은 두 갈래 갈림길** (전부 "완성"으로 가는 경로라 7-2 원칙엔 안 어긋남):
-   - (a) 2절 "UX 레이어" 표(필터/주석/코드접근/테마) — 지금 MVP 위에 얹기
+2. **남은 갈림길** (전부 "완성"으로 가는 경로라 7-2 원칙엔 안 어긋남):
+   - (a) 2절 "UX 레이어" 표(필터/주석/코드접근/테마) — 지금 위에 얹기. **양방향 DOM 인터랙션은 2026-07-18에 먼저 완료**(아래 참고) — 원래 표에는 없던 항목이지만 ADR-0024 논의 중 발견된 우선순위 높은 기능이었다.
    - ~~(b) 검증된 3-레이어 구조를 **정식 재구현**~~ — **완료(2026-07-17).** 테스트 커버리지(vitest 91개) + 패키지 배포 준비(`src/index.ts`, peerDependencies, `build:lib`) + ADR-0002의 열린 결정 확정(bippy, ADR-0022)까지 끝냈다. 세부 내용은 [ADR-0023](decisions/0023-production-hardening-tests-and-package-prep.md) 참고. 아키텍처·스키마는 그대로이므로 "재구현"의 실체는 품질/테스트/배포 준비였다.
-   - (c) [ADR-0020](decisions/0020-distribution-entry-ux-direction.md)/[0021](decisions/0021-bundler-injection-feasibility.md)이 정한 방향대로 **배포 진입 경험 구현** (CLI `init`, 번들러별 자동 주입, 플로팅 버튼+포탈 오버레이) — 방향만 정해졌고 코드는 없음
+   - (c) [ADR-0020](decisions/0020-distribution-entry-ux-direction.md)/[0021](decisions/0021-bundler-injection-feasibility.md)이 정한 방향대로 **배포 진입 경험 구현** — "노출 위치" 축(플로팅 버튼 + 패널)은 **완료**했다(2026-07-18, [ADR-0025](decisions/0025-docked-panel-shell-amendment.md)가 전체화면에서 도킹 패널로 세부 수정). "연결 방식" 축(CLI `init`, 번들러별 자동 주입)은 **여전히 0%** — 방향만 정해졌고 코드는 없음.
+   - ~~보드 ↔ 실제 DOM 양방향 인터랙션~~ — **완료(2026-07-18).** 정방향(노드 클릭→DOM 하이라이트)·역방향(Alt+클릭/픽 모드→보드 이동) 전부 구현. 구현 중 셸 충돌(전체화면→도킹 패널, ADR-0025)과 역방향 트리거 범위(모든 클릭→Alt+클릭/픽 모드로 축소) 두 가지 실측 결함을 발견해 그 자리에서 고쳤다. 세부 내용은 [ADR-0026](decisions/0026-bidirectional-interaction-implementation.md) 참고.
 3. (선택) 메모리 누수 격리 재실행, groupHint 해석 급락 원인 규명 등 "조사 필요" 항목은 위 2번과 병행하거나 뒤로 미룬다.
 4. **기능 완성 후에야** 7-2의 생존 전략(오픈소스화 여부·방식)을 다시 연다.
 
@@ -194,7 +201,7 @@ vision.md가 던진 성공 질문("완성 후에도 계속 붙잡을 동기가 �
 - 아키텍처·설계 원칙: [`architecture.md`](architecture.md)
 - 로드맵·판단 지점: [`roadmap.md`](roadmap.md)
 - UI 철학: [`ui-philosophy.md`](ui-philosophy.md)
-- 전체 의사결정 기록: [`decisions/`](decisions/) (ADR-0001~0023)
+- 전체 의사결정 기록: [`decisions/`](decisions/) (ADR-0001~0026)
 - 선행 프로젝트 조사: [`research/prior-art.md`](research/prior-art.md)(요약) · [`research/2026-07-17-prior-art-survey.md`](research/2026-07-17-prior-art-survey.md) · [`research/2026-07-17-prior-art-causes-and-legacy.md`](research/2026-07-17-prior-art-causes-and-legacy.md)
 - 기술 옵션 조사(훅킹·시각화 레이어 후보): [`research/technical-options.md`](research/technical-options.md)
 - React Flow UX 확장 가능 범위 조사(미구현): [`research/2026-07-17-react-flow-ux-capabilities.md`](research/2026-07-17-react-flow-ux-capabilities.md)

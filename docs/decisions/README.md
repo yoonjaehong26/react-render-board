@@ -27,7 +27,10 @@
 | [0017](0017-viewport-based-partial-recompute.md) | P1 — Canvas 파이프라인의 뷰포트 기반 부분 재계산 | 채택됨 |
 | [0018](0018-map-mode-lod-and-camera-refit.md) | P2 — 지도 모드 LOD(minZoom·라벨 역-스케일) + P3 — 카메라 자동 refit·`groupOrder` pruning | 채택됨 |
 | [0019](0019-library-hint-whitelist-inversion.md) | P4 — 그룹핑 노이즈 판별 커버리지 (화이트리스트 반전) | 채택됨 |
-| [0020](0020-distribution-entry-ux-direction.md) | 배포/설치 UX 방향 — npm 자동 설정 + 같은 페이지 플로팅 버튼 | 채택됨 |
+| [0020](0020-distribution-entry-ux-direction.md) | 배포/설치 UX 방향 — npm 자동 설정 + 같은 페이지 플로팅 버튼 | 채택됨(노출 위치를 도킹 패널로 수정, ADR-0025) |
 | [0021](0021-bundler-injection-feasibility.md) | 번들러 무관 자동 계측 스크립트 주입 기술 가능성 검증 (Vite/webpack/Rspack/Turbopack) | 채택됨 |
 | [0022](0022-hooking-library-confirmed-bippy.md) | 훅킹 라이브러리 확정 — bippy 유지, react-devtools-core 도입 보류 | 채택됨 |
 | [0023](0023-production-hardening-tests-and-package-prep.md) | 정식 재구현 1라운드 — 테스트 커버리지(vitest, 91개) + 패키지 배포 준비 | 채택됨 |
+| [0024](0024-board-dom-bidirectional-interaction.md) | 보드 ↔ 실제 DOM 양방향 인터랙션 + MVP 데이터 스코프 경계 | 채택됨(구현 완료, ADR-0026) |
+| [0025](0025-docked-panel-shell-amendment.md) | 배포 셸 수정 — 전체화면 오버레이 → 도킹 패널 | 채택됨 |
+| [0026](0026-bidirectional-interaction-implementation.md) | 보드 ↔ 실제 DOM 양방향 인터랙션 구현 | 채택됨 |
