@@ -21,7 +21,7 @@ react-render-board는 **소스 코드를 파싱하지 않는다.** 대신 브라
 
 Fiber 트리 접근과 안전한 훅킹은 검증된 라이브러리에 위임한다. 후보:
 
-- **bippy** — react-scan 제작자가 만든 툴킷. `instrument()`, `secure()`로 안전한 패치 + try/catch 래핑을 제공. 가볍고(~4kb) 최신 React(v17–19) 특화. 활발히 관리됨.
+- **bippy** — react-scan 제작자가 만든 툴킷. `instrument()`로 안전한 패치를 제공. ~~`secure()`로 try/catch 래핑~~ — **정정 (ADR-0005, ADR-0007):** `secure()`는 문서에만 있고 실제 0.6.0에는 존재하지 않는다(bippy에서 두 번째로 확인된 문서-코드 드리프트, [`decisions/0002-hooking-layer.md`](decisions/0002-hooking-layer.md) 참고). 에러 가드는 콜백을 직접 try/catch로 감싸 구현해야 한다. 가볍고(~4kb) 최신 React(v17–19) 특화. 활발히 관리됨.
 - **react-devtools-core** — Meta 공식 유지보수. 더 보수적/안정적. Manifest V3 대응 완료.
 
 비교와 최종 선택 근거는 [`decisions/0002-hooking-layer.md`](decisions/0002-hooking-layer.md) 참고.
@@ -35,7 +35,11 @@ Fiber 트리 접근과 안전한 훅킹은 검증된 라이브러리에 위임�
 스키마에 담을 것 (초안):
 
 - 노드: id, displayName, 타입(host/composite), 부모 id
-- 그룹핑 힌트: 소스 파일 경로 또는 도메인 (클러스터링용)
+- 그룹핑 힌트: 소스 파일 경로 (클러스터링용). [`decisions/0007-grouping-hint-feasibility.md`](decisions/0007-grouping-hint-feasibility.md)에서 실현 가능성을 검증했다:
+  - bippy `getSource(fiber)`(서브패스 `bippy/source`, 문서상 이름인 `getFiberSource`는 실제로 존재하지 않음 — 문서-코드 드리프트)로 얻는다.
+  - **dev 빌드 전용.** production 빌드에서는 소스맵 유무와 무관하게 값이 무의미하거나(소스맵 없음: 전 컴포넌트가 같은 번들 파일로 수렴) 의미가 바뀌거나(소스맵 있음: "사용 위치" → "정의 위치"로 전환) props/hooks 없는 컴포넌트에서 완전히 실패한다. 이 프로젝트는 애초에 devtools-only로 계측하므로(아래 설계 원칙 1) production 미지원은 스코프 밖 문제가 아니다.
+  - 의미는 "컴포넌트가 정의된 파일"이 아니라 **"그 컴포넌트의 JSX가 렌더(사용)된 파일"**이다. 공유 컴포넌트는 그것을 쓰는 도메인 쪽으로 그룹핑된다.
+  - `getSource`는 비동기이므로 이 필드는 커밋 시점에 즉시 채워지지 않고 이후 갱신될 수 있다 — 시각화 레이어가 이를 감안해야 한다.
 - (선택) props/state 요약, 렌더 타이밍
 
 ### 3. 시각화 레이어 (직접 구현하는 핵심 부분)
@@ -45,6 +49,15 @@ Fiber 트리 접근과 안전한 훅킹은 검증된 라이브러리에 위임�
 선행 프로젝트들은 전부 D3를 로우레벨로 직접 다뤘는데, React Flow를 쓰면 "무엇을 노드로 보여줄지"에만 집중할 수 있다.
 
 기존 프로젝트들(React-Sight, Realize 등, 모두 MIT)의 D3 레이아웃 코드는 **참고 자료**로만 활용한다. fork해서 위에 얹는 것이 아니라 "이렇게 접근했구나" 하는 레퍼런스로 본다.
+
+## 선행 프로젝트 실패에서 얻은 설계 원칙
+
+React-Sight의 죽음은 동기 부족이 아니라 순수 기술적 설계 결함이었다 ([`research/prior-art.md`](research/prior-art.md) 참고). 제작자가 직접 "devtools가 열렸을 때만 실행되게 만드는 데 결국 실패했다"고 인정했고, 이로 인해 프로덕션 사이트가 멈추는 사고가 반복 보고됐다. 여기서 나온 원칙을 1레이어(훅킹) 설계에 그대로 반영한다.
+
+1. **devtools-only 실행.** 계측 로직은 devtools/디버그 모드가 활성화된 세션에서만 훅에 개입해야 한다. 전역(모든 페이지, 항상 켜짐) 실행은 프로덕션 앱을 멈출 수 있다 — React-Sight의 최대 실패 원인.
+2. **재귀 순회 가드.** Fiber 트리 순회 시 순환 참조나 과도한 깊이에 대한 가드(깊이 제한 + 방문 노드 캐시)를 반드시 넣는다. React-Sight는 이 가드가 없어 "Maximum call stack exceeded" 버그를 미해결로 방치했다.
+3. **커밋 시점 훅.** Fiber 데이터는 `onCommitFiberRoot` 같은 DevTools 콜백에서 캡처해야 한다. React-Sight는 초기 마운트 시점에 데이터가 아직 노출되지 않는 한계가 있었다.
+4. **브라우저 확장 배포 시 플랫폼 리스크 고려.** React-Sight는 자체 버그와 별개로 Chrome Web Store 정책 변경(2021-12-01, "unsafe" 표시)으로 강제 비활성화됐다. 확장 형태로 배포한다면 정책 준수 점검이나 대안 배포 채널(예: npm 패키지 + 사용자 앱에 직접 설치)도 함께 고려한다.
 
 ## "fork냐 처음부터냐"에 대한 입장
 

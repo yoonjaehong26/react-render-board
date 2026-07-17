@@ -30,18 +30,21 @@ React DevTools의 들여쓰기 리스트 뷰가 아니라, 컴포넌트 구조�
 
 ## 현재 상태
 
-🚧 기획 및 MVP 준비 단계. 아직 코드 없음.
+🚦 **판단 지점 통과 (조건부 GO) → 정식 재구현 착수 직전.** 검증용 MVP 코드 있음.
 
-- [ ] 실험 1: 기술 검증 (Fiber 트리를 JSON으로 추출)
-- [ ] 실험 2: UI 검증 (React Flow로 클러스터링 + 줌 프로토타입)
-- [ ] 라이브 MVP (실험 1 + 2 통합)
+- [x] 실험 1: 기술 검증 (Fiber 트리를 JSON으로 추출)
+- [x] 실험 2: UI 검증 (React Flow로 클러스터링 + 줌 프로토타입)
+- [x] 라이브 MVP (실험 1 + 2 통합)
+- [x] 판단 지점: 실제 제3자 앱 검증 (excalidraw / berry-admin / shadcn-admin)
+- [ ] 정식 재구현 (확인된 결함 5건 반영 + 생존 전략 결정 후)
 
-로드맵은 [`docs/roadmap.md`](docs/roadmap.md) 참고.
+전체 현황은 [`docs/project-status.md`](docs/project-status.md), 로드맵은 [`docs/roadmap.md`](docs/roadmap.md) 참고.
 
 ## 문서 안내
 
 | 문서 | 내용 |
 |---|---|
+| [`docs/project-status.md`](docs/project-status.md) | **현황 종합** — 지금까지의 검증 결과·확인된 결함·앞으로의 방향 (여기부터 읽기) |
 | [`docs/vision.md`](docs/vision.md) | 프로젝트가 풀려는 문제와 목표 |
 | [`docs/architecture.md`](docs/architecture.md) | 3-레이어 구조와 동작 원리 |
 | [`docs/ui-philosophy.md`](docs/ui-philosophy.md) | UI 철학과 레퍼런스 |
