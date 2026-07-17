@@ -16,6 +16,7 @@ import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { openBoard } from './lib/openBoard.mjs';
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:5184';
 const OUT_DIR = fileURLToPath(new URL('../verify-output/', import.meta.url));
@@ -52,6 +53,10 @@ async function main() {
   page.on('pageerror', (err) => consoleErrors.push(String(err)));
 
   await page.goto(BASE_URL, { waitUntil: 'networkidle' });
+
+  // ADR-0020/0024/0025: 보드는 플로팅 버튼으로 여는 전체화면 오버레이라, React Flow가 뭔가
+  // 그리기 전에 먼저 열어야 한다.
+  await openBoard(page);
 
   // 1. 초기 마운트
   await page.waitForSelector('.react-flow__node', { timeout: 5000 });

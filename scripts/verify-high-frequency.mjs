@@ -26,6 +26,7 @@
 //
 // 환경변수로 단계 축소 가능 (빠른 스모크용): SKIP_MEMORY_SOAK=1, MEMORY_SOAK_MS=<ms>
 import { chromium } from 'playwright';
+import { openBoard } from './lib/openBoard.mjs';
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:5184';
 const FREQUENCIES = [0, 10, 30, 60, 120, 240];
@@ -178,6 +179,10 @@ async function runStepwise(browser) {
     page.on('pageerror', (err) => consoleErrors.push(String(err)));
 
     await page.goto(url, { waitUntil: 'networkidle' });
+    // board=off URL(ADR-0009/0012 방법론)에는 플로팅 버튼 자체가 없다 — boardOn일 때만 연다.
+    // measureAtFrequency가 .toolbar__count(MutationObserver 대상)를 읽으려면 board가 실제로
+    // 열려 Canvas가 렌더링 중이어야 한다(ADR-0020/0024/0025 셸 변경).
+    if (boardOn) await openBoard(page);
     await page.waitForSelector('text=live feed', { timeout: 5000 });
 
     for (const hz of FREQUENCIES) {
@@ -241,6 +246,9 @@ async function runMemorySoak(browser) {
   page.on('pageerror', (err) => consoleErrors.push(String(err)));
 
   await page.goto(BASE_URL, { waitUntil: 'networkidle' });
+  // 메모리 소크는 항상 board=on(위 runStepwise와 달리 URL 파라미터 없음) — Canvas가 실제로
+  // 렌더링되며 힙/DOM 노드 수에 기여하는 상태를 관찰하려는 게 이 테스트의 목적이다.
+  await openBoard(page);
   await page.waitForSelector('text=live feed', { timeout: 5000 });
 
   const client = await page.context().newCDPSession(page);

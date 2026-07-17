@@ -15,6 +15,7 @@ import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { openBoard } from './lib/openBoard.mjs';
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:5185';
 const OUT_DIR = fileURLToPath(new URL('../verify-output/advanced-patterns/', import.meta.url));
@@ -34,6 +35,7 @@ async function main() {
   page.on('pageerror', (err) => pageErrors.push(String(err)));
 
   await page.goto(BASE_URL, { waitUntil: 'networkidle' });
+  await openBoard(page);
   await page.waitForSelector('.react-flow__node', { timeout: 5000 });
   await page.waitForTimeout(700); // groupHint 비동기 해석 + suspense 초기 resolve(500ms) 대기
 

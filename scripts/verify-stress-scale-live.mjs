@@ -20,6 +20,7 @@
 //   npm run dev -- --port 5197 &
 //   BASE_URL=http://localhost:5197 node scripts/verify-stress-scale-live.mjs
 import { chromium } from 'playwright';
+import { openBoard } from './lib/openBoard.mjs';
 
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:5197';
 // 646/1000은 ADR-0009/0012(excalidraw 실측)·ADR-0014(1,000-스트레스 실측)와 같은 자리에서
@@ -64,6 +65,13 @@ async function measureScenario(browser, stressCount, boardOn) {
   await page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
   if (stressCount > 0) {
     await page.waitForSelector('[data-testid="stress-grid"]', { timeout: 30000 });
+  }
+  // board=on일 때만 존재하는 플로팅 버튼으로 실제로 보드를 열어야 Canvas가 렌더링되고
+  // layout/toFlow 비용이 발생한다(ADR-0020/0024/0025 셸 변경) — 안 열면 이 시나리오가
+  // board=off와 같은 비용만 재는 셈이 되어 이 스크립트의 측정 목적 자체가 깨진다.
+  if (boardOn) {
+    await openBoard(page);
+    await page.waitForSelector('.toolbar__count', { timeout: 30000 });
   }
   // 초기 커밋 + groupHint 비동기 해석까지 안정화될 시간을 준다(노드 수가 클수록 더 걸린다).
   await page.waitForTimeout(1000 + stressCount / 2);
