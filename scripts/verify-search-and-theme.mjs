@@ -91,6 +91,28 @@ async function main() {
   await searchInput.fill('');
   await page.waitForTimeout(200);
 
+  // --- 1-b. 그룹+개별 동시 필터: 매치 안 된 그룹/노드는 강조가 아니라 아예 사라진다 ---
+  const groupCountBeforeFilter = await page.locator('.group-node').count();
+  await searchInput.fill('CheckoutItem');
+  await page.waitForTimeout(1000); // 디바운스+fitView 대기(검색 자체는 필터 체크 전에도 동작)
+  await page.getByLabel('매치만 표시').check();
+  await page.waitForTimeout(300);
+
+  const groupCountAfterFilter = await page.locator('.group-node').count();
+  const nonMatchedComponentCountAfterFilter = await page
+    .locator('.component-node:not(.component-node--matched)')
+    .count();
+  console.log(
+    `[verify-search-theme] 필터: 그룹 프레임 수 ${groupCountBeforeFilter} → ${groupCountAfterFilter}(매치 없는 그룹은 프레임째로 사라져야 함), 매치 안 된 컴포넌트 노드 잔존: ${nonMatchedComponentCountAfterFilter}(0이어야 정상)`,
+  );
+  await page.screenshot({ path: outPath('04-filter-to-matches.png') });
+
+  await page.getByLabel('매치만 표시').uncheck();
+  await searchInput.fill('');
+  await page.waitForTimeout(300);
+  const groupCountAfterUnfilter = await page.locator('.group-node').count();
+  console.log(`[verify-search-theme] 필터: 체크 해제+검색어 삭제 후 그룹 프레임 수 복원: ${groupCountAfterUnfilter}`);
+
   // --- 2. 다크모드 + 도메인 팔레트 ---
   const groupBordersBefore = await page
     .locator('.group-node')
