@@ -77,6 +77,16 @@
 
 **요약: 엔진 위에 UX 레이어를 하나씩 얹는 중이다 — 이번 라운드로 검색·테마 2개가 끝났고, 캔버스 주석/코드접근/그룹 접기가 남았다.**
 
+### 🟡 시각 언어(도형·손그림) — 스킨 일부 구현, 도형 어휘는 방향 확정·미구현
+
+사용자 Figma 다이어그램의 가독성 기법을 이 도구에 옮기는 작업. 색/배경(도메인=색)은 ADR-0027 팔레트로 완료됐고, 나머지는:
+
+| 요소 | 상태 |
+|---|---|
+| 손그림 테두리(Excalidraw풍 rough.js) | ✅ **구현됨** — 컴포넌트 노드 테두리를 정적 SVG 스케치로(노드 수 무관 O(1), `roughStyle.ts`). 다크용 테두리·라벨 손글씨체·그룹 프레임 rough는 [조사](research/2026-07-18-excalidraw-visual-identity.md)만 완료, 미구현 |
+| 도형 = 역할(라우트 6각형/경계/포탈) | 미구현 — **방향 확정([ADR-0028](decisions/0028-shape-vocabulary-for-node-roles.md))**. 라우트 6각형은 `groupHint`만으로 스키마 변경 없이 가능(1순위), 경계는 `classify` 확장 선행 필요 |
+| 직교 배선(선 정리) | 미구현 — [별도 조사 진행 중](research/2026-07-18-orthogonal-edge-routing.md) |
+
 ---
 
 ## 3. 지금까지의 여정
@@ -209,7 +219,7 @@ vision.md가 던진 성공 질문("완성 후에도 계속 붙잡을 동기가 �
 - 아키텍처·설계 원칙: [`architecture.md`](architecture.md)
 - 로드맵·판단 지점: [`roadmap.md`](roadmap.md)
 - UI 철학: [`ui-philosophy.md`](ui-philosophy.md)
-- 전체 의사결정 기록: [`decisions/`](decisions/) (ADR-0001~0027)
+- 전체 의사결정 기록: [`decisions/`](decisions/) (ADR-0001~0028)
 - 선행 프로젝트 조사: [`research/prior-art.md`](research/prior-art.md)(요약) · [`research/2026-07-17-prior-art-survey.md`](research/2026-07-17-prior-art-survey.md) · [`research/2026-07-17-prior-art-causes-and-legacy.md`](research/2026-07-17-prior-art-causes-and-legacy.md)
 - 기술 옵션 조사(훅킹·시각화 레이어 후보): [`research/technical-options.md`](research/technical-options.md)
 - React Flow UX 확장 가능 범위 조사(미구현): [`research/2026-07-17-react-flow-ux-capabilities.md`](research/2026-07-17-react-flow-ux-capabilities.md)

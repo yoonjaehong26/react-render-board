@@ -35,3 +35,4 @@
 | [0025](0025-docked-panel-shell-amendment.md) | 배포 셸 수정 — 전체화면 오버레이 → 도킹 패널 | 채택됨 |
 | [0026](0026-bidirectional-interaction-implementation.md) | 보드 ↔ 실제 DOM 양방향 인터랙션 구현 | 채택됨 |
 | [0027](0027-search-and-theme-ux-round.md) | UX 레이어 2라운드 — 검색 하이라이트+자동 이동, 다크모드+도메인 팔레트 | 채택됨 |
+| [0028](0028-shape-vocabulary-for-node-roles.md) | 노드 도형 어휘 — "역할"을 도형으로(라우트 6각형/경계/포탈), "구현 방식"은 색·질감으로 | 채택됨(방향성, 구현 다음 라운드) |
