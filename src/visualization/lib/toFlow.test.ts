@@ -3,6 +3,7 @@ import { toFlow, type ComponentNodeData, type GroupNodeData } from './toFlow';
 import { createLayoutEngine } from './layout';
 import { PENDING_GROUP } from './normalize';
 import type { VisibleNode } from './normalize';
+import { colorIndexForGroup } from './groupColor';
 
 function vnode(
   id: number,
@@ -148,6 +149,55 @@ describe('toFlow', () => {
 
     const compNode = flowNodes.find((n) => n.id === '1')!;
     expect((compNode.data as ComponentNodeData).pending).toBe(true);
+  });
+
+  it('marks only nodes present in matchedIds as matched (search highlight)', () => {
+    const nodes = [vnode(1, 'A'), vnode(2, 'A', 1)];
+    const engine = createLayoutEngine();
+    const { flowNodes } = toFlow(nodes, engine, { shouldExpandGroup: () => true, matchedIds: new Set([2]) });
+
+    expect((flowNodes.find((n) => n.id === '1')!.data as ComponentNodeData).matched).toBe(false);
+    expect((flowNodes.find((n) => n.id === '2')!.data as ComponentNodeData).matched).toBe(true);
+  });
+
+  it('marks no node as matched when matchedIds is omitted', () => {
+    const nodes = [vnode(1, 'A')];
+    const engine = createLayoutEngine();
+    const { flowNodes } = toFlow(nodes, engine, { shouldExpandGroup: () => true });
+
+    expect((flowNodes.find((n) => n.id === '1')!.data as ComponentNodeData).matched).toBe(false);
+  });
+
+  it('assigns the same deterministic colorIndex (via groupColor.colorIndexForGroup) to a group frame and its members', () => {
+    const nodes = [vnode(1, 'domains/checkout'), vnode(2, 'domains/checkout', 1)];
+    const engine = createLayoutEngine();
+    const { flowNodes } = toFlow(nodes, engine, { shouldExpandGroup: () => true });
+
+    const expected = colorIndexForGroup('domains/checkout');
+    expect((flowNodes.find((n) => n.id === 'group:domains/checkout')!.data as GroupNodeData).colorIndex).toBe(
+      expected,
+    );
+    expect((flowNodes.find((n) => n.id === '1')!.data as ComponentNodeData).colorIndex).toBe(expected);
+    expect((flowNodes.find((n) => n.id === '2')!.data as ComponentNodeData).colorIndex).toBe(expected);
+  });
+
+  it('leaves colorIndex undefined for the PENDING_GROUP frame and its members (stay visually neutral)', () => {
+    const nodes = [vnode(1, PENDING_GROUP)];
+    const engine = createLayoutEngine();
+    const { flowNodes } = toFlow(nodes, engine, { shouldExpandGroup: () => true });
+
+    expect((flowNodes.find((n) => n.id === `group:${PENDING_GROUP}`)!.data as GroupNodeData).colorIndex).toBeUndefined();
+    expect((flowNodes.find((n) => n.id === '1')!.data as ComponentNodeData).colorIndex).toBeUndefined();
+  });
+
+  it('computes a collapsed group frame\'s colorIndex regardless of expand state', () => {
+    const nodes = [vnode(1, 'domains/shell')];
+    const engine = createLayoutEngine();
+    const { flowNodes } = toFlow(nodes, engine, { shouldExpandGroup: () => false });
+
+    expect((flowNodes.find((n) => n.id === 'group:domains/shell')!.data as GroupNodeData).colorIndex).toBe(
+      colorIndexForGroup('domains/shell'),
+    );
   });
 
   it('gives group frames the static UX-intent fields: non-selectable, non-draggable, behind other nodes', () => {

@@ -2,6 +2,7 @@ import type { Edge, Node } from '@xyflow/react';
 import type { VisibleNode } from './normalize';
 import { PENDING_GROUP } from './normalize';
 import { NODE_HEIGHT, NODE_WIDTH, type LayoutEngine, type Rect } from './layout';
+import { colorIndexForGroup } from './groupColor';
 
 export interface ComponentNodeData extends Record<string, unknown> {
   displayName: string;
@@ -12,6 +13,11 @@ export interface ComponentNodeData extends Record<string, unknown> {
   /** 보드↔DOM 양방향 인터랙션의 역방향(DOM 클릭 → 보드 이동)이 착지한 노드인지 (ADR-0024/0025).
    * RenderNode 스키마와 무관한 순수 프레젠테이션 상태 — data 레이어는 이 값을 모른다. */
   highlighted: boolean;
+  /** 지금 검색어에 매치되는 노드인지(검색+자동 이동 기능). 없으면(검색어 없음) 전부 false. */
+  matched: boolean;
+  /** 도메인별 커스텀 팔레트(groupColor.ts)에서 이 노드가 속한 그룹에 배정된 팔레트 인덱스.
+   * PENDING_GROUP(그룹 미해석)이면 중립 유지를 위해 undefined. */
+  colorIndex?: number;
 }
 
 export interface GroupNodeData extends Record<string, unknown> {
@@ -20,6 +26,8 @@ export interface GroupNodeData extends Record<string, unknown> {
   pending: boolean;
   /** 뷰포트 밖(또는 지도 모드)이라 자식 노드를 펼치지 않은 그룹인지 (ADR-0016 ①). */
   collapsed: boolean;
+  /** 도메인별 커스텀 팔레트에서 이 그룹에 배정된 팔레트 인덱스. PENDING_GROUP이면 undefined. */
+  colorIndex?: number;
 }
 
 export interface ToFlowOptions {
@@ -35,12 +43,14 @@ export interface ToFlowOptions {
   shouldExpandGroup: (frame: Rect, group: string) => boolean;
   /** 지금 강조 표시할 노드 id (ADR-0024/0025 역방향 인터랙션). 없으면 아무 노드도 강조 안 함. */
   highlightedNodeId?: number | null;
+  /** 지금 검색어에 매치되는 노드 id 집합. 없으면(검색 비활성) 아무 노드도 매치 안 함. */
+  matchedIds?: ReadonlySet<number>;
 }
 
 export function toFlow(
   nodes: VisibleNode[],
   engine: LayoutEngine,
-  { shouldExpandGroup, highlightedNodeId = null }: ToFlowOptions,
+  { shouldExpandGroup, highlightedNodeId = null, matchedIds }: ToFlowOptions,
 ): { flowNodes: Node[]; flowEdges: Edge[] } {
   const { groups, nodePositions } = engine.computeLayout(nodes);
   const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -51,6 +61,10 @@ export function toFlow(
   for (const g of groups) {
     const pending = g.group === PENDING_GROUP;
     const expanded = shouldExpandGroup(g.frame, g.group);
+    // 도메인별 커스텀 팔레트: 그룹이 아직 해석 안 됐으면(pending) 중립 유지를 위해 색을 안
+    // 매긴다 — expand 여부와 무관하게 계산해서, 접힌(뷰포트 밖/지도 모드) 그룹 프레임도
+    // 지도 모드에서부터 도메인 색이 바로 보인다(ui-philosophy.md의 "지도" 은유와 직결).
+    const colorIndex = pending ? undefined : colorIndexForGroup(g.group);
     flowNodes.push({
       id: `group:${g.group}`,
       type: 'group',
@@ -61,6 +75,7 @@ export function toFlow(
         count: g.nodeIds.length,
         pending,
         collapsed: !expanded,
+        colorIndex,
       } satisfies GroupNodeData,
       selectable: false,
       draggable: false,
@@ -89,6 +104,8 @@ export function toFlow(
           crossGroup,
           pending,
           highlighted: n.id === highlightedNodeId,
+          matched: matchedIds?.has(n.id) ?? false,
+          colorIndex,
         } satisfies ComponentNodeData,
       });
       expandedIds.add(id);
