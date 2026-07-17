@@ -200,6 +200,44 @@ describe('toFlow', () => {
     );
   });
 
+  it('marks a group as manuallyCollapsed when its name is in manuallyCollapsedGroups (ADR-0029)', () => {
+    const nodes = [vnode(1, 'A'), vnode(2, 'B')];
+    const engine = createLayoutEngine();
+    const { flowNodes } = toFlow(nodes, engine, {
+      shouldExpandGroup: () => true,
+      manuallyCollapsedGroups: new Set(['A']),
+    });
+
+    expect((flowNodes.find((n) => n.id === 'group:A')!.data as GroupNodeData).manuallyCollapsed).toBe(true);
+    expect((flowNodes.find((n) => n.id === 'group:B')!.data as GroupNodeData).manuallyCollapsed).toBe(false);
+  });
+
+  it('defaults manuallyCollapsed to false when manuallyCollapsedGroups is omitted', () => {
+    const nodes = [vnode(1, 'A')];
+    const engine = createLayoutEngine();
+    const { flowNodes } = toFlow(nodes, engine, { shouldExpandGroup: () => true });
+
+    expect((flowNodes.find((n) => n.id === 'group:A')!.data as GroupNodeData).manuallyCollapsed).toBe(false);
+  });
+
+  it('invokes onToggleGroupCollapse with the group name when a frame\'s onToggleCollapse is called', () => {
+    const nodes = [vnode(1, 'A')];
+    const engine = createLayoutEngine();
+    const onToggleGroupCollapse = vi.fn();
+    const { flowNodes } = toFlow(nodes, engine, { shouldExpandGroup: () => true, onToggleGroupCollapse });
+
+    (flowNodes.find((n) => n.id === 'group:A')!.data as GroupNodeData).onToggleCollapse();
+    expect(onToggleGroupCollapse).toHaveBeenCalledWith('A');
+  });
+
+  it('does not throw when onToggleCollapse is called and onToggleGroupCollapse was omitted', () => {
+    const nodes = [vnode(1, 'A')];
+    const engine = createLayoutEngine();
+    const { flowNodes } = toFlow(nodes, engine, { shouldExpandGroup: () => true });
+
+    expect(() => (flowNodes.find((n) => n.id === 'group:A')!.data as GroupNodeData).onToggleCollapse()).not.toThrow();
+  });
+
   it('gives group frames the static UX-intent fields: non-selectable, non-draggable, behind other nodes', () => {
     const nodes = [vnode(1, 'A')];
     const engine = createLayoutEngine();

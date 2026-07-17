@@ -28,6 +28,11 @@ export interface GroupNodeData extends Record<string, unknown> {
   collapsed: boolean;
   /** 도메인별 커스텀 팔레트에서 이 그룹에 배정된 팔레트 인덱스. PENDING_GROUP이면 undefined. */
   colorIndex?: number;
+  /** 사용자가 헤더 셰브런으로 명시적으로 접었는지(그룹 접기/펼치기, ADR-0029). `collapsed`(뷰포트/
+   * 지도 모드로 인한 자동 접힘)와는 별개 개념 — 헤더 아이콘은 이 값을 기준으로 그린다. */
+  manuallyCollapsed: boolean;
+  /** 헤더 셰브런 클릭 시 이 그룹의 manuallyCollapsed를 토글한다. */
+  onToggleCollapse: () => void;
 }
 
 export interface ToFlowOptions {
@@ -45,12 +50,17 @@ export interface ToFlowOptions {
   highlightedNodeId?: number | null;
   /** 지금 검색어에 매치되는 노드 id 집합. 없으면(검색 비활성) 아무 노드도 매치 안 함. */
   matchedIds?: ReadonlySet<number>;
+  /** 사용자가 명시적으로 접은 그룹 이름 집합(그룹 접기/펼치기, ADR-0029). 없으면 아무 그룹도
+   * 수동으로 접히지 않은 것으로 취급한다. */
+  manuallyCollapsedGroups?: ReadonlySet<string>;
+  /** 그룹 헤더의 접기/펼치기 셰브런 클릭 시 호출할 콜백. 그룹 이름을 인자로 받는다. */
+  onToggleGroupCollapse?: (group: string) => void;
 }
 
 export function toFlow(
   nodes: VisibleNode[],
   engine: LayoutEngine,
-  { shouldExpandGroup, highlightedNodeId = null, matchedIds }: ToFlowOptions,
+  { shouldExpandGroup, highlightedNodeId = null, matchedIds, manuallyCollapsedGroups, onToggleGroupCollapse }: ToFlowOptions,
 ): { flowNodes: Node[]; flowEdges: Edge[] } {
   const { groups, nodePositions } = engine.computeLayout(nodes);
   const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -76,6 +86,8 @@ export function toFlow(
         pending,
         collapsed: !expanded,
         colorIndex,
+        manuallyCollapsed: manuallyCollapsedGroups?.has(g.group) ?? false,
+        onToggleCollapse: () => onToggleGroupCollapse?.(g.group),
       } satisfies GroupNodeData,
       selectable: false,
       draggable: false,
