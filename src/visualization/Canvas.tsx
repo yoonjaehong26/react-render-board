@@ -151,6 +151,11 @@ function BoardContent({
   // navigateRequestId 절 설명과 대칭적이다 — domInteraction.ts 같은 경계 너머 소비자가 검색어를
   // 알아야 할 이유가 없고, 영속화도 필요 없는 이 Canvas 인스턴스만의 관심사다.
   const [searchQuery, setSearchQuery] = useState('');
+  // 그룹+개별 동시 필터 — 검색과 같은 매치 계산을 재사용하되, 강조+흐림(기본값) 대신 매치
+  // 안 된 그룹/노드를 아예 안 만든다(research 2절 "그룹 필터 + 개별 필터 동시 지원"). 검색
+  // 자체와 독립된 상태라 검색어를 지워도 필터 선택은 유지된다 — 재검색할 때 다시 체크할
+  // 필요가 없다.
+  const [filterToMatches, setFilterToMatches] = useState(false);
   // 그룹 접기/펼치기(ADR-0029). 세션 안에서만 유지되는 탐색 보조 상태라 localStorage에
   // 영속화하지 않는다(다크모드처럼 "장기 선호"가 아니라 "지금 이 화면을 정리해서 보는" 용도).
   const [manuallyCollapsedGroups, setManuallyCollapsedGroups] = useState<Set<string>>(new Set());
@@ -208,6 +213,7 @@ function BoardContent({
       shouldExpandGroup,
       highlightedNodeId,
       matchedIds,
+      filterToMatches,
       manuallyCollapsedGroups,
       onToggleGroupCollapse: toggleGroupCollapse,
     });
@@ -230,6 +236,7 @@ function BoardContent({
     isMapMode,
     highlightedNodeId,
     searchQuery,
+    filterToMatches,
     manuallyCollapsedGroups,
   ]);
 
@@ -412,6 +419,14 @@ function BoardContent({
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
+        <label className="toolbar__checkbox">
+          <input
+            type="checkbox"
+            checked={filterToMatches}
+            onChange={(e) => setFilterToMatches(e.target.checked)}
+          />
+          매치만 표시
+        </label>
         {searchActive && <span className="toolbar__search-count">{matchedIds.size}건 일치</span>}
         <button
           type="button"

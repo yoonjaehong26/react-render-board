@@ -92,6 +92,79 @@ describe('toFlow', () => {
     expect((flowNodes.find((n) => n.id === '1')!.data as ComponentNodeData).highlighted).toBe(false);
   });
 
+  describe('filterToMatches (그룹+개별 동시 필터)', () => {
+    it('omits an entire group (frame included) when none of its members match', () => {
+      const nodes = [vnode(1, 'A'), vnode(2, 'B')];
+      const engine = createLayoutEngine();
+      const { flowNodes } = toFlow(nodes, engine, {
+        shouldExpandGroup: () => true,
+        matchedIds: new Set([1]),
+        filterToMatches: true,
+      });
+
+      expect(flowNodes.some((n) => n.id === 'group:A')).toBe(true);
+      expect(flowNodes.some((n) => n.id === '1')).toBe(true);
+      expect(flowNodes.some((n) => n.id === 'group:B')).toBe(false);
+      expect(flowNodes.some((n) => n.id === '2')).toBe(false);
+    });
+
+    it('keeps a group frame but omits non-matching individual members within it', () => {
+      const nodes = [vnode(1, 'A'), vnode(2, 'A', 1), vnode(3, 'A', 1)];
+      const engine = createLayoutEngine();
+      const { flowNodes } = toFlow(nodes, engine, {
+        shouldExpandGroup: () => true,
+        matchedIds: new Set([2]),
+        filterToMatches: true,
+      });
+
+      expect(flowNodes.some((n) => n.id === 'group:A')).toBe(true);
+      expect(flowNodes.some((n) => n.id === '1')).toBe(false);
+      expect(flowNodes.some((n) => n.id === '2')).toBe(true);
+      expect(flowNodes.some((n) => n.id === '3')).toBe(false);
+    });
+
+    it('only creates edges between two nodes that both survived filtering', () => {
+      const nodes = [vnode(1, 'A'), vnode(2, 'A', 1), vnode(3, 'A', 1)];
+      const engine = createLayoutEngine();
+      const { flowEdges } = toFlow(nodes, engine, {
+        shouldExpandGroup: () => true,
+        matchedIds: new Set([1, 2]),
+        filterToMatches: true,
+      });
+
+      expect(flowEdges).toHaveLength(1);
+      expect(flowEdges[0].id).toBe('1->2');
+    });
+
+    it('is a no-op when matchedIds is empty (empty search query) even if filterToMatches is true', () => {
+      const nodes = [vnode(1, 'A'), vnode(2, 'B')];
+      const engine = createLayoutEngine();
+      const { flowNodes } = toFlow(nodes, engine, {
+        shouldExpandGroup: () => true,
+        matchedIds: new Set(),
+        filterToMatches: true,
+      });
+
+      expect(flowNodes.some((n) => n.id === 'group:A')).toBe(true);
+      expect(flowNodes.some((n) => n.id === 'group:B')).toBe(true);
+      expect(flowNodes.some((n) => n.id === '1')).toBe(true);
+      expect(flowNodes.some((n) => n.id === '2')).toBe(true);
+    });
+
+    it('is a no-op when filterToMatches is false, even with matchedIds set (highlight-only mode, ADR-0027)', () => {
+      const nodes = [vnode(1, 'A'), vnode(2, 'B')];
+      const engine = createLayoutEngine();
+      const { flowNodes } = toFlow(nodes, engine, {
+        shouldExpandGroup: () => true,
+        matchedIds: new Set([1]),
+        filterToMatches: false,
+      });
+
+      expect(flowNodes.some((n) => n.id === 'group:B')).toBe(true);
+      expect(flowNodes.some((n) => n.id === '2')).toBe(true);
+    });
+  });
+
   // ADR-0016/0017 viewport culling: collapsed groups must never put their members
   // into the flowNodes array at all, not just visually hide them.
   it('creates no component nodes and no edges for a collapsed group', () => {

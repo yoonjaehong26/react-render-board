@@ -50,6 +50,10 @@ export interface ToFlowOptions {
   highlightedNodeId?: number | null;
   /** 지금 검색어에 매치되는 노드 id 집합. 없으면(검색 비활성) 아무 노드도 매치 안 함. */
   matchedIds?: ReadonlySet<number>;
+  /** true면 matchedIds에 없는 그룹/노드는 강조+흐림이 아니라 아예 안 만든다(그룹+개별 동시
+   * 필터). matchedIds가 비어 있으면(검색어 없음) 무시된다 — 검색창이 빈 채로 필터만 켜져
+   * 있다고 화면이 통째로 비면 안 되기 때문이다. */
+  filterToMatches?: boolean;
   /** 사용자가 명시적으로 접은 그룹 이름 집합(그룹 접기/펼치기, ADR-0029). 없으면 아무 그룹도
    * 수동으로 접히지 않은 것으로 취급한다. */
   manuallyCollapsedGroups?: ReadonlySet<string>;
@@ -60,16 +64,29 @@ export interface ToFlowOptions {
 export function toFlow(
   nodes: VisibleNode[],
   engine: LayoutEngine,
-  { shouldExpandGroup, highlightedNodeId = null, matchedIds, manuallyCollapsedGroups, onToggleGroupCollapse }: ToFlowOptions,
+  {
+    shouldExpandGroup,
+    highlightedNodeId = null,
+    matchedIds,
+    filterToMatches,
+    manuallyCollapsedGroups,
+    onToggleGroupCollapse,
+  }: ToFlowOptions,
 ): { flowNodes: Node[]; flowEdges: Edge[] } {
   const { groups, nodePositions } = engine.computeLayout(nodes);
   const byId = new Map(nodes.map((n) => [n.id, n]));
+
+  // 그룹+개별 동시 필터(ADR-미정) — matchedIds가 실제로 뭔가를 담고 있을 때만 켠다. 검색어가
+  // 비어 있으면(matchedIds.size === 0) filterToMatches가 true여도 무시해 화면이 통째로
+  // 비지 않게 한다.
+  const filtering = !!filterToMatches && !!matchedIds && matchedIds.size > 0;
 
   const flowNodes: Node[] = [];
   const expandedIds = new Set<number>();
 
   for (const g of groups) {
     const pending = g.group === PENDING_GROUP;
+    if (filtering && !g.nodeIds.some((id) => matchedIds!.has(id))) continue; // 매치가 하나도 없는 그룹은 프레임째로 뺀다
     const expanded = shouldExpandGroup(g.frame, g.group);
     // 도메인별 커스텀 팔레트: 그룹이 아직 해석 안 됐으면(pending) 중립 유지를 위해 색을 안
     // 매긴다 — expand 여부와 무관하게 계산해서, 접힌(뷰포트 밖/지도 모드) 그룹 프레임도
@@ -97,6 +114,7 @@ export function toFlow(
     if (!expanded) continue;
 
     for (const id of g.nodeIds) {
+      if (filtering && !matchedIds!.has(id)) continue; // 그룹 안에서도 매치 안 된 개별 노드는 뺀다
       const n = byId.get(id)!;
       const pos = nodePositions.get(id)!;
       const parent = n.parentId !== null ? byId.get(n.parentId) : null;
