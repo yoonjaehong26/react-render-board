@@ -1,0 +1,54 @@
+# react-render-board
+
+> React 앱의 **실시간 렌더 트리**를 Figma 같은 보드 위에 박스+선 다이어그램으로 시각화하는 도구
+
+## 한 줄 소개
+
+React DevTools의 들여쓰기 리스트 뷰가 아니라, 컴포넌트 구조를 **공간적으로 배치된 노드 다이어그램**으로 보여줍니다. 새 코드베이스에 처음 들어온 사람이 전체 구조를 한눈에 파악하는 것을 목표로 합니다.
+
+## 왜 만드는가
+
+- React DevTools는 강력하지만 텍스트 트리라 "전체 그림"이 직관적으로 안 들어옵니다.
+- CodeSee 같은 도구는 `import` 관계(정적 분석) 기반이라 실제 렌더 구조(`children` prop, Context 등)와 일치하지 않습니다.
+- "실시간 렌더 트리 + Figma식 캔버스 박스"라는 조합은 여러 팀이 시도했지만 (React-Sight, Realize, Reactron 등) 모두 유지보수가 끊겼습니다. 이 조합은 현재 시장에서 비어 있습니다.
+
+자세한 배경은 [`docs/research/prior-art.md`](docs/research/prior-art.md) 참고.
+
+## 핵심 원리 (요약)
+
+소스 코드(`.jsx` 파일)를 파싱하지 않습니다. 대신 브라우저에서 **실행 중인** React 앱이 메모리에 만들어 둔 Fiber 트리를 실시간으로 읽습니다. React가 개발용으로 열어 둔 `window.__REACT_DEVTOOLS_GLOBAL_HOOK__`을 통해 접근하며, 이 훅킹 레이어는 직접 구현하지 않고 검증된 라이브러리에 위임합니다.
+
+자세한 내용은 [`docs/architecture.md`](docs/architecture.md) 참고.
+
+## 대상 사용자
+
+매일 디버깅하는 베테랑이 아니라, **새 코드베이스에 처음 들어온 사람**입니다. 온보딩, 코드 리뷰, 아키텍처 문서화, 신규 입사자 교육 같은 순간을 위한 도구입니다.
+
+## 범위
+
+**React 전용입니다.** 기술 스택 전체가 React의 Fiber 내부 구조에 묶여 있어, Vue/Svelte 등은 각 프레임워크마다 별도 구현이 필요합니다. (구조적 제약이며, 초기 선택 사항이 아닙니다.)
+
+## 현재 상태
+
+🚧 기획 및 MVP 준비 단계. 아직 코드 없음.
+
+- [ ] 실험 1: 기술 검증 (Fiber 트리를 JSON으로 추출)
+- [ ] 실험 2: UI 검증 (React Flow로 클러스터링 + 줌 프로토타입)
+- [ ] 라이브 MVP (실험 1 + 2 통합)
+
+로드맵은 [`docs/roadmap.md`](docs/roadmap.md) 참고.
+
+## 문서 안내
+
+| 문서 | 내용 |
+|---|---|
+| [`docs/vision.md`](docs/vision.md) | 프로젝트가 풀려는 문제와 목표 |
+| [`docs/architecture.md`](docs/architecture.md) | 3-레이어 구조와 동작 원리 |
+| [`docs/ui-philosophy.md`](docs/ui-philosophy.md) | UI 철학과 레퍼런스 |
+| [`docs/roadmap.md`](docs/roadmap.md) | MVP 단계별 계획 |
+| [`docs/research/`](docs/research/) | 배경 조사 (선행 프로젝트, 기술 옵션) |
+| [`docs/decisions/`](docs/decisions/) | 주요 의사결정 기록 (ADR) |
+
+## 라이선스
+
+미정 (MIT 권장 — 선행 프로젝트들이 대부분 MIT라 참고 코드 활용에 유리)
