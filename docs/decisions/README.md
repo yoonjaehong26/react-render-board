@@ -39,3 +39,5 @@
 | [0029](0029-orthogonal-edge-routing-deferred.md) | 간선 직교/버스 배선 보류, 클러터 감쇠를 먼저 — 진행 시 제1후보는 규칙 기반 배선기(libavoid 폴백) | 채택됨(방향성 — 배선 보류, 조사만) |
 | [0030](0030-excalidraw-hand-drawn-visual-identity.md) | Excalidraw풍 손그림 시각 정체성 — 역할별 rough 세기(노드=스케치/크롬=볼펜/강조=마커·햇칭), 손글씨는 워드마크에만 | 채택됨(방향성, 일부 구현) |
 | [0031](0031-collapse-context-menu-sticky-notes.md) | UX 레이어 3라운드 — 그룹 접기/펼치기, 우클릭 컨텍스트 메뉴, 캔버스 스티키노트 | 채택됨 |
+| [0032](0032-props-flow-and-change-afterglow.md) | props 흐름 추적 + 변경 잔상(afterglow) — 데이터 스코프 확장 1단계(Context/Zustand는 보류) | 채택됨(방향성, 구현 다음 라운드) |
+| [0033](0033-group-and-individual-filter.md) | 그룹+개별 동시 필터 — 검색을 "강조"에서 "숨김"으로 확장 | 채택됨 |

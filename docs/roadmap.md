@@ -155,6 +155,12 @@ ADR-0012~0015가 확인하고 [`project-status.md`](project-status.md)가 정식
 
 유닛 테스트 신규/확장 다수(전체 179개), 도킹 패널 관련 6개 스크립트 + `verify-search-and-theme.mjs` + 신규 `verify-ux-round3.mjs` 전부 콘솔 에러 0건. 세부 내용은 [`decisions/0031`](decisions/0031-collapse-context-menu-sticky-notes.md) 참고.
 
+### 그룹+개별 동시 필터 ✅ 완료 (2026-07-18)
+
+3라운드 완료 후 다음 우선순위를 물었고, 검색/그룹접기와 같은 라운드에서 이미 검증된 패턴(`shouldExpandGroup`을 통한 노드 생성 여부 제어)을 재사용해 작은 스코프로 끝낼 수 있다는 이유로 "그룹+개별 동시 필터"를 선택했다. `toFlow.ts`에 `filterToMatches` 옵션을 추가해, 매치가 하나도 없는 그룹은 프레임째로, 매치 안 된 개별 컴포넌트는 노드 단위로 아예 안 만든다 — React Flow의 `hidden` 필드가 부모→자식으로 자동 전파되지 않는다는 연구 문서의 함정([issue #2179](https://github.com/wbkd/react-flow/issues/2179))을 애초에 "안 만들기"로 피했다. 검색창 옆 "매치만 표시" 체크박스로 토글하며, 기존 `.toolbar__checkbox` 스타일을 재사용해 새 CSS가 필요 없었다.
+
+이걸로 research 문서가 조사한 UX 후보 전부(선행 조건 없는 4개 + 그룹 접기 + 이번 필터)가 구현됐다 — 남은 건 코드로 점프(스키마 확장)와 JSDoc 툴팁(별도 리서치)뿐이다. 세부 내용은 [`decisions/0033`](decisions/0033-group-and-individual-filter.md) 참고.
+
 ## 생존 전략을 처음부터 정한다
 
 2단계 조사 결과([`research/prior-art.md`](research/prior-art.md)) 죽은 선행 프로젝트 5개 중 4개가 부트캠프 코호트 프로젝트였고, 코호트 종료와 함께 유지관리가 끊겼다. 살아남은 사례는 두 갈래뿐이었다: 회사가 자사 도구로 매일 쓰는 dogfooding(Reactotron), 또는 커뮤니티 채택이 임계질량을 넘는 경우(React Scan). 판단 지점("정식 재구현" 여부)에 도달하기 전에, 이 프로젝트를 어느 쪽으로 끌고 갈지(자기 프로젝트에 계속 쓸 것인지, 커뮤니티 채택을 목표할 것인지) 스스로 답을 갖고 있어야 "완성 후 방치"를 피할 수 있다.
