@@ -134,6 +134,16 @@ ADR-0012~0015가 확인하고 [`project-status.md`](project-status.md)가 정식
 
 레이어별 유닛 테스트 39개 추가(전체 130개), `scripts/verify.mjs`·`verify-advanced-patterns.mjs`·`verify-lazy-suspense.mjs`·`verify-stress-scale-live.mjs`·`verify-high-frequency.mjs`(보드 열기 단계 추가) + 신규 `verify-dom-interaction.mjs` 6개 스크립트 전부 콘솔 에러 0건으로 통과. excalidraw 실제 앱 재검증(67개 그룹 전부 클린)도 회귀 없음을 확인했다. 세부 내용은 [`decisions/0025`](decisions/0025-docked-panel-shell-amendment.md)·[`decisions/0026`](decisions/0026-bidirectional-interaction-implementation.md) 참고.
 
+### UX 레이어 2라운드 — 검색 하이라이트+자동 이동, 다크모드+도메인 팔레트 ✅ 완료 (2026-07-18)
+
+[`research/2026-07-17-react-flow-ux-capabilities.md`](research/2026-07-17-react-flow-ux-capabilities.md)가 "선행 조건 없음, 간단~중간"으로 분류한 4개 후보(검색, 다크모드/팔레트, 캔버스 스티키노트, NodeToolbar/컨텍스트 메뉴) 중 두 개를 이번 라운드에 구현했다. 스티키노트(새 노드 타입+영속화)와 NodeToolbar/컨텍스트 메뉴(그룹 접기/펼치기가 선행돼야 액션이 풍부해짐)는 다음 라운드로 미뤘다.
+
+- **검색 하이라이트 + 자동 이동** — 컴포넌트명/도메인명으로 검색하면 매치된 노드가 강조되고 나머지는 흐려지며, 매치가 지금 뷰포트 밖이나 지도 모드로 접힌 그룹 안에 있어도 자동으로 그 그룹이 펼쳐지고 카메라가 이동한다.
+- **다크모드 + 도메인별 커스텀 팔레트** — `colorMode` 토글(localStorage로 유지)과, 그룹 이름 해시 기반 8색 고정 팔레트로 도메인마다 다른 색이 그룹 프레임/컴포넌트 노드/미니맵에 일관되게 반영된다.
+- **구현 중 발견한 두 가지**: ① 다른 세션이 병행으로 컴포넌트 노드 테두리를 rough.js 손그림 스타일로 바꾸는 작업을 하고 있어(커밋 안 됨), 검색 강조는 `border-color` 대신 `outline`으로, 팔레트는 인라인 CSS 변수 대신 정적 `--palette-N` 클래스로 재설계했다. ② 역방향 인터랙션(ADR-0024/0026)이 뷰포트 밖/지도 모드로 접힌 그룹 안의 노드를 가리킬 때 `fitView`가 존재하지 않는 노드 id를 대상으로 조용히 실패하던 gap을 발견해, 검색과 같은 강제 확장 메커니즘으로 함께 고쳤다.
+
+유닛 테스트 신규/확장 다수(전체 159개), 도킹 패널 관련 6개 스크립트 + 신규 `verify-search-and-theme.mjs` 전부 콘솔 에러 0건. excalidraw 실제 앱 재동기화(+병행 세션의 `roughjs` 의존성 반영) 후 재검증도 회귀 없음을 확인했다. 세부 내용은 [`decisions/0027`](decisions/0027-search-and-theme-ux-round.md) 참고.
+
 ## 생존 전략을 처음부터 정한다
 
 2단계 조사 결과([`research/prior-art.md`](research/prior-art.md)) 죽은 선행 프로젝트 5개 중 4개가 부트캠프 코호트 프로젝트였고, 코호트 종료와 함께 유지관리가 끊겼다. 살아남은 사례는 두 갈래뿐이었다: 회사가 자사 도구로 매일 쓰는 dogfooding(Reactotron), 또는 커뮤니티 채택이 임계질량을 넘는 경우(React Scan). 판단 지점("정식 재구현" 여부)에 도달하기 전에, 이 프로젝트를 어느 쪽으로 끌고 갈지(자기 프로젝트에 계속 쓸 것인지, 커뮤니티 채택을 목표할 것인지) 스스로 답을 갖고 있어야 "완성 후 방치"를 피할 수 있다.

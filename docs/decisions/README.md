@@ -34,3 +34,4 @@
 | [0024](0024-board-dom-bidirectional-interaction.md) | 보드 ↔ 실제 DOM 양방향 인터랙션 + MVP 데이터 스코프 경계 | 채택됨(구현 완료, ADR-0026) |
 | [0025](0025-docked-panel-shell-amendment.md) | 배포 셸 수정 — 전체화면 오버레이 → 도킹 패널 | 채택됨 |
 | [0026](0026-bidirectional-interaction-implementation.md) | 보드 ↔ 실제 DOM 양방향 인터랙션 구현 | 채택됨 |
+| [0027](0027-search-and-theme-ux-round.md) | UX 레이어 2라운드 — 검색 하이라이트+자동 이동, 다크모드+도메인 팔레트 | 채택됨 |
