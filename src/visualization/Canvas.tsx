@@ -16,14 +16,27 @@ import type { RenderStore } from '../data/store';
 import { resolveHostElements } from '../hooking/domInteraction';
 import { normalizeForCanvas, PENDING_GROUP, resolveVisibleId } from './lib/normalize';
 import { createLayoutEngine, type Rect } from './lib/layout';
-import { toFlow } from './lib/toFlow';
+import { toFlow, type ComponentNodeData, type GroupNodeData } from './lib/toFlow';
 import { worldRectFromViewport, expandRect, rectsIntersect } from './lib/geometry';
 import { createInteractionStore, type InteractionStore } from './lib/interactionStore';
+import { computeSearchMatches } from './lib/search';
+import { paletteHex } from './lib/groupColor';
+import { getStoredColorMode, setStoredColorMode } from './lib/colorModePreference';
 import { GroupNode } from './components/GroupNode';
 import { ComponentNode } from './components/ComponentNode';
 import { SemanticZoomController, MAP_MODE_THRESHOLD } from './components/SemanticZoomController';
 
 const nodeTypes = { group: GroupNode, component: ComponentNode };
+
+/** 다크모드 토글(ADR-0027). 'system'은 스코프에서 뺀다 — xyflow의 colorMode prop과 우리
+ * 자신의 body 클래스(document.body에 붙여 `.react-flow` 밖 크롬까지 스타일을 도달시키는
+ * 용도, BoardOverlay.tsx의 rrb-board-open과 같은 패턴)를 항상 같은 리터럴로 동기화하기
+ * 위함이다. */
+type BoardColorMode = 'light' | 'dark';
+
+// 검색어가 바뀐 뒤 이만큼 잠잠해지면 매치된 노드로 카메라를 옮긴다 — 타이핑 중간중간마다
+// 카메라가 튀지 않게 하기 위함이다(REFIT_DEBOUNCE_MS와 같은 계열의 판단, 값만 다르다).
+const SEARCH_REFIT_DEBOUNCE_MS = 300;
 
 // 뷰포트가 안정된(패닝/줌이 멈춘) 뒤 이만큼 기다렸다가 "어느 그룹을 펼칠지"를 다시 계산한다.
 // 드래그 도중 매 프레임 재계산하면 뷰포트 기반 최적화의 의미가 없어지므로, 제스처가 끝난
@@ -95,6 +108,8 @@ interface BoardContentProps {
   includeHostNodes: boolean;
   onIncludeHostNodesChange: (value: boolean) => void;
   engine: ReturnType<typeof createLayoutEngine>;
+  colorMode: BoardColorMode;
+  onColorModeChange: (mode: BoardColorMode) => void;
 }
 
 function BoardContent({
@@ -104,6 +119,8 @@ function BoardContent({
   includeHostNodes,
   onIncludeHostNodesChange,
   engine,
+  colorMode,
+  onColorModeChange,
 }: BoardContentProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const viewport = useSettledViewport();
@@ -119,13 +136,27 @@ function BoardContent({
   // 입히는 데 쓴다. interactionStore가 아니라 로컬 state인 이유: "화면에 실제로 보이는 id로
   // 해석된 뒤"의 결과라서(navigateToNodeId는 아직 해석 전 raw id) 이 Canvas 인스턴스만의 관심사다.
   const [highlightedNodeId, setHighlightedNodeId] = useState<number | null>(null);
+  // 검색 하이라이트 + 자동 이동(ADR-0027). interactionStore가 아니라 로컬 state인 이유는
+  // navigateRequestId 절 설명과 대칭적이다 — domInteraction.ts 같은 경계 너머 소비자가 검색어를
+  // 알아야 할 이유가 없고, 영속화도 필요 없는 이 Canvas 인스턴스만의 관심사다.
+  const [searchQuery, setSearchQuery] = useState('');
 
-  const { flowNodes, flowEdges, visibleCount, totalCount, groupNames, visibleIds } = useMemo(() => {
+  const { flowNodes, flowEdges, visibleCount, totalCount, groupNames, visibleIds, matchedIds } = useMemo(() => {
     const visible = normalizeForCanvas(snapshot.nodes, { includeHostNodes });
     // PENDING_GROUP은 groupHint가 아직 비동기로 안 채워졌을 뿐인 "임시" 상태라, 이 그룹의
     // 등장/소멸만으로 카메라를 다시 맞추면 안 된다 — 실제 그룹 집합 변화만 추적한다.
     const groupNames = new Set(visible.map((n) => n.group).filter((g) => g !== PENDING_GROUP));
     const visibleIds = new Set(visible.map((n) => n.id));
+
+    // 검색 하이라이트(ADR-0027) — displayName/그룹 매칭은 normalizeForCanvas 이후의 "화면에
+    // 보일 수 있는" 노드 집합 기준이다(host 노드 토글이 꺼져 있으면 애초에 이 목록에 없다).
+    const matchedIds = computeSearchMatches(visible, searchQuery);
+    const matchedGroups = new Set(visible.filter((n) => matchedIds.has(n.id)).map((n) => n.group));
+    // 역방향 인터랙션(ADR-0024/0025)이 착지시킨 노드가 지금 속한 그룹 — 뷰포트 밖/지도 모드로
+    // 접혀 있어도 강제로 펼쳐야 "그 그룹 안에 실제로 노드가 있는" 상태를 만들 수 있다(아래
+    // shouldExpandGroup 참고). 검색과 똑같은 메커니즘 재사용.
+    const highlightedGroup =
+      highlightedNodeId !== null ? visible.find((n) => n.id === highlightedNodeId)?.group : undefined;
 
     // 뷰포트 기반 부분 재계산 (ADR-0016 ①). 프로파일링 결과 normalizeForCanvas/toFlow 자체는
     // 5,000노드 규모에서도 수 ms에 불과했다 — 진짜 비용은 그 결과물(flowNodes 배열)의
@@ -139,13 +170,21 @@ function BoardContent({
         ? expandRect(worldRectFromViewport(viewport, paneWidth, paneHeight), VIEWPORT_EXPAND_MARGIN)
         : null;
 
-    const shouldExpandGroup = (frame: Rect) => {
+    const shouldExpandGroup = (frame: Rect, group: string) => {
+      // 검색 매치나 역방향 착지 지점을 담은 그룹은 뷰포트/지도 모드보다 우선해 강제로 펼친다
+      // — 안 그러면 매치/착지된 노드가 flowNodes 배열에 아예 없어(ADR-0017) 하이라이트도
+      // fitView도 대상이 존재하지 않는 조용한 실패가 된다.
+      if (group === highlightedGroup || matchedGroups.has(group)) return true;
       if (isMapMode) return false;
       if (!viewRect) return true; // 아직 팬 크기를 모르는 첫 렌더는 안전하게 전부 펼친다.
       return rectsIntersect(frame, viewRect);
     };
 
-    const { flowNodes, flowEdges } = toFlow(visible, engine, { shouldExpandGroup, highlightedNodeId });
+    const { flowNodes, flowEdges } = toFlow(visible, engine, {
+      shouldExpandGroup,
+      highlightedNodeId,
+      matchedIds,
+    });
     return {
       flowNodes,
       flowEdges,
@@ -153,8 +192,9 @@ function BoardContent({
       totalCount: snapshot.nodes.length,
       groupNames,
       visibleIds,
+      matchedIds,
     };
-  }, [snapshot, includeHostNodes, engine, viewport, paneWidth, paneHeight, isMapMode, highlightedNodeId]);
+  }, [snapshot, includeHostNodes, engine, viewport, paneWidth, paneHeight, isMapMode, highlightedNodeId, searchQuery]);
 
   useAutoRefit(groupNames);
 
@@ -162,17 +202,52 @@ function BoardContent({
   // 남긴 "이 raw id로 이동해줘" 요청을 처리한다. navigateRequestId(호출마다 증가하는 nonce)를
   // 의존성으로 쓴다 — 도킹 패널(ADR-0025)에서는 보드가 이미 열린 채로 같은 DOM 요소를 다시
   // 클릭하는 게 실제로 가능한데, 그 경우 navigateToNodeId 값 자체는 이전과 같아서 그것만
-  // 의존성으로 쓰면 두 번째 요청을 놓친다.
+  // 의존성으로 쓰면 두 번째 요청을 놓친다. fitView는 여기서 바로 부르지 않는다 — 이 시점의
+  // flowNodes는 아직 이전 렌더의 것이라, 지금 막 resolve한 그룹이 뷰포트 밖/지도 모드로 접혀
+  // 있었다면 그 안의 노드가 flowNodes에 없을 수 있다(ADR-0027이 발견한 gap). 아래 별도
+  // 이펙트가 강제 확장이 실제로 반영된 뒤에 fitView한다.
   useEffect(() => {
     if (navigateToNodeId === null) return;
     const visibleId = resolveVisibleId(snapshot.nodes, visibleIds, navigateToNodeId);
-    if (visibleId !== null) {
-      setHighlightedNodeId(visibleId);
-      fitView({ nodes: [{ id: String(visibleId) }], duration: 400 });
-    }
+    if (visibleId !== null) setHighlightedNodeId(visibleId);
     interactionStore.consumeNavigate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigateRequestId]);
+
+  // 위 이펙트가 highlightedNodeId를 갱신하면 highlightedNodeId가 useMemo 의존성에 있어 다음
+  // 렌더에서 shouldExpandGroup이 그 그룹을 강제로 펼친 flowNodes를 만든다 — 이 이펙트는 그
+  // 노드가 실제로 flowNodes에 존재하는 걸 확인한 뒤에만 fitView한다. firedForRequestRef로
+  // navigateRequestId 하나당 정확히 한 번만 fitView하도록 가드한다(이미 펼쳐져 있던 그룹이면
+  // 첫 렌더에서 바로, 접혀 있었다면 강제 확장이 반영된 다음 렌더에서 발동한다).
+  const firedForRequestRef = useRef<number>(-1);
+  useEffect(() => {
+    if (highlightedNodeId === null) return;
+    if (firedForRequestRef.current === navigateRequestId) return;
+    const present = flowNodes.some((n) => n.id === String(highlightedNodeId));
+    if (!present) return;
+    firedForRequestRef.current = navigateRequestId;
+    fitView({ nodes: [{ id: String(highlightedNodeId) }], duration: 400 });
+  }, [highlightedNodeId, flowNodes, navigateRequestId, fitView]);
+
+  // 검색 하이라이트 + 자동 이동(ADR-0027): 검색어가 바뀌고 이만큼 잠잠해지면 매치된 노드(들)로
+  // 카메라를 옮긴다. matchedIds(매 렌더 새 Set)가 아니라 searchQuery(문자열)에만 의존한다 —
+  // 라이브 앱이 고빈도로 커밋해도(ADR-0013) matchedIds 참조가 계속 바뀌어 타이머가 리셋되는
+  // 일이 없게 하기 위함이다. 최신 매치는 ref로 읽는다. 검색은 같은 useMemo 패스 안에서
+  // matchedGroups 강제 확장까지 동기로 끝나므로(위 shouldExpandGroup), 역방향과 달리 "다음
+  // 렌더까지 기다렸다가 fitView"할 필요가 없다.
+  const matchedIdsRef = useRef<Set<number>>(matchedIds);
+  matchedIdsRef.current = matchedIds;
+
+  useEffect(() => {
+    if (!searchQuery.trim()) return;
+    const handle = setTimeout(() => {
+      const ids = matchedIdsRef.current;
+      if (ids.size === 0) return;
+      fitView({ nodes: [...ids].map((id) => ({ id: String(id) })), duration: 400 });
+    }, SEARCH_REFIT_DEBOUNCE_MS);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
 
   // 정방향 인터랙션(ADR-0024/0025): 보드 노드 클릭 → 대응하는 실제 DOM 요소를 하이라이트한다.
   // 도킹 패널(ADR-0025)이라 보드를 닫을 필요가 없다 — 계측 대상 앱은 패널이 열려 있는 동안에도
@@ -188,6 +263,8 @@ function BoardContent({
     interactionStore.highlight(elements);
   };
 
+  const searchActive = searchQuery.trim().length > 0;
+
   return (
     <div className="board">
       <header className="toolbar">
@@ -199,12 +276,27 @@ function BoardContent({
           />
           host 노드(div/span 등) 표시
         </label>
+        <input
+          type="search"
+          className="toolbar__search"
+          placeholder="컴포넌트/도메인 검색…"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+        {searchActive && <span className="toolbar__search-count">{matchedIds.size}건 일치</span>}
+        <button
+          type="button"
+          className="toolbar__theme-toggle"
+          onClick={() => onColorModeChange(colorMode === 'dark' ? 'light' : 'dark')}
+        >
+          {colorMode === 'dark' ? '☀️ 라이트' : '🌙 다크'}
+        </button>
         <span className="toolbar__count">
           커밋 #{snapshot.commitId} · {visibleCount} / {totalCount} 노드 표시 중
         </span>
       </header>
 
-      <div className="canvas" ref={canvasRef}>
+      <div className={`canvas${searchActive ? ' search-active' : ''}`} ref={canvasRef}>
         {/* onlyRenderVisibleElements: 화면 밖 그룹/노드는 DOM에 렌더하지 않는다 (ADR-0009 ③,
             ADR-0010) — 위 뷰포트 기반 부분 재계산과는 다른 레이어의 방어다. 이건 "React Flow에
             얼마나 큰 nodes 배열을 넘기는가"를 줄이고, onlyRenderVisibleElements는 "그중 화면
@@ -214,6 +306,7 @@ function BoardContent({
           edges={flowEdges}
           nodeTypes={nodeTypes}
           onNodeClick={handleNodeClick}
+          colorMode={colorMode}
           fitView
           // 0.05(5%) 바닥에 막히면 대규모(그룹 100+/노드 수천)에서 fitView가 요구하는 줌이
           // 그보다 낮아도 못 내려가 콘텐츠 대부분이 화면 밖에 남는다 (ADR-0014, P2). 순수
@@ -226,7 +319,18 @@ function BoardContent({
         >
           <Background gap={24} />
           <Controls />
-          <MiniMap pannable zoomable nodeColor={(n) => (n.type === 'group' ? '#33415520' : '#6366f1')} />
+          <MiniMap
+            pannable
+            zoomable
+            nodeColor={(n) => {
+              if (n.type === 'group') {
+                const idx = (n.data as GroupNodeData).colorIndex;
+                return idx !== undefined ? `${paletteHex(idx, colorMode)}20` : '#33415520';
+              }
+              const idx = (n.data as ComponentNodeData).colorIndex;
+              return idx !== undefined ? paletteHex(idx, colorMode) : '#6366f1';
+            }}
+          />
           <SemanticZoomController targetRef={canvasRef} />
         </ReactFlow>
       </div>
@@ -249,6 +353,25 @@ export interface CanvasProps {
 export function Canvas({ store, interactionStore }: CanvasProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [includeHostNodes, setIncludeHostNodes] = useState(false);
+  // 다크모드(ADR-0027) — includeHostNodes와 같은 자리(단순 토글, 최초 1회 localStorage
+  // 하이드레이션)에 lift한다. 'light'|'dark' 이진 토글만 지원 — 'system'까지 넣으면 xyflow의
+  // colorMode prop과 우리 자신의 body 클래스(아래 이펙트) 두 트리거를 항상 같은 리터럴로
+  // 동기화하기 번거로워져 스코프를 좁혔다.
+  const [colorMode, setColorMode] = useState<BoardColorMode>(() => getStoredColorMode() ?? 'light');
+  const handleColorModeChange = (mode: BoardColorMode) => {
+    setColorMode(mode);
+    setStoredColorMode(mode);
+  };
+  // xyflow의 colorMode prop은 `.react-flow` 루트에만 dark/light 클래스를 붙여 그 안의 커스텀
+  // 노드는 스코프하지만, `.toolbar`/`.board-panel`(BoardOverlay.tsx)처럼 `.react-flow` "밖"에
+  // 있는 조상 요소는 CSS로 못 내려온다 — BoardOverlay.tsx가 이미 rrb-board-open/rrb-pick-mode에
+  // 쓰는 것과 같은 방식으로 document.body에 클래스를 달아 그 크롬까지 스타일을 도달시킨다.
+  useEffect(() => {
+    document.body.classList.toggle('rrb-dark-mode', colorMode === 'dark');
+    return () => {
+      document.body.classList.remove('rrb-dark-mode');
+    };
+  }, [colorMode]);
   // 레이아웃 엔진은 커밋을 넘나들며 그룹 순서/그룹별 내부 배치를 기억해야 하므로 ref에 한 번만 만든다
   // (layout.ts 참고 — 매 렌더마다 새로 만들면 "그룹 순서 고정 + 그룹 단위 메모이제이션"이 무의미해진다).
   const engineRef = useRef<ReturnType<typeof createLayoutEngine> | null>(null);
@@ -267,6 +390,8 @@ export function Canvas({ store, interactionStore }: CanvasProps) {
         includeHostNodes={includeHostNodes}
         onIncludeHostNodesChange={setIncludeHostNodes}
         engine={engineRef.current}
+        colorMode={colorMode}
+        onColorModeChange={handleColorModeChange}
       />
     </ReactFlowProvider>
   );

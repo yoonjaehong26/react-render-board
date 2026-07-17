@@ -12,6 +12,7 @@ function baseData(overrides: Partial<ComponentNodeData> = {}): ComponentNodeData
     crossGroup: false,
     pending: false,
     highlighted: false,
+    matched: false,
     ...overrides,
   };
 }
@@ -98,6 +99,27 @@ describe('ComponentNode', () => {
   it('omits component-node--highlighted when highlighted is false', () => {
     const { container } = renderComponentNode(baseData({ highlighted: false }));
     expect(container.querySelector('.component-node')).not.toHaveClass('component-node--highlighted');
+  });
+
+  it('adds component-node--matched when matched is true (search highlight)', () => {
+    const { container } = renderComponentNode(baseData({ matched: true }));
+    expect(container.querySelector('.component-node')).toHaveClass('component-node--matched');
+  });
+
+  it('omits component-node--matched when matched is false', () => {
+    const { container } = renderComponentNode(baseData({ matched: false }));
+    expect(container.querySelector('.component-node')).not.toHaveClass('component-node--matched');
+  });
+
+  it('adds a component-node--palette-N class when colorIndex is set (domain palette)', () => {
+    const { container } = renderComponentNode(baseData({ colorIndex: 3 }));
+    expect(container.querySelector('.component-node')).toHaveClass('component-node--palette-3');
+  });
+
+  it('omits any palette class when colorIndex is undefined (e.g. pending group)', () => {
+    const { container } = renderComponentNode(baseData());
+    const el = container.querySelector('.component-node')!;
+    expect([...el.classList].some((c) => c.startsWith('component-node--palette-'))).toBe(false);
   });
 
   it('renders only the base + kind classes when no boolean flags are set', () => {

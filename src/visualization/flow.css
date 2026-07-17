@@ -30,6 +30,35 @@
   font-family: ui-monospace, monospace;
 }
 
+/* --- 검색 하이라이트 + 자동 이동 --- */
+.toolbar__search {
+  padding: 4px 8px;
+  border: 1px solid #d0d3da;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: ui-monospace, monospace;
+  min-width: 160px;
+}
+
+.toolbar__search-count {
+  font-size: 12px;
+  color: #6b7280;
+  font-family: ui-monospace, monospace;
+  white-space: nowrap;
+}
+
+/* --- 다크모드 토글 --- */
+.toolbar__theme-toggle {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #6366f1;
+  background: #eef2ff;
+  color: #312e81;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 .canvas {
   flex: 1;
   min-height: 0;
@@ -62,6 +91,18 @@
     rgba(148, 163, 184, 0.12) 16px
   );
 }
+
+/* 도메인별 커스텀 팔레트 (groupColor.ts) — 인덱스 순서는 그 파일의 PALETTE 배열과 반드시
+   일치해야 한다(하나를 바꾸면 다른 쪽도 같이 바꿀 것). 그룹 프레임은 rough-border 대상이
+   아니라(컴포넌트 노드 섹션 참고) 그냥 border-color로 표현한다. */
+.group-node--palette-0 { border-color: #6366f1; }
+.group-node--palette-1 { border-color: #2563eb; }
+.group-node--palette-2 { border-color: #0e7490; }
+.group-node--palette-3 { border-color: #0f766e; }
+.group-node--palette-4 { border-color: #7c3aed; }
+.group-node--palette-5 { border-color: #a21caf; }
+.group-node--palette-6 { border-color: #db2777; }
+.group-node--palette-7 { border-color: #e11d48; }
 
 .group-node__header {
   display: flex;
@@ -125,6 +166,30 @@
   opacity: 0.5;
   border-style: dotted;
 }
+
+/* 검색 매치(ADR-0027 검색+자동 이동). outline은 border-box 바깥에 그려져 배경/box-shadow
+   (--cross-group, --highlighted) 어느 것과도 겹치지 않는다. */
+.component-node--matched {
+  outline: 2px solid #16a34a;
+  outline-offset: 2px;
+}
+
+/* 검색어가 있는 동안 매치 안 된 노드를 흐리게 — "매치=일반, 나머지=흐림"이 아니라 그
+   반대라 :not()으로 표현한다. */
+.canvas.search-active .component-node:not(.component-node--matched) {
+  opacity: 0.25;
+}
+
+/* 도메인별 커스텀 팔레트 (groupColor.ts) — GroupNode의 palette 규칙과 인덱스가 반드시
+   일치해야 한다. 컴포넌트 노드의 도메인 색은 옅은 배경 틴트로 표현한다(테두리 색 대신). */
+.component-node--palette-0 { background-color: #6366f11a; }
+.component-node--palette-1 { background-color: #2563eb1a; }
+.component-node--palette-2 { background-color: #0e74901a; }
+.component-node--palette-3 { background-color: #0f766e1a; }
+.component-node--palette-4 { background-color: #7c3aed1a; }
+.component-node--palette-5 { background-color: #a21caf1a; }
+.component-node--palette-6 { background-color: #db27771a; }
+.component-node--palette-7 { background-color: #e11d481a; }
 
 .component-node__name {
   overflow: hidden;
@@ -254,4 +319,99 @@ body.rrb-pick-mode {
   border-radius: 4px;
   background: rgba(99, 102, 241, 0.08);
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+}
+
+/* --- 다크모드 (ADR-0027) ---
+   <ReactFlow colorMode>가 xyflow 자체 크롬(Controls/MiniMap/Background/선택 아웃라인)은
+   `.react-flow.dark` 클래스로 알아서 다시 칠해주지만, 커스텀 노드(GroupNode/ComponentNode)는
+   자동 적용 대상이 아니라 여기서 직접 스코프한다. `.toolbar`/`.board-panel`처럼 `.react-flow`
+   "밖"에 있는 요소는 그 클래스가 안 닿으므로, BoardOverlay.tsx가 이미 rrb-board-open/
+   rrb-pick-mode에 쓰는 것과 같은 방식으로 document.body에 붙이는 rrb-dark-mode 클래스로
+   스코프한다. */
+.react-flow.dark .group-node {
+  border-color: #475569;
+  background: rgba(100, 116, 139, 0.12);
+}
+
+.react-flow.dark .group-node--pending {
+  border-color: #334155;
+  background: rgba(51, 65, 85, 0.15);
+}
+
+.react-flow.dark .group-node--collapsed {
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(100, 116, 139, 0.1),
+    rgba(100, 116, 139, 0.1) 8px,
+    rgba(100, 116, 139, 0.18) 8px,
+    rgba(100, 116, 139, 0.18) 16px
+  );
+}
+
+.react-flow.dark .group-node__label {
+  color: #cbd5e1;
+}
+
+.react-flow.dark .group-node--pending .group-node__label {
+  color: #64748b;
+}
+
+.react-flow.dark .group-node__count {
+  color: #64748b;
+}
+
+.react-flow.dark .group-node--palette-0 { border-color: #818cf8; }
+.react-flow.dark .group-node--palette-1 { border-color: #60a5fa; }
+.react-flow.dark .group-node--palette-2 { border-color: #22d3ee; }
+.react-flow.dark .group-node--palette-3 { border-color: #2dd4bf; }
+.react-flow.dark .group-node--palette-4 { border-color: #a78bfa; }
+.react-flow.dark .group-node--palette-5 { border-color: #e879f9; }
+.react-flow.dark .group-node--palette-6 { border-color: #f472b6; }
+.react-flow.dark .group-node--palette-7 { border-color: #fb7185; }
+
+.react-flow.dark .component-node {
+  background-color: #1e1b3a;
+  color: #e0e7ff;
+}
+
+.react-flow.dark .component-node--host {
+  background-color: #1e293b;
+  color: #94a3b8;
+}
+
+.react-flow.dark .component-node--palette-0 { background-color: #818cf82a; }
+.react-flow.dark .component-node--palette-1 { background-color: #60a5fa2a; }
+.react-flow.dark .component-node--palette-2 { background-color: #22d3ee2a; }
+.react-flow.dark .component-node--palette-3 { background-color: #2dd4bf2a; }
+.react-flow.dark .component-node--palette-4 { background-color: #a78bfa2a; }
+.react-flow.dark .component-node--palette-5 { background-color: #e879f92a; }
+.react-flow.dark .component-node--palette-6 { background-color: #f472b62a; }
+.react-flow.dark .component-node--palette-7 { background-color: #fb71852a; }
+
+body.rrb-dark-mode .toolbar {
+  background: #111827;
+  border-color: #1f2937;
+  color: #e5e7eb;
+}
+
+body.rrb-dark-mode .toolbar__count,
+body.rrb-dark-mode .toolbar__search-count {
+  color: #9ca3af;
+}
+
+body.rrb-dark-mode .toolbar__search {
+  background: #1f2937;
+  border-color: #374151;
+  color: #e5e7eb;
+}
+
+body.rrb-dark-mode .toolbar__theme-toggle {
+  background: #312e81;
+  border-color: #818cf8;
+  color: #eef2ff;
+}
+
+body.rrb-dark-mode .board-panel {
+  background: #0b1120;
+  border-top-color: #1f2937;
 }

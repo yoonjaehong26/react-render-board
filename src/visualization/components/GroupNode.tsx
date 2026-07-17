@@ -11,11 +11,12 @@ import type { GroupNodeData } from '../lib/toFlow';
 // 화면 기준 크기를 고정한다 — 그룹 프레임 자체는 월드 좌표대로 계속 줄어들어(그래야 지도가
 // 성립한다) fitView 배치는 그대로 유지하면서, 텍스트만 항상 읽을 수 있는 크기를 유지한다.
 export function GroupNode({ data }: NodeProps) {
-  const { label, count, pending, collapsed } = data as GroupNodeData;
+  const { label, count, pending, collapsed, colorIndex } = data as GroupNodeData;
   const { zoom } = useViewport();
   const classes = ['group-node'];
   if (pending) classes.push('group-node--pending');
   if (collapsed) classes.push('group-node--collapsed');
+  if (colorIndex !== undefined) classes.push(`group-node--palette-${colorIndex}`);
 
   // zoom은 minZoom(0.001) 아래로 내려가지 않지만, 짧은 전환 애니메이션 도중 관측치가
   // 그보다 살짝 흔들릴 수 있어 0으로 나누는 사고를 막는 하한을 둔다.

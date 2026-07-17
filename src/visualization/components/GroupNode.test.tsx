@@ -93,6 +93,17 @@ describe('GroupNode', () => {
     expect(container.querySelector('.group-node')).not.toHaveClass('group-node--collapsed');
   });
 
+  it('adds a group-node--palette-N class when colorIndex is set (domain palette)', () => {
+    const { container } = renderGroupNode(baseData({ colorIndex: 5 }));
+    expect(container.querySelector('.group-node')).toHaveClass('group-node--palette-5');
+  });
+
+  it('omits any palette class when colorIndex is undefined (e.g. pending group)', () => {
+    const { container } = renderGroupNode(baseData());
+    const el = container.querySelector('.group-node')!;
+    expect([...el.classList].some((c) => c.startsWith('group-node--palette-'))).toBe(false);
+  });
+
   it('renders the label at scale(1) at the default zoom (1)', () => {
     const { container } = renderGroupNode(baseData());
     const label = container.querySelector('.group-node__label') as HTMLElement;
