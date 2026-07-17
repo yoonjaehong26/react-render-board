@@ -14,12 +14,6 @@ importers:
       bippy:
         specifier: ^0.6.0
         version: 0.6.0(react@19.2.7)
-      react:
-        specifier: ^19.2.7
-        version: 19.2.7
-      react-dom:
-        specifier: ^19.2.7
-        version: 19.2.7(react@19.2.7)
     devDependencies:
       '@testing-library/jest-dom':
         specifier: ^6.9.1
@@ -48,6 +42,12 @@ importers:
       playwright:
         specifier: ^1.61.1
         version: 1.61.1
+      react:
+        specifier: ^19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: ^19.2.7
+        version: 19.2.7(react@19.2.7)
       typescript:
         specifier: ~6.0.2
         version: 6.0.3

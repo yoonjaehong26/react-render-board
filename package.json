@@ -1,11 +1,29 @@
 {
   "name": "react-render-board",
+  "description": "React 앱의 실시간 렌더 트리를 박스+선 다이어그램 캔버스로 시각화하는 dev-only 도구",
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "./dist-lib/index.js",
+  "module": "./dist-lib/index.js",
+  "types": "./dist-lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist-lib/index.d.ts",
+      "import": "./dist-lib/index.js"
+    },
+    "./style.css": "./dist-lib/index.css"
+  },
+  "files": [
+    "dist-lib"
+  ],
+  "sideEffects": [
+    "*.css"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:lib": "tsc -p tsconfig.lib.json && vite build --config vite.lib.config.ts",
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",
@@ -13,11 +31,13 @@
     "verify": "node scripts/verify.mjs",
     "verify:high-frequency": "node scripts/verify-high-frequency.mjs"
   },
-  "dependencies": {
-    "@xyflow/react": "^12.11.2",
-    "bippy": "^0.6.0",
+  "peerDependencies": {
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
+  },
+  "dependencies": {
+    "@xyflow/react": "^12.11.2",
+    "bippy": "^0.6.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
@@ -29,6 +49,8 @@
     "jsdom": "^29.1.1",
     "oxlint": "^1.71.0",
     "playwright": "^1.61.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "typescript": "~6.0.2",
     "vite": "^8.1.1",
     "vitest": "^4.1.10"
