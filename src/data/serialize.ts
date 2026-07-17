@@ -35,6 +35,13 @@ export interface SerializeResult {
   nodes: RenderNode[];
   /** groupHint를 비동기로 채워야 할 composite fiber 원본 (id -> Fiber). */
   compositeFibers: Map<number, Fiber>;
+  /**
+   * 노드가 된(host+composite) 모든 fiber 원본 (id -> Fiber). RenderNode 자체는 Fiber를
+   * 담지 않는다(직렬화 스키마는 architecture.md가 "되돌리기 어려운 결정"으로 고정한 것) —
+   * 이건 그 스키마 밖에서 store.ts가 최신 커밋 것만 들고 있다가 보드↔DOM 양방향 인터랙션
+   * (ADR-0024/0025)의 "노드 id → 실제 DOM 요소" 역조회에만 쓰는 보조 채널이다.
+   */
+  fibersById: Map<number, Fiber>;
 }
 
 function classify(fiber: Fiber): FiberKind | null {
@@ -46,6 +53,7 @@ function classify(fiber: Fiber): FiberKind | null {
 export function serializeFiberTree(root: Fiber): SerializeResult {
   const nodes: RenderNode[] = [];
   const compositeFibers = new Map<number, Fiber>();
+  const fibersById = new Map<number, Fiber>();
   const visited = new Set<number>();
 
   // 형제 목록은 반복문으로 순회한다(재귀 tail call이 아님) — 그렇지 않으면 형제 수만큼 JS 콜
@@ -85,6 +93,7 @@ export function serializeFiberTree(root: Fiber): SerializeResult {
           getDisplayName(fiber.type) ?? (typeof fiber.type === 'string' ? fiber.type : '(anonymous)');
         nodes.push({ id, displayName, kind, parentId: visibleParentId, groupHint: null });
         if (kind === 'composite') compositeFibers.set(id, fiber);
+        fibersById.set(id, fiber);
         nextParentId = id;
       }
       // kind === null: React 내부 배관 fiber. 노드를 만들지 않고, 자식은 visibleParentId에 그대로 재연결한다.
@@ -95,5 +104,5 @@ export function serializeFiberTree(root: Fiber): SerializeResult {
   }
 
   walk(root, null, 0);
-  return { nodes, compositeFibers };
+  return { nodes, compositeFibers, fibersById };
 }

@@ -26,6 +26,13 @@ export interface RenderStore {
   subscribe(listener: SnapshotListener): () => void;
   getSnapshot(): RenderSnapshot;
   handleCommit(root: Fiber): void;
+  /**
+   * 노드 id로 최신 커밋의 원본 Fiber를 찾는다(보드↔DOM 양방향 인터랙션 전용,
+   * ADR-0024/0025). RenderSnapshot과 달리 반응형이 아니다 — 구독자에게 notify를
+   * 유발하지 않는 순수 imperative getter이며, 클릭 핸들러 같은 이벤트 코드에서만 쓴다.
+   * 커밋이 갈릴 때마다 통째로 교체되므로 이전 커밋에만 있던 id는 undefined를 반환한다.
+   */
+  getFiber(id: number): Fiber | undefined;
 }
 
 function scheduleIdle(cb: () => void, timeout: number): () => void {
@@ -41,6 +48,9 @@ export function createRenderStore(): RenderStore {
   let snapshot: RenderSnapshot = { commitId: 0, nodes: [] };
   // id -> 이미 resolve된 groupHint (dev 세션 동안 계속 누적, 페이지 새로고침 전까지 유지).
   const hintCache = new Map<number, string | null>();
+  // 최신 커밋의 id -> Fiber. RenderSnapshot과 달리 매 커밋 통째로 교체될 뿐 누적하지 않는다
+  // (Fiber는 크고 변경 가능한 React 내부 객체라 여러 커밋치를 들고 있을 이유가 없다).
+  let latestFibersById = new Map<number, Fiber>();
   const listeners = new Set<SnapshotListener>();
 
   let notifyScheduled = false;
@@ -70,7 +80,8 @@ export function createRenderStore(): RenderStore {
   }
 
   function handleCommit(root: Fiber) {
-    const { nodes, compositeFibers } = serializeFiberTree(root);
+    const { nodes, compositeFibers, fibersById } = serializeFiberTree(root);
+    latestFibersById = fibersById;
     snapshot = { commitId: snapshot.commitId + 1, nodes: applyCachedHints(nodes) };
     scheduleNotify();
 
@@ -110,5 +121,8 @@ export function createRenderStore(): RenderStore {
       return snapshot;
     },
     handleCommit,
+    getFiber(id) {
+      return latestFibersById.get(id);
+    },
   };
 }

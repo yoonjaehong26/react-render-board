@@ -19,7 +19,7 @@ function node(overrides: Partial<RenderNode> = {}): RenderNode {
 beforeEach(() => {
   mockedSerializeFiberTree.mockReset();
   mockedResolveGroupHints.mockReset();
-  mockedSerializeFiberTree.mockReturnValue({ nodes: [], compositeFibers: new Map() });
+  mockedSerializeFiberTree.mockReturnValue({ nodes: [], compositeFibers: new Map(), fibersById: new Map() });
   // Sane default so an incidental call (a test that doesn't care about hint resolution) doesn't
   // call .then() on undefined.
   mockedResolveGroupHints.mockResolvedValue([]);
@@ -37,14 +37,14 @@ describe('createRenderStore', () => {
       expect(store.getSnapshot()).toEqual({ commitId: 0, nodes: [] });
 
       const nodesA = [node({ id: 1 })];
-      mockedSerializeFiberTree.mockReturnValueOnce({ nodes: nodesA, compositeFibers: new Map() });
+      mockedSerializeFiberTree.mockReturnValueOnce({ nodes: nodesA, compositeFibers: new Map(), fibersById: new Map() });
       store.handleCommit({} as Fiber);
 
       expect(store.getSnapshot().commitId).toBe(1);
       expect(store.getSnapshot().nodes).toEqual(nodesA);
 
       const nodesB = [node({ id: 1 }), node({ id: 2, displayName: 'Button' })];
-      mockedSerializeFiberTree.mockReturnValueOnce({ nodes: nodesB, compositeFibers: new Map() });
+      mockedSerializeFiberTree.mockReturnValueOnce({ nodes: nodesB, compositeFibers: new Map(), fibersById: new Map() });
       store.handleCommit({} as Fiber);
 
       expect(store.getSnapshot().commitId).toBe(2);
@@ -61,9 +61,9 @@ describe('createRenderStore', () => {
       const nodesB = [node({ displayName: 'B' })];
       const nodesC = [node({ displayName: 'C' })];
       mockedSerializeFiberTree
-        .mockReturnValueOnce({ nodes: nodesA, compositeFibers: new Map() })
-        .mockReturnValueOnce({ nodes: nodesB, compositeFibers: new Map() })
-        .mockReturnValueOnce({ nodes: nodesC, compositeFibers: new Map() });
+        .mockReturnValueOnce({ nodes: nodesA, compositeFibers: new Map(), fibersById: new Map() })
+        .mockReturnValueOnce({ nodes: nodesB, compositeFibers: new Map(), fibersById: new Map() })
+        .mockReturnValueOnce({ nodes: nodesC, compositeFibers: new Map(), fibersById: new Map() });
 
       const store = createRenderStore();
       const listener = vi.fn();
@@ -88,6 +88,7 @@ describe('createRenderStore', () => {
       mockedSerializeFiberTree.mockReturnValueOnce({
         nodes: [node({ id: 5 })],
         compositeFibers: new Map([[5, fiberA]]),
+        fibersById: new Map([[5, fiberA]]),
       });
       mockedResolveGroupHints.mockResolvedValueOnce([{ id: 5, groupHint: 'src/App.tsx' }]);
 
@@ -101,6 +102,7 @@ describe('createRenderStore', () => {
       mockedSerializeFiberTree.mockReturnValueOnce({
         nodes: [node({ id: 5 })], // groupHint: null again, as if freshly serialized
         compositeFibers: new Map([[5, fiberA]]),
+        fibersById: new Map([[5, fiberA]]),
       });
       store.handleCommit({} as Fiber);
 
@@ -115,6 +117,7 @@ describe('createRenderStore', () => {
       mockedSerializeFiberTree.mockReturnValueOnce({
         nodes: [node({ id: 1 })],
         compositeFibers: new Map([[1, fiberA]]),
+        fibersById: new Map([[1, fiberA]]),
       });
 
       const store = createRenderStore();
@@ -130,6 +133,10 @@ describe('createRenderStore', () => {
           [1, fiberA],
           [2, fiberB],
         ]),
+        fibersById: new Map([
+          [1, fiberA],
+          [2, fiberB],
+        ]),
       });
       store.handleCommit({} as Fiber);
 
@@ -142,6 +149,7 @@ describe('createRenderStore', () => {
       mockedSerializeFiberTree.mockReturnValueOnce({
         nodes: [node({ id: 1 })],
         compositeFibers: new Map([[1, {} as Fiber]]),
+        fibersById: new Map(),
       });
 
       const store = createRenderStore();
@@ -198,12 +206,57 @@ describe('createRenderStore', () => {
     });
   });
 
+  describe('getFiber', () => {
+    it('returns the Fiber for an id captured in the latest commit', () => {
+      const fiberA = {} as Fiber;
+      mockedSerializeFiberTree.mockReturnValueOnce({
+        nodes: [node({ id: 1 })],
+        compositeFibers: new Map(),
+        fibersById: new Map([[1, fiberA]]),
+      });
+
+      const store = createRenderStore();
+      store.handleCommit({} as Fiber);
+
+      expect(store.getFiber(1)).toBe(fiberA);
+    });
+
+    it('returns undefined for an id that never existed', () => {
+      const store = createRenderStore();
+      expect(store.getFiber(999)).toBeUndefined();
+    });
+
+    it('replaces (not accumulates) fibersById on the next commit — a stale id from a prior commit resolves to undefined', () => {
+      const fiberA = {} as Fiber;
+      mockedSerializeFiberTree.mockReturnValueOnce({
+        nodes: [node({ id: 1 })],
+        compositeFibers: new Map(),
+        fibersById: new Map([[1, fiberA]]),
+      });
+      const store = createRenderStore();
+      store.handleCommit({} as Fiber);
+      expect(store.getFiber(1)).toBe(fiberA);
+
+      const fiberB = {} as Fiber;
+      mockedSerializeFiberTree.mockReturnValueOnce({
+        nodes: [node({ id: 2 })],
+        compositeFibers: new Map(),
+        fibersById: new Map([[2, fiberB]]),
+      });
+      store.handleCommit({} as Fiber);
+
+      expect(store.getFiber(1)).toBeUndefined();
+      expect(store.getFiber(2)).toBe(fiberB);
+    });
+  });
+
   describe('dev-only gating', () => {
     it('does not call resolveGroupHints when import.meta.env.DEV is false', () => {
       vi.stubEnv('DEV', false);
       mockedSerializeFiberTree.mockReturnValueOnce({
         nodes: [node({ id: 1 })],
         compositeFibers: new Map([[1, {} as Fiber]]),
+        fibersById: new Map(),
       });
 
       const store = createRenderStore();

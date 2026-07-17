@@ -21,6 +21,7 @@ function fakeStore(): RenderStore {
     subscribe: vi.fn(() => () => {}),
     getSnapshot: vi.fn(() => ({ commitId: 0, nodes: [] })),
     handleCommit: vi.fn(),
+    getFiber: vi.fn(() => undefined),
   };
 }
 

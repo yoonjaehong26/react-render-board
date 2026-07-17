@@ -110,6 +110,20 @@ describe('serializeFiberTree', () => {
     });
   });
 
+  describe('fibersById', () => {
+    it('contains every node (host and composite), unlike compositeFibers which is composite-only', () => {
+      const button = fiber(ClassComponentTag, namedFn('Button'));
+      const div = fiber(HostComponentTag, 'div', button);
+      const app = fiber(FunctionComponentTag, namedFn('App'), div);
+
+      const { nodes, fibersById } = serializeFiberTree(asFiber(app));
+
+      expect([...fibersById.keys()].sort()).toEqual(nodes.map((n) => n.id).sort());
+      const divNode = nodes.find((n) => n.displayName === 'div')!;
+      expect(fibersById.get(divNode.id)).toBe(div);
+    });
+  });
+
   describe('anonymous composite fibers', () => {
     it('falls back to "(anonymous)" when the function has neither displayName nor name', () => {
       const anon = fiber(FunctionComponentTag, anonymousFn());
