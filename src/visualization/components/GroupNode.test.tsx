@@ -11,6 +11,8 @@ function baseData(overrides: Partial<GroupNodeData> = {}): GroupNodeData {
     count: 3,
     pending: false,
     collapsed: false,
+    manuallyCollapsed: false,
+    onToggleCollapse: () => {},
     ...overrides,
   };
 }
@@ -103,6 +105,13 @@ describe('GroupNode', () => {
     const el = container.querySelector('.group-node')!;
     expect([...el.classList].some((c) => c.startsWith('group-node--palette-'))).toBe(false);
   });
+
+  // 그룹 접기/펼치기 셰브런(ADR-0029)은 <NodeToolbar>로 렌더된다 — xyflow가 자신의 nodeId를
+  // store.nodeLookup에서 실제로 찾아야 콘텐츠를 그리므로(그렇지 않으면 조용히 null), 이
+  // ReactFlowProvider만 있고 실제 <ReactFlow nodes={[...]}> 트리는 없는 단위 테스트 환경에서는
+  // 셰브런 자체가 렌더되지 않는다. Canvas.tsx가 아예 단위 테스트가 없는 것과 같은 이유(실제
+  // React Flow 런타임에 의존하는 배선)로, 셰브런의 렌더링/클릭 동작은
+  // scripts/verify-ux-round3.mjs(Playwright, 실제 브라우저)가 검증한다.
 
   it('renders the label at scale(1) at the default zoom (1)', () => {
     const { container } = renderGroupNode(baseData());

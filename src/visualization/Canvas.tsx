@@ -8,7 +8,10 @@ import {
   useReactFlow,
   useStore,
   useViewport,
+  type Node,
+  type NodeChange,
   type NodeMouseHandler,
+  type OnNodesChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import './flow.css';
@@ -22,11 +25,19 @@ import { createInteractionStore, type InteractionStore } from './lib/interaction
 import { computeSearchMatches } from './lib/search';
 import { paletteHex } from './lib/groupColor';
 import { getStoredColorMode, setStoredColorMode } from './lib/colorModePreference';
+import { loadStickyNotes, saveStickyNotes, createStickyNoteId, type StickyNote } from './lib/stickyNotes';
 import { GroupNode } from './components/GroupNode';
 import { ComponentNode } from './components/ComponentNode';
+import { StickyNoteNode, type StickyNoteNodeData } from './components/StickyNoteNode';
+import { ContextMenu, type ContextMenuState } from './components/ContextMenu';
 import { SemanticZoomController, MAP_MODE_THRESHOLD } from './components/SemanticZoomController';
 
-const nodeTypes = { group: GroupNode, component: ComponentNode };
+const nodeTypes = { group: GroupNode, component: ComponentNode, sticky: StickyNoteNode };
+
+// 스티키노트(ADR-0029) 고정 크기 — NODE_WIDTH/HEIGHT(layout.ts)와 달리 이건 레이아웃 엔진이
+// 관리하지 않는 자유 배치 노드라 여기서 직접 상수로 둔다.
+const STICKY_NOTE_WIDTH = 180;
+const STICKY_NOTE_HEIGHT = 140;
 
 /** 다크모드 토글(ADR-0027). 'system'은 스코프에서 뺀다 — xyflow의 colorMode prop과 우리
  * 자신의 body 클래스(document.body에 붙여 `.react-flow` 밖 크롬까지 스타일을 도달시키는
@@ -140,6 +151,17 @@ function BoardContent({
   // navigateRequestId 절 설명과 대칭적이다 — domInteraction.ts 같은 경계 너머 소비자가 검색어를
   // 알아야 할 이유가 없고, 영속화도 필요 없는 이 Canvas 인스턴스만의 관심사다.
   const [searchQuery, setSearchQuery] = useState('');
+  // 그룹 접기/펼치기(ADR-0029). 세션 안에서만 유지되는 탐색 보조 상태라 localStorage에
+  // 영속화하지 않는다(다크모드처럼 "장기 선호"가 아니라 "지금 이 화면을 정리해서 보는" 용도).
+  const [manuallyCollapsedGroups, setManuallyCollapsedGroups] = useState<Set<string>>(new Set());
+  const toggleGroupCollapse = (group: string) => {
+    setManuallyCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      return next;
+    });
+  };
 
   const { flowNodes, flowEdges, visibleCount, totalCount, groupNames, visibleIds, matchedIds } = useMemo(() => {
     const visible = normalizeForCanvas(snapshot.nodes, { includeHostNodes });
@@ -171,10 +193,12 @@ function BoardContent({
         : null;
 
     const shouldExpandGroup = (frame: Rect, group: string) => {
-      // 검색 매치나 역방향 착지 지점을 담은 그룹은 뷰포트/지도 모드보다 우선해 강제로 펼친다
-      // — 안 그러면 매치/착지된 노드가 flowNodes 배열에 아예 없어(ADR-0017) 하이라이트도
-      // fitView도 대상이 존재하지 않는 조용한 실패가 된다.
+      // 검색 매치나 역방향 착지 지점을 담은 그룹은 뷰포트/지도 모드는 물론 사용자의 수동
+      // 접기보다도 우선해 강제로 펼친다 — 안 그러면 매치/착지된 노드가 flowNodes 배열에
+      // 아예 없어(ADR-0017) 하이라이트도 fitView도 대상이 존재하지 않는 조용한 실패가 된다.
+      // "검색은 언제나 이긴다"는 ui-philosophy.md의 탈출구 원칙을 그룹 접기에도 그대로 적용한다.
       if (group === highlightedGroup || matchedGroups.has(group)) return true;
+      if (manuallyCollapsedGroups.has(group)) return false; // 그룹 접기/펼치기 (ADR-0029)
       if (isMapMode) return false;
       if (!viewRect) return true; // 아직 팬 크기를 모르는 첫 렌더는 안전하게 전부 펼친다.
       return rectsIntersect(frame, viewRect);
@@ -184,6 +208,8 @@ function BoardContent({
       shouldExpandGroup,
       highlightedNodeId,
       matchedIds,
+      manuallyCollapsedGroups,
+      onToggleGroupCollapse: toggleGroupCollapse,
     });
     return {
       flowNodes,
@@ -194,7 +220,18 @@ function BoardContent({
       visibleIds,
       matchedIds,
     };
-  }, [snapshot, includeHostNodes, engine, viewport, paneWidth, paneHeight, isMapMode, highlightedNodeId, searchQuery]);
+  }, [
+    snapshot,
+    includeHostNodes,
+    engine,
+    viewport,
+    paneWidth,
+    paneHeight,
+    isMapMode,
+    highlightedNodeId,
+    searchQuery,
+    manuallyCollapsedGroups,
+  ]);
 
   useAutoRefit(groupNames);
 
@@ -249,19 +286,111 @@ function BoardContent({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery]);
 
-  // 정방향 인터랙션(ADR-0024/0025): 보드 노드 클릭 → 대응하는 실제 DOM 요소를 하이라이트한다.
-  // 도킹 패널(ADR-0025)이라 보드를 닫을 필요가 없다 — 계측 대상 앱은 패널이 열려 있는 동안에도
-  // 항상 화면에 보이고 조작 가능하다. 그룹 프레임 클릭(node.type !== 'component')은 무시한다
-  // — ADR-0024 결정 5가 DOM 오버레이를 요소 단위로 제한했다.
-  const handleNodeClick: NodeMouseHandler = (_event, node) => {
-    if (node.type !== 'component') return;
-    const id = Number(node.id);
+  // 정방향 인터랙션(ADR-0024/0025)과 컨텍스트 메뉴(ADR-0029)의 "실제 화면에서 보기" 액션이
+  // 공유하는 로직 — 대응하는 실제 DOM 요소를 하이라이트한다.
+  const highlightComponentNode = (id: number) => {
     const fiber = store.getFiber(id);
     if (!fiber) return;
     const elements = resolveHostElements(fiber);
     if (elements.length === 0) return;
     interactionStore.highlight(elements);
   };
+
+  // 정방향 인터랙션(ADR-0024/0025): 보드 노드 클릭 → 대응하는 실제 DOM 요소를 하이라이트한다.
+  // 도킹 패널(ADR-0025)이라 보드를 닫을 필요가 없다 — 계측 대상 앱은 패널이 열려 있는 동안에도
+  // 항상 화면에 보이고 조작 가능하다. 그룹 프레임 클릭(node.type !== 'component')은 무시한다
+  // — ADR-0024 결정 5가 DOM 오버레이를 요소 단위로 제한했다.
+  const handleNodeClick: NodeMouseHandler = (_event, node) => {
+    setContextMenu(null);
+    if (node.type !== 'component') return;
+    highlightComponentNode(Number(node.id));
+  };
+
+  // 우클릭 컨텍스트 메뉴(ADR-0029) — 그룹은 접기/펼치기 토글 + 이 그룹으로 확대, 컴포넌트는
+  // 클릭과 같은 하이라이트 + 검색창에 이 이름 채우기(검색 기능과의 연동). 스티키노트는 자유
+  // 배치 주석일 뿐이라 컨텍스트 메뉴 액션이 없다(우클릭 시 아무 일도 안 함).
+  const handleNodeContextMenu: NodeMouseHandler = (event, node) => {
+    event.preventDefault();
+    if (node.type === 'group') {
+      const group = node.id.replace(/^group:/, '');
+      const isCollapsed = manuallyCollapsedGroups.has(group);
+      setContextMenu({
+        x: event.clientX,
+        y: event.clientY,
+        actions: [
+          { label: isCollapsed ? '그룹 펼치기' : '그룹 접기', onSelect: () => toggleGroupCollapse(group) },
+          { label: '이 그룹으로 확대', onSelect: () => fitView({ nodes: [{ id: node.id }], duration: 400 }) },
+        ],
+      });
+    } else if (node.type === 'component') {
+      const id = Number(node.id);
+      const displayName = (node.data as ComponentNodeData).displayName;
+      setContextMenu({
+        x: event.clientX,
+        y: event.clientY,
+        actions: [
+          { label: '실제 화면에서 보기', onSelect: () => highlightComponentNode(id) },
+          { label: '이 이름으로 검색', onSelect: () => setSearchQuery(displayName) },
+        ],
+      });
+    }
+  };
+
+  // 캔버스 스티키노트(ADR-0029) — RenderNode 데이터와 무관한 순수 UI 주석이라 localStorage에
+  // 직접 영속화한다(최초 1회 하이드레이션 + 변경마다 저장).
+  const [stickyNotes, setStickyNotes] = useState<StickyNote[]>(() => loadStickyNotes());
+  useEffect(() => {
+    saveStickyNotes(stickyNotes);
+  }, [stickyNotes]);
+
+  const addStickyNote = () => {
+    // 지금 보이는 뷰포트의 중앙에 새 메모를 놓는다 — 뷰포트 기반 부분 재계산(ADR-0016 ①)이
+    // 이미 계산해 둔 worldRectFromViewport를 그대로 재사용한다.
+    const rect = worldRectFromViewport(viewport, paneWidth || 800, paneHeight || 600);
+    setStickyNotes((prev) => [
+      ...prev,
+      {
+        id: createStickyNoteId(),
+        x: rect.x + rect.width / 2 - STICKY_NOTE_WIDTH / 2,
+        y: rect.y + rect.height / 2 - STICKY_NOTE_HEIGHT / 2,
+        text: '',
+      },
+    ]);
+  };
+
+  const stickyFlowNodes: Node[] = stickyNotes.map((note) => ({
+    id: note.id,
+    type: 'sticky',
+    position: { x: note.x, y: note.y },
+    style: { width: STICKY_NOTE_WIDTH, height: STICKY_NOTE_HEIGHT },
+    draggable: true,
+    zIndex: 1000,
+    data: {
+      text: note.text,
+      onTextChange: (text: string) =>
+        setStickyNotes((prev) => prev.map((n) => (n.id === note.id ? { ...n, text } : n))),
+      onDelete: () => setStickyNotes((prev) => prev.filter((n) => n.id !== note.id)),
+    } satisfies StickyNoteNodeData,
+  }));
+
+  // 스티키노트만 draggable이라(그룹/컴포넌트 노드는 toFlow.ts에서 draggable:false) 여기 오는
+  // position 변경은 전부 스티키노트 것이다 — id로 대조해 두는 건 방어적 확인일 뿐이다.
+  const handleNodesChange: OnNodesChange = (changes) => {
+    const stickyIds = new Set(stickyNotes.map((n) => n.id));
+    const positionChanges = changes.filter(
+      (c): c is Extract<NodeChange, { type: 'position' }> =>
+        c.type === 'position' && c.position !== undefined && stickyIds.has(c.id),
+    );
+    if (positionChanges.length === 0) return;
+    setStickyNotes((prev) =>
+      prev.map((note) => {
+        const change = positionChanges.find((c) => c.id === note.id);
+        return change?.position ? { ...note, x: change.position.x, y: change.position.y } : note;
+      }),
+    );
+  };
+
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
   const searchActive = searchQuery.trim().length > 0;
 
@@ -291,6 +420,9 @@ function BoardContent({
         >
           {colorMode === 'dark' ? '☀️ 라이트' : '🌙 다크'}
         </button>
+        <button type="button" className="toolbar__sticky-add" onClick={addStickyNote}>
+          🗒️ 메모 추가
+        </button>
         <span className="toolbar__count">
           커밋 #{snapshot.commitId} · {visibleCount} / {totalCount} 노드 표시 중
         </span>
@@ -302,10 +434,14 @@ function BoardContent({
             얼마나 큰 nodes 배열을 넘기는가"를 줄이고, onlyRenderVisibleElements는 "그중 화면
             안쪽만 실제로 DOM에 그리는가"를 맡는다. */}
         <ReactFlow
-          nodes={flowNodes}
+          nodes={[...flowNodes, ...stickyFlowNodes]}
           edges={flowEdges}
           nodeTypes={nodeTypes}
           onNodeClick={handleNodeClick}
+          onNodeContextMenu={handleNodeContextMenu}
+          onNodesChange={handleNodesChange}
+          onPaneClick={() => setContextMenu(null)}
+          onMoveStart={() => setContextMenu(null)}
           colorMode={colorMode}
           fitView
           // 0.05(5%) 바닥에 막히면 대규모(그룹 100+/노드 수천)에서 fitView가 요구하는 줌이
@@ -334,6 +470,7 @@ function BoardContent({
           <SemanticZoomController targetRef={canvasRef} />
         </ReactFlow>
       </div>
+      <ContextMenu state={contextMenu} onClose={() => setContextMenu(null)} />
     </div>
   );
 }
