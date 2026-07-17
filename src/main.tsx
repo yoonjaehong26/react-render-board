@@ -11,8 +11,8 @@ import { BoardOverlay } from './visualization/BoardOverlay';
 // 계측 대상 앱(subject)과 보드(board)를 별도의 React root로 마운트한다 — 같은 root였다면
 // 보드가 자기 자신의 리렌더까지 훅에 걸어 관찰하게 된다 (hooking/fiberInspector.ts 참고).
 //
-// ADR-0020/ADR-0024/0025: 보드는 왼쪽 고정 패널이 아니라 플로팅 버튼 + 전체화면 포탈
-// 오버레이다(BoardOverlay.tsx) — 계측 대상 앱은 항상 화면 전체를 그대로 쓴다.
+// ADR-0020/ADR-0024/0025: 보드는 왼쪽 고정 패널이 아니라 플로팅 버튼 + 화면 하단 도킹
+// 패널이다(BoardOverlay.tsx) — 계측 대상 앱은 패널이 열려 있는 동안에도 항상 보이고 조작 가능하다.
 //
 // ?board=off 쿼리 파라미터: BoardOverlay 자체를 마운트하지 않는다(계측 자체는 그대로 동작 —
 // startFiberInspector/handleCommit은 여전히 실행된다). ADR-0009/0012가 excalidraw 오버레이로
