@@ -83,9 +83,9 @@
 
 | 요소 | 상태 |
 |---|---|
-| 손그림 테두리(Excalidraw풍 rough.js) | ✅ **구현됨** — 컴포넌트 노드 테두리를 정적 SVG 스케치로(노드 수 무관 O(1), `roughStyle.ts`). 다크용 테두리·라벨 손글씨체·그룹 프레임 rough는 [조사](research/2026-07-18-excalidraw-visual-identity.md)만 완료, 미구현 |
+| 손그림 시각 정체성(Excalidraw풍 rough.js) | 🟡 **일부 구현, 방향 확정([ADR-0030](decisions/0030-excalidraw-hand-drawn-visual-identity.md))** — 컴포넌트 노드 테두리는 정적 SVG 스케치로 구현됨(노드 수 무관 O(1), `roughStyle.ts`). 확정된 방향: 역할별 rough 세기(노드=스케치/크롬=볼펜/강조=마커·햇칭), 손글씨 폰트는 "render-board" 워드마크에만, 라벨은 모노스페이스. 다크용 테두리 4장·볼펜 크롬·워드마크 폰트는 미구현, 그룹 프레임 rough는 프로파일링 후 결정 |
 | 도형 = 역할(라우트 6각형/경계/포탈) | 미구현 — **방향 확정([ADR-0028](decisions/0028-shape-vocabulary-for-node-roles.md))**. 라우트 6각형은 `groupHint`만으로 스키마 변경 없이 가능(1순위), 경계는 `classify` 확장 선행 필요 |
-| 직교 배선(선 정리) | 미구현 — [별도 조사 진행 중](research/2026-07-18-orthogonal-edge-routing.md) |
+| 직교 배선(선 정리) | 미구현 — **조사 완료, 배선은 보류**([ADR-0029](decisions/0029-orthogonal-edge-routing-deferred.md)). 막힌 증거 없어 지금 안 넣음. 진행 시 제1후보는 규칙 기반 특화 배선기(libavoid 폴백). 대신 간선 클러터 감쇠(스타일/LOD)가 배선보다 먼저인 다음 후보. [조사](research/2026-07-18-orthogonal-edge-routing.md) |
 
 ---
 
@@ -219,7 +219,8 @@ vision.md가 던진 성공 질문("완성 후에도 계속 붙잡을 동기가 �
 - 아키텍처·설계 원칙: [`architecture.md`](architecture.md)
 - 로드맵·판단 지점: [`roadmap.md`](roadmap.md)
 - UI 철학: [`ui-philosophy.md`](ui-philosophy.md)
-- 전체 의사결정 기록: [`decisions/`](decisions/) (ADR-0001~0028)
+- 전체 의사결정 기록: [`decisions/`](decisions/) (ADR-0001~0030)
 - 선행 프로젝트 조사: [`research/prior-art.md`](research/prior-art.md)(요약) · [`research/2026-07-17-prior-art-survey.md`](research/2026-07-17-prior-art-survey.md) · [`research/2026-07-17-prior-art-causes-and-legacy.md`](research/2026-07-17-prior-art-causes-and-legacy.md)
 - 기술 옵션 조사(훅킹·시각화 레이어 후보): [`research/technical-options.md`](research/technical-options.md)
 - React Flow UX 확장 가능 범위 조사(미구현): [`research/2026-07-17-react-flow-ux-capabilities.md`](research/2026-07-17-react-flow-ux-capabilities.md)
+- 간선 직교/버스 배선 + 클러터 조사(배선 보류, ADR-0029): [`research/2026-07-18-orthogonal-edge-routing.md`](research/2026-07-18-orthogonal-edge-routing.md)

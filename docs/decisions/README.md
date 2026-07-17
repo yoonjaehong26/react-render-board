@@ -36,3 +36,5 @@
 | [0026](0026-bidirectional-interaction-implementation.md) | 보드 ↔ 실제 DOM 양방향 인터랙션 구현 | 채택됨 |
 | [0027](0027-search-and-theme-ux-round.md) | UX 레이어 2라운드 — 검색 하이라이트+자동 이동, 다크모드+도메인 팔레트 | 채택됨 |
 | [0028](0028-shape-vocabulary-for-node-roles.md) | 노드 도형 어휘 — "역할"을 도형으로(라우트 6각형/경계/포탈), "구현 방식"은 색·질감으로 | 채택됨(방향성, 구현 다음 라운드) |
+| [0029](0029-orthogonal-edge-routing-deferred.md) | 간선 직교/버스 배선 보류, 클러터 감쇠를 먼저 — 진행 시 제1후보는 규칙 기반 배선기(libavoid 폴백) | 채택됨(방향성 — 배선 보류, 조사만) |
+| [0030](0030-excalidraw-hand-drawn-visual-identity.md) | Excalidraw풍 손그림 시각 정체성 — 역할별 rough 세기(노드=스케치/크롬=볼펜/강조=마커·햇칭), 손글씨는 워드마크에만 | 채택됨(방향성, 일부 구현) |
