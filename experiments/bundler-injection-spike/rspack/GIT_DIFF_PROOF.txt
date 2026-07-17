@@ -1,0 +1,76 @@
+=== git status --porcelain (final state, before cleanup) ===
+ M package-lock.json
+ M package.json
+ M rspack.config.ts
+?? GIT_DIFF_PROOF.txt
+?? rrb-inject-plugin.js
+?? verify-output/
+?? verify.mjs
+
+=== git diff (tracked, modified files: package.json, package-lock.json, rspack.config.ts) ===
+diff --git a/package.json b/package.json
+index 6501157..ece87c4 100644
+--- a/package.json
++++ b/package.json
+@@ -2,7 +2,6 @@
+   "name": "rspack",
+   "version": "1.0.0",
+   "private": true,
+-  "type": "module",
+   "scripts": {
+     "build": "rspack build",
+     "dev": "rspack dev",
+@@ -19,6 +18,8 @@
+     "@rspack/plugin-react-refresh": "^2.0.2",
+     "@types/react": "^19.2.17",
+     "@types/react-dom": "^19.2.3",
++    "html-webpack-plugin": "^5.6.7",
++    "playwright": "^1.61.1",
+     "react-refresh": "^0.18.0",
+     "typescript": "^6.0.3"
+   }
+diff --git a/rspack.config.ts b/rspack.config.ts
+index e9a9db1..fc898cb 100644
+--- a/rspack.config.ts
++++ b/rspack.config.ts
+@@ -1,7 +1,14 @@
++import { createRequire } from 'node:module';
+ import { defineConfig } from '@rspack/cli';
+-import { rspack, type SwcLoaderOptions } from '@rspack/core';
++import { type SwcLoaderOptions } from '@rspack/core';
+ import { ReactRefreshRspackPlugin } from '@rspack/plugin-react-refresh';
+ 
++const require = createRequire(import.meta.url);
++// eslint-disable-next-line @typescript-eslint/no-var-requires
++const RrbInjectPlugin = require('./rrb-inject-plugin.js');
++// eslint-disable-next-line @typescript-eslint/no-var-requires
++const HtmlWebpackPlugin = require('html-webpack-plugin');
++
+ const isDev = process.env.NODE_ENV === 'development';
+ 
+ export default defineConfig({
+@@ -48,9 +55,10 @@ export default defineConfig({
+     ],
+   },
+   plugins: [
+-    new rspack.HtmlRspackPlugin({
++    new HtmlWebpackPlugin({
+       template: './index.html',
+     }),
++    new RrbInjectPlugin(),
+     isDev && new ReactRefreshRspackPlugin(),
+   ],
+ });
+  (package-lock.json diff omitted here for brevity - it's just html-webpack-plugin + playwright + their transitive deps being added)
+
+=== new files added (untracked) ===
+GIT_DIFF_PROOF.txt
+rrb-inject-plugin.js
+verify-output/
+verify.mjs
+
+=== CRITICAL CHECK: any diff under src/ (the app's own component/page source)? ===
+NONE - src/ is completely clean, zero diffs, zero new/untracked files
+
+=== CRITICAL CHECK: any diff to index.html (the app's HTML entry, as opposed to config)? ===
+NONE - index.html untouched (injection happens via html-webpack-plugin's beforeEmit hook at build time, not by editing the template)
