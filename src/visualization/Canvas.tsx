@@ -692,20 +692,28 @@ function BoardContent({
     ]);
   };
 
-  const stickyFlowNodes: Node[] = stickyNotes.map((note) => ({
-    id: note.id,
-    type: 'sticky',
-    position: { x: note.x, y: note.y },
-    style: { width: STICKY_NOTE_WIDTH, height: STICKY_NOTE_HEIGHT },
-    draggable: true,
-    zIndex: 1000,
-    data: {
-      text: note.text,
-      onTextChange: (text: string) =>
-        setStickyNotes((prev) => prev.map((n) => (n.id === note.id ? { ...n, text } : n))),
-      onDelete: () => setStickyNotes((prev) => prev.filter((n) => n.id !== note.id)),
-    } satisfies StickyNoteNodeData,
-  }));
+  // useMemo로 stickyNotes 자체가 바뀔 때만 재계산한다 — 안 그러면 고빈도 앱(store 30Hz 알림 등)이
+  // 유발하는, stickyNotes와 무관한 BoardContent 재렌더마다 이 배열과 콜백이 매번 새로 만들어져
+  // React Flow가 매번 새 data 객체로 StickyNoteNode를 다시 그리고, 그때마다 controlled textarea의
+  // value가 강제로 재적용돼 한글 IME 조합(자음/모음)이 깨지고 타이핑이 끊기는 원인이 됐다.
+  const stickyFlowNodes: Node[] = useMemo(
+    () =>
+      stickyNotes.map((note) => ({
+        id: note.id,
+        type: 'sticky',
+        position: { x: note.x, y: note.y },
+        style: { width: STICKY_NOTE_WIDTH, height: STICKY_NOTE_HEIGHT },
+        draggable: true,
+        zIndex: 1000,
+        data: {
+          text: note.text,
+          onTextChange: (text: string) =>
+            setStickyNotes((prev) => prev.map((n) => (n.id === note.id ? { ...n, text } : n))),
+          onDelete: () => setStickyNotes((prev) => prev.filter((n) => n.id !== note.id)),
+        } satisfies StickyNoteNodeData,
+      })),
+    [stickyNotes],
+  );
 
   // 스티키노트만 draggable이라(그룹/컴포넌트 노드는 toFlow.ts에서 draggable:false) 여기 오는
   // position 변경은 전부 스티키노트 것이다 — id로 대조해 두는 건 방어적 확인일 뿐이다.

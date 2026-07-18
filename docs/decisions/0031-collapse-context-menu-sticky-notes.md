@@ -132,3 +132,36 @@ xyflow가 이걸 자동으로 처리해주지 않는다는 게 연구 문서(3-B
   실시간 공유(Pro/CRDT 인프라 필요, 연구 문서가 이미 스코프 밖으로 명시)도 그대로 제외.
 - **되돌리기 쉬움**: 셋 다 `RenderNode`/`RenderSnapshot` 스키마 밖의 로컬 state·CSS·`toFlow.ts`의
   프레젠테이션 필드로만 구현돼, 데이터 스키마나 기존 파이프라인에는 영향이 없다.
+
+## 개정 (2026-07-18) — 스티키노트 QA 버그 3건 수정: 휠 줌 막힘 / 한글 조합 깨짐 / 타이핑 끊김
+
+사용자 QA에서 스티키노트 위에서 (1) 휠 스크롤로 캔버스 줌이 안 되고, (2) 한글 입력이 자음/모음
+단위로 쪼개져 찍히고, (3) 타이핑이 자주 끊기는 느낌이라는 세 증상을 함께 보고했다. 원인은 하나로
+얽혀 있었다:
+
+- **근본 원인**: `stickyFlowNodes`가 `useMemo` 없이 `BoardContent` 렌더마다 새로 만들어졌다.
+  이 컴포넌트는 고빈도 앱(라이브피드 10~240Hz, store notify 스로틀 후에도 최대 ~30Hz)의 커밋마다
+  재렌더되므로, 스티키노트와 무관한 재렌더에도 매번 새 `data` 객체(+새 `onTextChange`/`onDelete`
+  클로저)가 만들어져 React Flow가 `StickyNoteNode`를 다시 그렸다. `<textarea value={data.text}>`가
+  controlled라 이 재렌더마다 DOM value가 강제로 재적용됐는데, 이 시점이 한글 조합 도중이면 브라우저의
+  IME 조합 버퍼가 깨져 자음/모음이 따로 커밋됐다 — "끊기는 느낌"도 같은 원인(초당 최대 30회 재적용).
+- **휠 줌 막힘의 원인은 별개**: `nowheel` 클래스가 textarea 위 모든 wheel 이벤트를 무조건
+  캔버스로 못 가게 막았다(긴 메모 안에서 스크롤할 때 캔버스가 줌 안 되게 하려던 의도, ADR-0031
+  본문). 짧은 메모는 애초에 스크롤할 내용이 없는데도 휠이 전부 막혀, 커서가 스티키노트 위에
+  있으면 화면 축소/확대 자체가 안 됐다.
+
+**수정**:
+1. `Canvas.tsx`: `stickyFlowNodes`를 `useMemo(() => ..., [stickyNotes])`로 감싸 `stickyNotes`
+   자체가 바뀔 때만(추가/삭제/텍스트/위치) 재계산되게 했다 — 무관한 재렌더에 더는 안 흔들린다.
+2. `StickyNoteNode.tsx`: textarea를 `data.text` 직접 controlled에서 **로컬 버퍼 + 디바운스
+   동기화**로 바꿨다. 타이핑은 로컬 state로 즉시 반영해 controlled value가 항상 "방금 친 값"과
+   일치하고(재렌더가 와도 로컬 state는 안 건드리므로 조합이 안 깨진다), 부모(`onTextChange`,
+   localStorage까지 이어짐)로는 300ms 디바운스 후 또는 blur 시 반영한다.
+3. `StickyNoteNode.tsx`: `nowheel` 전체 차단을 걷어내고, textarea 자체의 `onWheel`에서 **스크롤
+   체이닝**을 직접 구현했다 — 그 방향으로 더 스크롤할 여지가 있을 때만(`scrollTop`/`scrollHeight`
+   경계 확인) `stopPropagation()`으로 캔버스 줌을 막고, 그렇지 않으면(짧은 메모, 또는 이미 끝까지
+   스크롤한 긴 메모) 휠이 그대로 캔버스로 올라가 줌이 된다.
+
+- **검증**: `tsc` 클린, `StickyNoteNode.test.tsx`(디바운스 동작/blur flush/nowheel 클래스 제거
+  확인으로 갱신) + `stickyNotes.test.ts` 통과, 전체 유닛 테스트 325개 통과, lint 무관 경고만.
+- **되돌리기 쉬움**: 이 컴포넌트 국소 변경 — 스키마·다른 노드 타입 영향 없음.
