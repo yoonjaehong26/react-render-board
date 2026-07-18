@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { AppShell } from './domains/shell/AppShell';
+import { Storefront } from './domains/shop/Storefront';
 import { CheckoutPanel } from './domains/checkout/CheckoutPanel';
 import { NotificationPanel } from './domains/notifications/NotificationPanel';
 import { AdvancedPatterns } from './domains/advanced/AdvancedPatterns';
@@ -38,6 +39,9 @@ const stressCount = Number(new URLSearchParams(window.location.search).get('stre
 // 얼마나 느려지는지, 그리고 보드 열림/닫힘 응답 배율이 646개(ADR-0012) 대비 어떻게
 // 바뀌는지를 잰다. 버스트 버튼은 드래그 제스처의 연쇄 커밋(scripts/verify-real-app.mjs의
 // drawFiveCircles)을 흉내내 rAF 간격으로 K번 state 업데이트를 발생시킨다.
+// Storefront(domains/shop)는 위 캡슐형 fixture들과 목적이 다르다 — 특정 React 패턴을
+// 검증하려는 게 아니라, 실제 서비스처럼 자연스러운 이름/깊이의 컴포넌트 트리(Storefront>
+// ProductGrid>ProductCard>ProductInfo)를 보드에서 보여주기 위한 사용자 요청 데모다.
 export function DemoApp() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [burstStatus, setBurstStatus] = useState<'대기' | '진행 중' | '완료'>('대기');
@@ -59,6 +63,7 @@ export function DemoApp() {
         onClick={() => setShowNotifications((v) => !v)}
       />
       <AppShell />
+      <Storefront />
       <CheckoutPanel />
       <DashboardPage />
       <PortalModal />

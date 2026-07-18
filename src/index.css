@@ -101,3 +101,98 @@ body {
   background: #6366f1;
   border-radius: 1px;
 }
+
+.store-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.store-header__logo {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.category-filter-bar {
+  margin-bottom: 10px;
+}
+
+.product-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.product-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 6px;
+}
+
+.product-card__image {
+  height: 56px;
+  border-radius: 4px;
+  background: #e0e7ff;
+}
+
+.product-card__image--accessories {
+  background: #fce7f3;
+}
+
+.product-card__image--footwear {
+  background: #dcfce7;
+}
+
+.product-card__info {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+}
+
+.product-card__price {
+  color: #6b7280;
+}
+
+.cart-drawer {
+  margin-top: 10px;
+  border-top: 1px dashed #d1d5db;
+  padding-top: 8px;
+}
+
+.cart-drawer ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cart-line-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 2px 0;
+}
+
+.cart-line-item__name {
+  flex: 1;
+}
+
+.cart-line-item__remove {
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+}
+
+.cart-drawer__total {
+  margin-top: 6px;
+  font-weight: 600;
+  font-size: 12px;
+}
