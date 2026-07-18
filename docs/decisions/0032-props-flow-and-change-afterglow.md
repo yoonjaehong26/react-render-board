@@ -111,7 +111,29 @@
 - **노드는 보조**: 예전의 두꺼운 heat 색 링을 얇은 표식(1.5px, glow 제거)으로 줄여 "여기가 방금 바뀌었다"만 은은히 알린다.
 - **이름**: 툴바 라벨 `✨ 잔상` → `🌊 흐름`(내부 식별자 `afterglow*`는 유지 — 공유 파일 변경 최소화, 문서로 매핑).
 
+### UX 후속 4 — 지도 모드 그룹 흐름 "활동 기상도" (사용자 피드백, Q2)
+"흐름을 wide view(지도 모드)에서도 볼 수 있게" 하자는 제안을 구현했다. 지도 모드에선 개별 노드/간선이 semantic zoom으로 접혀 노드 단위 흐름이 안 보이는데, **그룹 단위로 집계**해 해결했다:
+- **바쁜 도메인이 발광**: 흐름 감지 이펙트가 지도 모드에선 전체 visible 컴포넌트를 훑어 "멤버가 바뀐 그룹"을 집계(`afterglowStore.bumpGroups`)하고, `GroupNode`가 자기 그룹 heat를 구독해 프레임을 heat 색으로 발광시킨다.
+- **도메인 간 흐름**: 이미 있는 그룹↔그룹 집계 간선([ADR-0034](0034-group-level-waterfall-layout.md))이 "자식 그룹이 방금 바뀜"일 때 부모→자식으로 흐른다(`edge-hot` + animated).
+- **비용/스코핑**: 지도 모드 집계는 뷰포트 한정이 아니라 커밋마다 전체 노드를 훑는다 — 하지만 흐름 켰을 때만 드는 opt-in "토글 모드"라 ADR 본문 "성능 스코핑"이 허용한 두 안("뷰포트 한정 **또는** 토글 모드") 중 후자다. 대형 앱은 실측 후 필요하면 더 좁힌다.
+- `afterglowStore`에 그룹 heat 채널(문자열 키, 노드 heat와 분리·같은 decay/일시정지 공유)을 추가. 노드 heat API(숫자 키)는 불변이라 기존 코드·테스트 그대로.
+
+또한 사용자와 "React Scan 기능(페이지 위 스트로브·렌더 카운트·렌더 이유)을 얼마나 가져갈지" 스코프를 논의해, **페이지 위 스트로브는 정체성 충돌·스코프 크리프로 넣지 않고**, 이 도구는 "차분한 지도 + 양방향 + props 흐름"에 집중하기로 재확인했다(렌더 카운트 뱃지는 값싼 on-brand 옵션으로 남겨둠).
+
+### UX 후속 5 — 흐름 간선에 "흐르는 prop 이름" + 버튼 라벨 + 데모 2종 (사용자 피드백)
+- **흐름 간선 라벨**: 흐름 모드에서 각 간선에 "지금 흐르는 대표 prop 이름"을 얹는다(`representativeChangedProp` — 자식이 방금 받은 변경 prop 중 추적 가능한 것 우선). 스크린샷에서 간선마다 `data`/`snapshot` 라벨. 그룹 집계 간선(지도 모드)은 대표가 모호해 라벨 없음.
+- **버튼 라벨**: `🌊 흐름` → `🌊 props 흐름 보기`(켜짐: `props 흐름 보는 중`) — 무엇을 보여주는지 명확히.
+- **데모 fixture 2종**(`StateFlowDemo.tsx`): (1) **느린(5s) 상속** — DataFlowPanel(1.5s)은 식기 전 재점화돼 계속 뜨거운데, 이건 간격이 넉넉해 흐름이 "시작→빨강→파랑으로 식음→소멸" 한 사이클을 눈으로 볼 수 있다(잔상 half-life ~5s와 맞물림, 앞서 "색이 식을 시간이 없다" 피드백 해소). (2) **내부 상태 변화** — 자기 `useState`로 리렌더되는 컴포넌트는 흐름에 안 잡히지만(우리 스코프=prop 변경), 그 state에서 파생한 값을 받는 자식은 잡힌다 → "내부 상태는 자식으로의 props 흐름으로 드러난다"를 시연.
+
 ### 검증
-- `npm run test`: 이 라운드 신규(propsFlow·afterglowStore·PropsPanel + getVersion) 포함 **전부 통과**. 내 파일은 `tsc` 클린(동시 세션이 편집 중인 `roleMarkers`/`domInteraction.test.ts`/`BoardOverlay.tsx`의 미완성 타입 에러는 이 ADR 범위 밖 — 내 유닛 테스트 50개 그린).
-- `npm run verify:props-flow`(흐름 모드): 자동 추적 간선 7(origin 포함) + 흐름 간선 7(자식이 바뀐 모든 간선, 부모→자식 애니메이션), 콘솔 에러 0.
+- `npm run test`: 이 라운드 신규(propsFlow[+representativeChangedProp]·afterglowStore[+group]·PropsPanel) 포함 **전부 통과(291개)**. 내 파일 `tsc`/lint 클린.
+- `npm run verify:props-flow`(콘솔 에러 0): 상세 모드 = 노드 표식 + 흐름 간선 7(부모→자식 애니메이션, origin 포함); **지도 모드 = 바쁜 도메인 프레임 발광 1 + 도메인 간 흐름 간선 1**(활동 기상도).
 - `npm run verify:props-flow`(Playwright, DataFlow fixture, 콘솔 에러 0): (1) DataFlowList 선택→패널 `data { version, label, hue }`(위)+`onPick ƒ`, (2) 1.5s 갱신 후 `data`에 "변경됨" 배지, (3) **row 클릭 없이 선택만으로** 자동 추적 → 끝점 6 + 간선 6(.edge-tracked) + 라벨 "data", (4) 잔상 켜고 노드 발광 7 + **클릭 없이 간선 발광 6(.edge-hot)**, 일시정지 후 발광 7 유지(freeze 확인).
+
+### UX 후속 6 — 인터랙션·크롬 정리 (사용자 피드백, 후반 라운드)
+props 흐름과 짝을 이루는 인터랙션/크롬을 다듬었다(일부는 다른 세션 소유 ADR을 사용자 요청으로 조정):
+- **Alt(⌥)-held 라이브 동시 햇칭** — Alt를 누른 동안 실제 화면에서 커서 아래 요소 + 대응 다이어그램 노드를 동시에 햇칭으로 밝힌다(픽 hover ADR-0038를 Alt 트리거로 확장 + `interactionStore.hoverNodeId`(요소→노드) 추가 → `PageHoveredNodeContext`로 ComponentNode에 전달). 전부 클라이언트 이벤트 리스너라 새 권한 0, rAF 스로틀 + Alt/픽 아닐 땐 리스너 0.
+- **더블클릭 통합** — 예전엔 확대/스크롤/하이라이트가 더블클릭 횟수마다 따로 걸렸는데, 한 번의 더블클릭 = 보드 확대 + 실제 요소 스크롤 + 실제요소·노드 햇칭으로 합쳤다. 스크롤은 `behavior:'smooth'`(비동기라 하이라이트가 스크롤 전 위치에 측정됨) → **instant**로 바꿔 측정 위치를 정확히.
+- **역방향 fitView 분리** — 역방향 착지 카메라 이동이 더블클릭과 `firedForRequestRef`(카운터 가드)를 공유해, 더블클릭 후 다음 역방향의 fitView가 막히는 취약점(하이라이트만 되고 카메라 안 움직임)을 발견 → **독립 `pendingFitRef`**(옮길 노드 id를 들고 있다 노드가 flowNodes에 나타나면 한 번 fitView·비움)로 바꿔 완전 분리.
+- **하이라이트 채움 → 햇칭 통일**(`ROUGH_FILL_HIGHLIGHTED` solid→hachure): solid 채움이 노드 텍스트를 덮어 가독성을 해쳐, 검색=녹색 햇칭/픽·역방향=인디고 햇칭으로 기법 통일(ADR-0035 조정).
+- **툴바 크롬 정리** — 좌/우 도킹 시 도킹 컨트롤(ADR-0040)이 host 체크박스를 가리던 것 패딩으로 해소, 좁은 패널은 `도구` 오버플로 드롭다운(검색+메뉴 한 줄)으로, 드롭다운 버튼 rough 크롬 제거(깔끔한 실선), 툴바 버튼 이모지 전부 제거 + 검색 placeholder `검색`(잘림 해소).
