@@ -1,7 +1,7 @@
 {
   "name": "react-render-board",
   "description": "React 앱의 실시간 렌더 트리를 박스+선 다이어그램 캔버스로 시각화하는 dev-only 도구",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "license": "MIT",
   "author": "yoonjaehong26",
   "repository": {
