@@ -16,8 +16,13 @@
 // beforeEmit 훅이 없을 수 있다 — 그 경우 html-webpack-plugin으로 교체하거나 Rspack용 HTML
 // 플러그인 훅에 맞춰야 한다. 이 헬퍼는 html-webpack-plugin이 있으면 그 훅을 쓰고, 없으면
 // 조기 스크립트를 건너뛰고 entry만 얹는다(런타임 자체 가드로 동작은 하되 타이밍은 보장 못 함).
-// CSS: 소비자 webpack에 css-loader가 있으면 entry에 'react-render-board/style.css'를 추가하거나
-// 앱에서 import 한다. 없으면 보드는 스타일 없이(기능은 정상) 뜬다.
+//
+// entry 순서(실사용 결함 수정, 2026-07-19, ADR-0069): 예전엔 런타임을 entry "뒤에" 붙였는데,
+// 실제 소비자 프로젝트(coverLetter, webpack+dev-server)에서 [앱, 런타임] 순서라 React DevTools
+// 확장이 훅을 선점한 경우(조기 스크립트가 새 훅을 못 심는 환경) 런타임이 앱의 최초 커밋을
+// 놓쳐 렌더 트리가 0개로 잡히는 결함이 실측됐다. [런타임, ...앱] 순서로 "앞에" 얹는다.
+// CSS는 entry로 얹지 않는다 — css-loader 없는 소비자의 빌드를 깨뜨린다. 대신 런타임이 CSS를
+// 문자열로 품고 부팅 시 <style>로 자기주입한다(src/inject.tsx, ADR-0069) — 로더 구성 무관.
 
 const { EARLY_HOOK_SCRIPT_BODY } = require('./early-hook-script.cjs');
 
@@ -63,7 +68,9 @@ function withRenderBoard(config, options = {}) {
   const isProd = config.mode === 'production' || process.env.NODE_ENV === 'production';
   if (isProd && !options.force) return config; // dev 전용
 
-  config.entry = addEntry(config.entry, runtime);
+  // 순서가 계약이다(파일 상단 주석): 런타임 → 앱. 런타임이 앱보다 먼저 실행돼야
+  // 조기 스크립트가 무력한 환경(DevTools 확장이 훅 선점)에서도 최초 커밋을 잡는다.
+  config.entry = addEntry(config.entry, [runtime]);
   config.plugins = Array.isArray(config.plugins) ? config.plugins : [];
   if (!config.plugins.some((p) => p instanceof RenderBoardWebpackPlugin)) {
     config.plugins.push(new RenderBoardWebpackPlugin());
@@ -71,15 +78,24 @@ function withRenderBoard(config, options = {}) {
   return config;
 }
 
-// 여러 형태의 entry를 보존하며 런타임 진입점을 추가한다(멱등).
-function addEntry(entry, runtime) {
-  if (entry == null) return runtime;
-  if (typeof entry === 'string') return entry === runtime ? entry : [entry, runtime];
-  if (Array.isArray(entry)) return entry.includes(runtime) ? entry : [...entry, runtime];
-  if (typeof entry === 'function') return async () => addEntry(await entry(), runtime);
+// 여러 형태의 entry를 보존하며 주입 모듈들(prepend 배열)을 "앞에" 추가한다(멱등 —
+// 이미 들어 있는 모듈은 다시 넣지 않는다).
+function addEntry(entry, prepend) {
+  if (entry == null) return prepend.length === 1 ? prepend[0] : [...prepend];
+  if (typeof entry === 'string') {
+    const missing = prepend.filter((m) => m !== entry);
+    return missing.length === 0 ? entry : [...missing, entry];
+  }
+  if (Array.isArray(entry)) {
+    const missing = prepend.filter((m) => !entry.includes(m));
+    return missing.length === 0 ? entry : [...missing, ...entry];
+  }
+  if (typeof entry === 'function') return async () => addEntry(await entry(), prepend);
   if (typeof entry === 'object') {
     if (Object.prototype.hasOwnProperty.call(entry, 'react-render-board')) return entry;
-    return { ...entry, 'react-render-board': runtime };
+    // 객체 형태는 entry별 번들이 따로 나가므로 순서 보장이 약하다 — 보드 전용 키를 "맨 앞"에
+    // 두어 html-webpack-plugin 스크립트 주입 순서에서라도 앞서게 한다.
+    return { 'react-render-board': prepend.length === 1 ? prepend[0] : [...prepend], ...entry };
   }
   return entry;
 }

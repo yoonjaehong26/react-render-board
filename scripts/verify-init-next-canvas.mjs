@@ -79,10 +79,13 @@ async function main() {
     await sh('npm', ['install', tgz, '--legacy-peer-deps', '--no-audit', '--no-fund'], scaffold);
     pass('react-render-board 설치 완료(+deps).');
 
-    // 3. 실제 CLI로 원커맨드 init.
+    // 3. 실제 CLI로 원커맨드 init. ADR-0062(0.2.0)부터는 2번의 `npm install`이 postinstall로
+    // init을 먼저 수행하므로, 여기서는 "이미 설정돼 있음"(멱등 확인)도 정상 경로다.
     const initOut = await sh('node', [cliBin, 'init'], scaffold);
-    if (/wired-canvas/.test(initOut) && existsSync(clientPath)) pass('`init`이 layout 패치 + RenderBoardClient.tsx 생성.');
-    else { fail('init이 캔버스 배선을 못 함.'); console.log(initOut); }
+    const alreadyWired = /이미 react-render-board가 설정/.test(initOut);
+    if ((/wired-canvas/.test(initOut) || alreadyWired) && existsSync(clientPath)) {
+      pass(`\`init\`이 layout 패치 + RenderBoardClient.tsx 생성${alreadyWired ? ' (postinstall 선수행 + 멱등 확인, ADR-0062)' : ''}.`);
+    } else { fail('init이 캔버스 배선을 못 함.'); console.log(initOut); }
 
     // 4. next dev(Turbopack)로 실제 캔버스 확인.
     console.log(`[e2e] next dev (port ${PORT}) …`);

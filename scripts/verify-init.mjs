@@ -66,6 +66,16 @@ async function verifyDev() {
     await toggle.waitFor({ state: 'visible', timeout: 5000 });
     pass('플로팅 버튼이 주입만으로 렌더됨("render-board 열기").');
 
+    // CSS 회귀 가드(실사용 결함, ADR-0069): 플러그인이 JS만 주입하고 style.css를 안 실어 보드가
+    // 스타일 없이 깨져 보이던 버그 — "캔버스 노드 수"만 보던 기존 검증을 그대로 통과해버렸다.
+    // 스타일시트가 실제 적용됐는지 computed style로 확인한다(.board-fab { border-radius: 50% }).
+    const fabRadius = await page.evaluate(() => {
+      const el = document.querySelector('.board-fab');
+      return el ? getComputedStyle(el).borderRadius : null;
+    });
+    if (fabRadius === '50%') pass('보드 CSS 로드됨(.board-fab border-radius 50%).');
+    else fail(`보드 CSS 미적용(.board-fab border-radius=${fabRadius}) — style.css 주입 결함.`);
+
     // 앱 소스 무수정 증명: 주석/설명 텍스트를 제거한 뒤, 실제 import 문이 보드를 끌어오지
     // 않는지 확인한다(설명 주석에 "render-board"라는 단어가 있어도 위반이 아니다).
     const stripComments = (s) =>

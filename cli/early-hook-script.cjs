@@ -31,7 +31,11 @@ const EARLY_HOOK_SCRIPT_BODY = `
       inject: function (r) { var id = rrbRenderers.size + 1; rrbRenderers.set(id, r); return id; },
       onCommitFiberRoot: function (rendererID, root) {
         window.__RRB_COMMITS__ = (window.__RRB_COMMITS__ || 0) + 1;
-        try { window.__RRB_ROOTS__.set(rendererID, root); } catch (e) {}
+        // root 객체 자체를 키로 쓴다(커밋마다 같은 FiberRoot 객체가 재사용되므로 root당 1엔트리).
+        // 예전엔 rendererID 키라 한 renderer의 여러 root(대상 앱 + Next dev 오버레이 같은 도구
+        // UI root) 중 마지막 커밋 것만 남아, 런타임 부팅 시 재생(drain)에서 앱 root가 유실될 수
+        // 있었다 — 실사용(Next 16)에서 보드가 도구 UI 트리만 그리던 결함의 한 축.
+        try { window.__RRB_ROOTS__.set(root, root); } catch (e) {}
       },
       onCommitFiberUnmount: function () {},
       onPostCommitFiberRoot: function () {},

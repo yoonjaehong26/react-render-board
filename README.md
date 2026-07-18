@@ -160,7 +160,7 @@ const { withRenderBoard } = require('react-render-board/webpack');
 module.exports = withRenderBoard({ /* 기존 config */ });
 ```
 
-> webpack에서 보드 스타일이 필요하면 앱 엔트리에 `import 'react-render-board/style.css'`를 추가하세요(css-loader 필요). Vite/Next는 자동으로 로드합니다.
+> 보드 스타일은 `0.2.2`부터 런타임이 스스로 주입합니다 — 어떤 번들러에서도 별도 CSS 설정이 필요 없습니다(css-loader 불필요). 예전 안내로 앱 엔트리에 `import 'react-render-board/style.css'`를 추가했다면 지워도 됩니다(있어도 무해).
 
 ---
 

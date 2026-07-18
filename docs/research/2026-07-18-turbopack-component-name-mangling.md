@@ -4,6 +4,14 @@
 > 보드의 컴포넌트 이름이 "c8"·"eS"·"nd" 같은 압축 식별자로 표시되는 문제
 > ([project-status §7-3](../project-status.md) 미해결 항목)의 원인 조사 기록.
 > `fiber.type.name` 자체가 이 값임은 이미 확인됐다(표시 로직 문제 아님).
+>
+> **➡ 해결됨(2026-07-19, [ADR-0068](../decisions/0068-next-devtools-root-pollution-fix.md)):**
+> 아래 "남은 유력 가설"(4절)이 정련된 형태로 적중했다 — 그 이름들은 Next 프레임워크 내부,
+> 정확히는 **Next DevTools 오버레이 UI 컴포넌트**(`next/dist/compiled/next-devtools`, 사전
+> 미니파이)였고, 보드가 그걸 보여준 이유는 이름 문제가 아니라 **DevTools의 별도 React root가
+> latest-root-wins인 store 스냅샷을 차지하는 root 오염**이었다. 도구 root 필터로 수정 후
+> 보드는 앱 트리(온전한 이름: `Root`, `AppRouter`, …)를 그리고 역방향 이동도 복구됐다.
+> 아래 본문의 "다음 진단" 절차는 실행할 필요가 없어졌으나 조사 기록으로 남긴다.
 
 ## 결론 요약
 

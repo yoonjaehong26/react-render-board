@@ -17,6 +17,7 @@
 // 주입하지 않는다. 런타임 진입점(src/inject.tsx)도 import.meta.env.DEV 가드를 겹으로 둔다.
 
 const DEFAULT_ENTRY = 'react-render-board/inject';
+const DEFAULT_STYLE = 'react-render-board/style.css';
 
 /**
  * @param {{ entry?: string }} [options]
@@ -51,7 +52,10 @@ export function rrbInjectPlugin(options = {}) {
             // 인라인 module 스크립트의 bare/루트-상대 import는 Vite dev가 그 자리에서
             // 재작성·해석한다(별도 <script src> 파일 불필요). static import라 동기 실행돼
             // 대상 앱 커밋보다 먼저 훅을 건다.
-            children: `import ${JSON.stringify(entry)};`,
+            // style.css도 같은 module에서 import해 Vite dev의 CSS 처리(<style> 주입)에
+            // 태운다 — 별도 <link> 태그는 대상 앱 index.html이 최종 인라인 script보다
+            // 늦게 붙는 경우 순서를 보장할 수 없어 module import 쪽이 더 안전하다.
+            children: `import ${JSON.stringify(entry)};\nimport ${JSON.stringify(DEFAULT_STYLE)};`,
           },
         ];
       },

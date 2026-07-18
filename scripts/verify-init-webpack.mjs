@@ -5,8 +5,9 @@
 // 앱 무수정으로 훅을 걸고 (2) 런타임 entry가 실제 BoardOverlay+React Flow 캔버스를 띄우는지
 // 확인한다. 끝나면 스파이크(config/package.json/lock)를 원상복구.
 //
-// webpack 스파이크엔 css-loader가 없어 보드는 스타일 없이(기능 정상) 뜬다 — .react-flow__node
-// DOM은 CSS와 무관하게 존재하므로 캔버스 렌더는 확인 가능하다.
+// webpack 스파이크엔 css-loader가 없다 — 그래서 이 스파이크는 "런타임 CSS 자기주입"(ADR-0069,
+// src/inject.tsx가 CSS를 문자열로 품고 <style>로 주입)의 결정적 검증 무대다: 로더가 전혀
+// 없는데도 보드가 스타일을 갖춰야 한다(아래 .board-fab computed style 단언).
 //
 // 실행: node scripts/verify-init-webpack.mjs (npm run verify:init-webpack)
 import { chromium } from 'playwright';
@@ -133,6 +134,15 @@ async function main() {
     else fail('런타임 부팅 안 됨(스텁 버튼만).');
     if (commits > 0) pass(`조기 훅이 초기 커밋 관찰(onCommitFiberRoot ${commits}회).`);
     else fail('onCommitFiberRoot 0.');
+
+    // CSS 자기주입 검증(ADR-0069): 이 스파이크엔 css-loader가 없다 — 그런데도 스타일이 적용돼야
+    // 한다(런타임이 CSS를 <style>로 직접 주입). 예전엔 "스타일 없이 기능만 정상"이 기대값이었다.
+    const fabRadius = await page.evaluate(() => {
+      const el = document.querySelector('.board-fab');
+      return el ? getComputedStyle(el).borderRadius : null;
+    });
+    if (fabRadius === '50%') pass('CSS 자기주입 동작(css-loader 없는 소비자에서 .board-fab 스타일 적용).');
+    else fail(`CSS 자기주입 실패(.board-fab border-radius=${fabRadius}).`);
 
     await toggle.click();
     await page.waitForSelector('.react-flow__node', { timeout: 12000 });
