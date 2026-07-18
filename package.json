@@ -1,7 +1,7 @@
 {
   "name": "react-render-board",
   "description": "React 앱의 실시간 렌더 트리를 박스+선 다이어그램 캔버스로 시각화하는 dev-only 도구",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "author": "yoonjaehong26",
   "repository": {
@@ -58,6 +58,7 @@
   ],
   "scripts": {
     "prepublishOnly": "npm run build:lib",
+    "postinstall": "node cli/postinstall.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:lib": "tsc -p tsconfig.lib.json && vite build --config vite.lib.config.ts",
@@ -79,8 +80,8 @@
     "verify:init-webpack": "node scripts/verify-init-webpack.mjs"
   },
   "peerDependencies": {
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0"
   },
   "dependencies": {
     "@xyflow/react": "^12.11.2",

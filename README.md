@@ -10,15 +10,34 @@ React DevTools의 들여쓰기 리스트 뷰가 아니라, 컴포넌트 구조�
 
 **dev 전용 도구입니다** — 프로덕션 빌드엔 주입되지 않습니다.
 
+### npm / yarn
+
 ```bash
 npm install --save-dev react-render-board
-npx react-render-board init   # 번들러를 감지해 설정을 자동으로 넣어줍니다
-npm run dev                   # 앱 우측 하단에 보드 버튼이 뜹니다
+npm run dev
 ```
 
-`init`이 번들러별로 설정을 자동 구성합니다:
+설치 직후 `postinstall`이 번들러를 감지해 설정을 **자동으로** 넣습니다. 이게 끝입니다 — 그대로 `npm run dev`만 실행하면 앱 우측 하단에 보드 버튼이 뜹니다.
 
-| 번들러 | `init`이 하는 일 |
+### pnpm
+
+pnpm은 처음 보는 패키지의 설치 스크립트를 기본적으로 차단합니다(공급망 보안 정책 — `esbuild`, `sharp` 등 설치 스크립트가 있는 대부분의 유명 패키지도 동일하게 겪는 pnpm 표준 절차이지 이 패키지만의 특이사항이 아닙니다). 한 번만 승인하면 됩니다:
+
+```bash
+pnpm install --save-dev react-render-board
+pnpm approve-builds --all   # 비대화형 일괄 승인. 고르고 싶으면 `pnpm approve-builds`
+npm run dev
+```
+
+### 수동 실행 (재확인하고 싶을 때 / 자동 설정이 스킵됐을 때)
+
+```bash
+npx react-render-board init
+```
+
+`init`(자동이든 수동이든)이 번들러별로 설정을 구성합니다:
+
+| 번들러 | 하는 일 |
 |---|---|
 | **Vite** | `vite.config`의 `plugins`에 `rrbInjectPlugin()` 추가 |
 | **Next.js / Turbopack** | 루트 `layout.tsx`에 조기 `<head>` 스크립트 + `RenderBoardClient` 배선 |
