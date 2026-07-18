@@ -1,6 +1,6 @@
 # ADR-0020: 배포/설치 UX 방향 — npm 자동 설정 + 같은 페이지 플로팅 버튼
 
-- 상태: 채택됨(번들러별 기술 검증은 [ADR-0021](0021-bundler-injection-feasibility.md)에서 완료 — 4개 번들러 모두 조건부 GO)
+- 상태: 채택됨(번들러별 기술 검증은 [ADR-0021](0021-bundler-injection-feasibility.md)에서 완료 — 4개 번들러 모두 조건부 GO / **연결 방식 축 구현 완료: [ADR-0036](0036-distribution-connection-implementation.md)** — CLI init + Vite 플러그인 + 조건부 어댑터)
 - 날짜: 2026-07-17
 
 ## 맥락 (Context)

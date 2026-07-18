@@ -82,7 +82,61 @@ export function startDomClickBridge(subjectContainer: Element, interactionStore:
     }
   }
 
+  // hover-follow 프리뷰(ADR-0038): 픽 모드가 켜져 있는 동안만 마우스를 따라 커서 아래 요소를
+  // interactionStore.hoverElements에 실시간으로 올린다("클릭하면 이게 선택된다"를 미리 보여줌 —
+  // React DevTools/react-scan 엘리먼트 피커와 같은 프리뷰). mousemove는 매우 잦으므로
+  // requestAnimationFrame으로 프레임당 1회만 반영하고, 픽 모드가 꺼져 있을 때는 리스너 자체를
+  // 떼어 평소엔 mousemove 비용이 0이 되게 한다.
+  let rafId: number | null = null;
+  let lastTarget: Element | null = null;
+
+  function handleMove(event: Event) {
+    if (!(event instanceof MouseEvent)) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    lastTarget = target;
+    if (rafId !== null) return;
+    rafId = requestAnimationFrame(() => {
+      rafId = null;
+      if (lastTarget) interactionStore.setHoverElements([lastTarget]);
+    });
+  }
+
+  function clearHover() {
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+    lastTarget = null;
+    interactionStore.setHoverElements([]);
+  }
+
+  let hoverAttached = false;
+  function syncHoverListeners() {
+    const active = interactionStore.getSnapshot().pickModeActive;
+    if (active && !hoverAttached) {
+      subjectContainer.addEventListener('mousemove', handleMove, true);
+      subjectContainer.addEventListener('mouseleave', clearHover, true);
+      hoverAttached = true;
+    } else if (!active && hoverAttached) {
+      subjectContainer.removeEventListener('mousemove', handleMove, true);
+      subjectContainer.removeEventListener('mouseleave', clearHover, true);
+      hoverAttached = false;
+      clearHover();
+    }
+  }
+
   subjectContainer.addEventListener('click', handleClick, true);
+  const unsubscribe = interactionStore.subscribe(syncHoverListeners);
+  syncHoverListeners();
   console.log('[hooking] react-render-board DOM click bridge started (dev-only)');
-  return () => subjectContainer.removeEventListener('click', handleClick, true);
+  return () => {
+    subjectContainer.removeEventListener('click', handleClick, true);
+    unsubscribe();
+    if (hoverAttached) {
+      subjectContainer.removeEventListener('mousemove', handleMove, true);
+      subjectContainer.removeEventListener('mouseleave', clearHover, true);
+    }
+    if (rafId !== null) cancelAnimationFrame(rafId);
+  };
 }

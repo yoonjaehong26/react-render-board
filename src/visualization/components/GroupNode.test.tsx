@@ -13,6 +13,9 @@ function baseData(overrides: Partial<GroupNodeData> = {}): GroupNodeData {
     collapsed: false,
     manuallyCollapsed: false,
     onToggleCollapse: () => {},
+    width: 400,
+    height: 200,
+    colorMode: 'light',
     ...overrides,
   };
 }
@@ -127,5 +130,31 @@ describe('GroupNode', () => {
     });
     const count = container.querySelector('.group-node__count') as HTMLElement;
     expect(count.style.transform).toBe('scale(2)');
+  });
+
+  // --- 경계 wideview 링 (도형 어휘, ADR-0028) — 접힌 그룹에만, 점선 outline, 우선순위 색 ---
+  it('renders a dashed boundary-color outline on a collapsed group with boundaryKinds', () => {
+    const { container } = renderGroupNode(baseData({ collapsed: true, boundaryKinds: ['portal', 'suspense'] }));
+    const el = container.querySelector('.group-node') as HTMLElement;
+    expect(el.style.outline).toContain('dashed');
+    expect(el.style.outline).toContain('#7c3aed'); // suspense > portal 우선순위
+  });
+
+  it('uses the highest-priority kind color (errorBoundary > suspense > portal)', () => {
+    const { container } = renderGroupNode(baseData({ collapsed: true, boundaryKinds: ['portal', 'errorBoundary'] }));
+    const el = container.querySelector('.group-node') as HTMLElement;
+    expect(el.style.outline).toContain('#e11d48'); // errorBoundary rose
+  });
+
+  it('does not ring an expanded group (inner boundary frames show instead)', () => {
+    const { container } = renderGroupNode(baseData({ collapsed: false, boundaryKinds: ['suspense'] }));
+    const el = container.querySelector('.group-node') as HTMLElement;
+    expect(el.style.outline).toBe('');
+  });
+
+  it('does not ring a collapsed group with no boundaries', () => {
+    const { container } = renderGroupNode(baseData({ collapsed: true }));
+    const el = container.querySelector('.group-node') as HTMLElement;
+    expect(el.style.outline).toBe('');
   });
 });

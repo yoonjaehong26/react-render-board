@@ -27,8 +27,8 @@
 | [0017](0017-viewport-based-partial-recompute.md) | P1 — Canvas 파이프라인의 뷰포트 기반 부분 재계산 | 채택됨 |
 | [0018](0018-map-mode-lod-and-camera-refit.md) | P2 — 지도 모드 LOD(minZoom·라벨 역-스케일) + P3 — 카메라 자동 refit·`groupOrder` pruning | 채택됨 |
 | [0019](0019-library-hint-whitelist-inversion.md) | P4 — 그룹핑 노이즈 판별 커버리지 (화이트리스트 반전) | 채택됨 |
-| [0020](0020-distribution-entry-ux-direction.md) | 배포/설치 UX 방향 — npm 자동 설정 + 같은 페이지 플로팅 버튼 | 채택됨(노출 위치를 도킹 패널로 수정, ADR-0025) |
-| [0021](0021-bundler-injection-feasibility.md) | 번들러 무관 자동 계측 스크립트 주입 기술 가능성 검증 (Vite/webpack/Rspack/Turbopack) | 채택됨 |
+| [0020](0020-distribution-entry-ux-direction.md) | 배포/설치 UX 방향 — npm 자동 설정 + 같은 페이지 플로팅 버튼 | 채택됨(노출 위치를 도킹 패널로 수정, ADR-0025 / 연결 방식 구현 ADR-0036) |
+| [0021](0021-bundler-injection-feasibility.md) | 번들러 무관 자동 계측 스크립트 주입 기술 가능성 검증 (Vite/webpack/Rspack/Turbopack) | 채택됨(구현 ADR-0036) |
 | [0022](0022-hooking-library-confirmed-bippy.md) | 훅킹 라이브러리 확정 — bippy 유지, react-devtools-core 도입 보류 | 채택됨 |
 | [0023](0023-production-hardening-tests-and-package-prep.md) | 정식 재구현 1라운드 — 테스트 커버리지(vitest, 91개) + 패키지 배포 준비 | 채택됨 |
 | [0024](0024-board-dom-bidirectional-interaction.md) | 보드 ↔ 실제 DOM 양방향 인터랙션 + MVP 데이터 스코프 경계 | 채택됨(구현 완료, ADR-0026) |
@@ -39,5 +39,15 @@
 | [0029](0029-orthogonal-edge-routing-deferred.md) | 간선 직교/버스 배선 보류, 클러터 감쇠를 먼저 — 진행 시 제1후보는 규칙 기반 배선기(libavoid 폴백) | 채택됨(방향성 — 배선 보류, 조사만) |
 | [0030](0030-excalidraw-hand-drawn-visual-identity.md) | Excalidraw풍 손그림 시각 정체성 — 역할별 rough 세기(노드=스케치/크롬=볼펜/강조=마커·햇칭), 손글씨는 워드마크에만 | 채택됨(방향성, 일부 구현) |
 | [0031](0031-collapse-context-menu-sticky-notes.md) | UX 레이어 3라운드 — 그룹 접기/펼치기, 우클릭 컨텍스트 메뉴, 캔버스 스티키노트 | 채택됨 |
-| [0032](0032-props-flow-and-change-afterglow.md) | props 흐름 추적 + 변경 잔상(afterglow) — 데이터 스코프 확장 1단계(Context/Zustand는 보류) | 채택됨(방향성, 구현 다음 라운드) |
+| [0032](0032-props-flow-and-change-afterglow.md) | props 흐름 추적 + 변경 잔상(afterglow) — 데이터 스코프 확장 1단계(Context/Zustand는 보류). 참조 추적은 간선 경로로 표시 | 채택됨(구현) |
 | [0033](0033-group-and-individual-filter.md) | 그룹+개별 동시 필터 — 검색을 "강조"에서 "숨김"으로 확장 | 채택됨 |
+| [0034](0034-group-level-waterfall-layout.md) | 그룹 간 배치 — 단일 행-패킹 → 부모 깊이 기반 waterfall(층 배치, 공유 그룹은 최장 경로 층에 1회) + 지도 모드 그룹↔그룹 집계 엣지 | 채택됨(ADR-0008 그룹 간 배치 수정) |
+| [0035](0035-shape-and-hand-drawn-implementation.md) | 시각 언어 1라운드 구현 — 라우트 6각형 + 손그림 다크/강조/볼펜 크롬/워드마크(포탈·경계는 실측 후 보류) | 채택됨(구현) |
+| [0036](0036-distribution-connection-implementation.md) | 배포/설치 "연결 방식" 구현 — Vite·Turbopack·webpack **세 경로 모두 `init` 원커맨드로 실제 캔버스까지 Playwright 실측**(Vite=plugins 배열, Next=layout+client, webpack=config 자동 래핑). deps external 패키징으로 rolldown require-셰임 우회, 조기 `<head>` 스크립트+버퍼 재생, dev 전용 가드(`__RRB_DEV__`) | 채택됨(구현) |
+| [0037](0037-circular-floating-button-with-pick-satellite.md) | 플로팅 버튼 형태 — 알약 2개 → 원형 FAB(트리 글리프, hover 시 워드마크 펼침) + 픽 위성(요소 선택), rough 크롬 원형 확장(`CHROME_CIRCLE`), aria-label 유지 | 채택됨(구현) |
+| [0038](0038-pick-mode-hover-follow-preview.md) | 픽 모드 hover-follow 프리뷰 — 마우스 따라 커서 아래 요소를 실시간 강조(CSS 테두리+헷칭, 크기 무관·rAF 스로틀·픽 모드일 때만 리스너) | 채택됨(구현) |
+| [0039](0039-lod-edge-prop-labels.md) | 간선 위 props 라벨 — LOD 조건부 상시 표시(상세 모드·props ≤ N·국소 클러터 낮을 때만). 정밀 클릭 추적(ADR-0032)과 상보 | 채택됨(방향성 — ADR-0029 클러터/배선 라운드에 구현) |
+| [0040](0040-resizable-dockable-panel.md) | 도킹 패널 크기 조절 + 위치 전환(하단/좌/우 사이드바) — 드래그 리사이즈, 화면 비율 저장, **오버레이 전용(앱 CSS 안 건드림)**, 도킹 컨트롤 상단 모서리 | 채택됨(구현, ADR-0025 스코프 확장) |
+| [0041](0041-edge-clutter-attenuation.md) | 간선 클러터 감쇠 구현 — 시각적 감쇠(그룹 내 간선 hairline + 그룹 내 깊이별 opacity, 그룹 간은 현행 유지) + 단계형 LOD(이진 → 3단, 중간 줌은 구조 간선만·깊은 detail 간선은 줌인 시 페이드인). 배선 없이 표현 레이어만, 깊이는 그룹 경계에서 리셋(라이브 안정성 상속). ADR-0029 결정 #4 구현 | 채택됨(구현) |
+| [0042](0042-npm-publish-prep-and-mit.md) | npm 공개 배포 준비 + MIT 라이선스 — private 해제·`0.1.0`·publishConfig·prepublishOnly·LICENSE·README 설치 섹션. publish≠소스공개(files로 dist-lib+cli만), 이름 사용 가능. 실제 publish는 소유자 계정으로 | 채택됨(준비 완료, 업로드는 소유자) |
+| [0043](0043-double-click-reveal-in-real-page.md) | 보드 노드 더블클릭 → 실제 화면으로 스크롤 이동 + 하이라이트(라우터는 안 건드림 — 노드=현재 라우트). 클릭 타이밍으로 더블클릭 감지(네이티브 dblclick은 리렌더로 깨짐) | 채택됨(구현) |

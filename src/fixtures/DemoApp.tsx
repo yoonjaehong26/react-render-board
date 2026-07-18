@@ -5,8 +5,15 @@ import { NotificationPanel } from './domains/notifications/NotificationPanel';
 import { AdvancedPatterns } from './domains/advanced/AdvancedPatterns';
 import { ReportsPanel } from './domains/reports/ReportsPanel';
 import { LiveFeed } from './domains/livefeed/LiveFeed';
+// props 흐름/변경 잔상 데모(ADR-0032) — 같은 객체 참조를 여러 단계로 drilling + 주기적 갱신.
+import { DataFlowPanel } from './domains/dataflow/DataFlowPanel';
+import { DeepTree } from './domains/deeptree/DeepTree';
 import { Button } from './domains/shared/Button';
 import { StressGrid } from './domains/stress/StressGrid';
+// 도형 어휘 라우트 6각형(ADR-0028/0035) 데모용 — page.tsx 그룹을 만들어 6각형이 실제로 보이게 한다.
+import { DashboardPage } from './domains/routes/app/dashboard/page';
+// 도형 어휘 포탈 표식(ADR-0028) 실측/시연용 — createPortal로 body에 순간이동하는 모달.
+import { PortalModal } from './domains/portals/PortalModal';
 
 // 스트레스 테스트 전용, URL 쿼리로만 켠다(?stressCount=2000) — 기본 데모 흐름과 기존
 // ADR들의 기준선(노드 수 등)을 건드리지 않기 위해서다.
@@ -51,10 +58,14 @@ export function DemoApp() {
       />
       <AppShell />
       <CheckoutPanel />
+      <DashboardPage />
+      <PortalModal />
       {showNotifications && <NotificationPanel />}
       <AdvancedPatterns />
       <ReportsPanel />
       <LiveFeed />
+      <DataFlowPanel />
+      <DeepTree />
       {stressCount > 0 && (
         <div className="stress-panel">
           <Button label={`버스트 시작 (${stressCount}개 노드 상태에서 20커밋)`} onClick={() => runBurst(20)} />

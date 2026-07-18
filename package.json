@@ -1,8 +1,28 @@
 {
   "name": "react-render-board",
   "description": "React 앱의 실시간 렌더 트리를 박스+선 다이어그램 캔버스로 시각화하는 dev-only 도구",
-  "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": "yoonjaehong26",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yoonjaehong26/react-render-board.git"
+  },
+  "homepage": "https://github.com/yoonjaehong26/react-render-board#readme",
+  "bugs": {
+    "url": "https://github.com/yoonjaehong26/react-render-board/issues"
+  },
+  "keywords": [
+    "react",
+    "devtools",
+    "fiber",
+    "component-tree",
+    "visualization",
+    "react-flow",
+    "dev-tool",
+    "vite-plugin",
+    "webpack-plugin"
+  ],
   "type": "module",
   "main": "./dist-lib/index.js",
   "module": "./dist-lib/index.js",
@@ -12,15 +32,32 @@
       "types": "./dist-lib/index.d.ts",
       "import": "./dist-lib/index.js"
     },
+    "./inject": {
+      "types": "./dist-lib/inject.d.ts",
+      "import": "./dist-lib/inject.js"
+    },
+    "./vite": "./cli/vite.mjs",
+    "./webpack": "./cli/webpack.cjs",
     "./style.css": "./dist-lib/index.css"
   },
+  "bin": {
+    "react-render-board": "cli/bin.mjs"
+  },
   "files": [
-    "dist-lib"
+    "dist-lib",
+    "cli"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "sideEffects": [
     "*.css"
   ],
   "scripts": {
+    "prepublishOnly": "npm run build:lib",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:lib": "tsc -p tsconfig.lib.json && vite build --config vite.lib.config.ts",
@@ -30,7 +67,13 @@
     "test:watch": "vitest",
     "verify": "node scripts/verify.mjs",
     "verify:high-frequency": "node scripts/verify-high-frequency.mjs",
-    "verify:dom-interaction": "node scripts/verify-dom-interaction.mjs"
+    "verify:dom-interaction": "node scripts/verify-dom-interaction.mjs",
+    "verify:props-flow": "node scripts/verify-props-flow.mjs",
+    "verify:edge-clutter": "node scripts/verify-edge-clutter.mjs",
+    "verify:init": "node scripts/verify-init.mjs",
+    "verify:init-next": "node scripts/verify-init-next.mjs",
+    "verify:init-next-canvas": "node scripts/verify-init-next-canvas.mjs",
+    "verify:init-webpack": "node scripts/verify-init-webpack.mjs"
   },
   "peerDependencies": {
     "react": "^19.2.7",

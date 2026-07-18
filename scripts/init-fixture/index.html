@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>rrb init fixture — 주입 대상(앱 소스는 보드를 모른다)</title>
+  </head>
+  <body>
+    <!-- 이 스캐폴드의 앱 소스(index.html + app.tsx)는 react-render-board를 단 한 번도
+         참조하지 않는다. 보드가 뜬다면 그건 오직 번들러 플러그인의 주입 덕분이다
+         (ADR-0021의 "앱 소스 무수정" 검증을 정식 플러그인으로 재현). -->
+    <div id="root"></div>
+    <script type="module" src="./app.tsx"></script>
+  </body>
+</html>

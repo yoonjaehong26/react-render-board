@@ -3,6 +3,24 @@ import type { VisibleNode } from './normalize';
 import { PENDING_GROUP } from './normalize';
 import { NODE_HEIGHT, NODE_WIDTH, type LayoutEngine, type Rect } from './layout';
 import { colorIndexForGroup } from './groupColor';
+import type { BorderMode } from './roughStyle';
+import type { RoleMarker } from './roleMarkers';
+
+// 라우트 진입점 판별(ADR-0028 도형 어휘 — 6각형). RenderNode 스키마를 건드리지 않고, 이미
+// 있는 그룹 경로(= 그 노드의 groupHint가 resolve된 값, groups.ts)가 Next.js App Router의
+// 라우트 진입 파일(app/.../page.tsx)로 끝나는지만 본다. tsx 외에 jsx/ts/js도 관용적으로 받는다.
+export function isRouteGroup(group: string): boolean {
+  return /(^|[/\\])page\.(tsx|jsx|ts|js)$/.test(group);
+}
+
+// 간선 클러터 감쇠 튜닝 상수(ADR-0029 결정 #4). 연구문서 7절 b가 정한 "구조 간선 = 그룹
+// 횡단 + 깊이 1~2"를 형식화한 값이다.
+// - STRUCTURAL_GROUP_DEPTH: 그룹 내 이 깊이까지는 구조 간선으로 보고 중간 줌(zoom-mid)에서도
+//   표시한다. 넘으면 detail로 분류돼 상세히 줌인해야 나타난다.
+// - EDGE_DEPTH_MAX: 시각적 감쇠(opacity) 깊이 클래스의 상한. 이 값은 "N 이상"을 뜻하는 마지막
+//   버킷이자 detail 버킷과 일치한다(STRUCTURAL_GROUP_DEPTH + 1).
+export const STRUCTURAL_GROUP_DEPTH = 2;
+export const EDGE_DEPTH_MAX = 3;
 
 export interface ComponentNodeData extends Record<string, unknown> {
   displayName: string;
@@ -18,6 +36,12 @@ export interface ComponentNodeData extends Record<string, unknown> {
   /** 도메인별 커스텀 팔레트(groupColor.ts)에서 이 노드가 속한 그룹에 배정된 팔레트 인덱스.
    * PENDING_GROUP(그룹 미해석)이면 중립 유지를 위해 undefined. */
   colorIndex?: number;
+  /** 라우트 진입점(app/.../page.tsx)이라 6각형으로 그릴 노드인지 (도형 어휘, ADR-0028).
+   * RenderNode 스키마와 무관하게 group 경로 + 그룹 경계 진입 여부로 파생한 순수 프레젠테이션 값. */
+  isRouteEntry: boolean;
+  /** 손그림 테두리(roughStyle.ts)의 라이트/다크 변형 선택용 (ADR-0030 다크 대응 4장).
+   * 인라인 background-image가 CSS보다 우선하므로 CSS 다크 스코프로는 못 바꾼다 — data로 내려받는다. */
+  colorMode: BorderMode;
 }
 
 export interface GroupNodeData extends Record<string, unknown> {
@@ -33,6 +57,17 @@ export interface GroupNodeData extends Record<string, unknown> {
   manuallyCollapsed: boolean;
   /** 헤더 셰브런 클릭 시 이 그룹의 manuallyCollapsed를 토글한다. */
   onToggleCollapse: () => void;
+  /** 프레임 크기 — 펼쳐진 그룹의 손그림 테두리(roughStyle.groupFrameImage)를 실제 크기에 맞춰
+   * 그리기 위해 내려준다(ADR-0030 축3). */
+  width: number;
+  height: number;
+  /** 손그림 프레임 테두리의 라이트/다크 변형 선택 (ADR-0030). 인라인 background-image가 CSS보다
+   * 우선하므로 data로 내려받는다(ComponentNodeData.colorMode와 같은 이유). */
+  colorMode: BorderMode;
+  /** 이 그룹 안에 있는 경계 종류들(도형 어휘 wideview 레이어, ADR-0028). 지도 모드에선 개별 경계
+   * 프레임이 안 보이므로, 그룹 프레임 바깥에 경계 색 동심 링을 덧대 "이 도메인에 포탈/Suspense/
+   * 에러 바운더리가 있다"를 모든 줌에서 알린다. Canvas가 fibersById 파생으로 채운다(스키마 무관). */
+  boundaryKinds?: RoleMarker[];
 }
 
 export interface ToFlowOptions {
@@ -59,6 +94,8 @@ export interface ToFlowOptions {
   manuallyCollapsedGroups?: ReadonlySet<string>;
   /** 그룹 헤더의 접기/펼치기 셰브런 클릭 시 호출할 콜백. 그룹 이름을 인자로 받는다. */
   onToggleGroupCollapse?: (group: string) => void;
+  /** 손그림 테두리(roughStyle.ts)의 라이트/다크 변형 선택 (ADR-0030). 생략하면 'light'. */
+  colorMode?: BorderMode;
 }
 
 export function toFlow(
@@ -71,6 +108,7 @@ export function toFlow(
     filterToMatches,
     manuallyCollapsedGroups,
     onToggleGroupCollapse,
+    colorMode = 'light',
   }: ToFlowOptions,
 ): { flowNodes: Node[]; flowEdges: Edge[] } {
   const { groups, nodePositions } = engine.computeLayout(nodes);
@@ -83,10 +121,12 @@ export function toFlow(
 
   const flowNodes: Node[] = [];
   const expandedIds = new Set<number>();
+  const renderedGroups = new Set<string>();
 
   for (const g of groups) {
     const pending = g.group === PENDING_GROUP;
     if (filtering && !g.nodeIds.some((id) => matchedIds!.has(id))) continue; // 매치가 하나도 없는 그룹은 프레임째로 뺀다
+    renderedGroups.add(g.group);
     const expanded = shouldExpandGroup(g.frame, g.group);
     // 도메인별 커스텀 팔레트: 그룹이 아직 해석 안 됐으면(pending) 중립 유지를 위해 색을 안
     // 매긴다 — expand 여부와 무관하게 계산해서, 접힌(뷰포트 밖/지도 모드) 그룹 프레임도
@@ -105,6 +145,9 @@ export function toFlow(
         colorIndex,
         manuallyCollapsed: manuallyCollapsedGroups?.has(g.group) ?? false,
         onToggleCollapse: () => onToggleGroupCollapse?.(g.group),
+        width: g.frame.width,
+        height: g.frame.height,
+        colorMode,
       } satisfies GroupNodeData,
       selectable: false,
       draggable: false,
@@ -119,6 +162,11 @@ export function toFlow(
       const pos = nodePositions.get(id)!;
       const parent = n.parentId !== null ? byId.get(n.parentId) : null;
       const crossGroup = !!parent && parent.group !== n.group;
+      // 라우트 진입점 = 그룹이 page.tsx이고, 이 노드가 그 그룹으로 처음 "들어오는" 지점
+      // (부모가 없거나 다른 그룹). 같은 page 그룹 안의 인라인 자식까지 전부 6각형이 되지
+      // 않게 진입 경계 노드만 표식한다. host 노드는 역할이 아니므로 제외.
+      const isRouteEntry =
+        n.kind === 'composite' && isRouteGroup(n.group) && (parent === null || parent === undefined || crossGroup);
 
       flowNodes.push({
         id: String(n.id),
@@ -136,10 +184,39 @@ export function toFlow(
           highlighted: n.id === highlightedNodeId,
           matched: matchedIds?.has(n.id) ?? false,
           colorIndex,
+          isRouteEntry,
+          colorMode,
         } satisfies ComponentNodeData,
       });
       expandedIds.add(id);
     }
+  }
+
+  // 간선 클러터 감쇠(ADR-0029 결정 #4, 연구문서 7절 a·b). 배선(경로 모양)이 아니라 표현
+  // 레이어(스타일/LOD)로만 뺴곡함을 줄인다. 원칙: 잉크를 정보 가치에 비례시킨다 — 그룹 내
+  // 간선은 정보가 이미 위치에 함축돼 있고(자식은 부모 바로 아래 행) 그룹 간 간선만 위치로
+  // 예측 불가능하다. 그래서 그룹 내는 깊을수록 옅게 죽이고, 그룹 간(edge-cross-group)은 현행
+  // 강도(주황 점선)를 그대로 둔다.
+  const groupDepthCache = new Map<number, number>();
+  // 그룹 내 깊이 = 같은 그룹 조상을 몇 번 거슬러 올라가야 그룹 경계(다른 그룹 부모/루트)에
+  // 닿는가. 그룹 경계를 넘으면 0으로 리셋되므로 "이 그룹 서브트리 안에서 얼마나 깊은가"만
+  // 잰다. 노드 좌표의 순수 함수라 라이브 안정성은 레이아웃에서 상속된다(ADR-0008).
+  function groupDepthOf(id: number): number {
+    const cached = groupDepthCache.get(id);
+    if (cached !== undefined) return cached;
+    const n = byId.get(id);
+    if (!n || n.parentId === null) {
+      groupDepthCache.set(id, 0);
+      return 0;
+    }
+    const parent = byId.get(n.parentId);
+    if (!parent || parent.group !== n.group) {
+      groupDepthCache.set(id, 0);
+      return 0;
+    }
+    const d = groupDepthOf(n.parentId) + 1;
+    groupDepthCache.set(id, d);
+    return d;
   }
 
   const flowEdges: Edge[] = nodes
@@ -147,15 +224,51 @@ export function toFlow(
     .map((n) => {
       const parent = byId.get(n.parentId!)!;
       const crossGroup = parent.group !== n.group;
-      return {
+      const base = {
         id: `${n.parentId}->${n.id}`,
         source: String(n.parentId),
         target: String(n.id),
         type: 'smoothstep',
-        className: crossGroup ? 'edge-cross-group' : undefined,
-        zIndex: crossGroup ? 10 : 1,
-      } satisfies Edge;
+      } as const;
+      if (crossGroup) {
+        // 그룹 간 간선: 위치로 예측 불가능해 정보 가치가 높다 — 현행 강도 유지, 감쇠 안 함.
+        return { ...base, className: 'edge-cross-group', zIndex: 10 } satisfies Edge;
+      }
+      // 그룹 내 간선: 깊이 버킷(1..EDGE_DEPTH_MAX)으로 감쇠. STRUCTURAL_GROUP_DEPTH를 넘는 깊은
+      // 간선은 edge-detail로 표시해 단계형 LOD(중간 줌)에서 숨긴다(flow.css .zoom-mid).
+      const depth = groupDepthOf(n.id); // 같은 그룹 부모가 있으므로 항상 >= 1
+      const bucket = Math.min(depth, EDGE_DEPTH_MAX);
+      const detail = depth > STRUCTURAL_GROUP_DEPTH;
+      const className = `edge-same-group edge-depth-${bucket}${detail ? ' edge-detail' : ''}`;
+      return { ...base, className, zIndex: 1 } satisfies Edge;
     });
+
+  // 그룹↔그룹 집계 엣지(ADR-0034): 노드 레벨 엣지는 양쪽 노드가 둘 다 펼쳐졌을 때만 그려져
+  // 지도 모드(그룹이 전부 접힘)에선 하나도 안 보인다. 그래서 "부모 그룹이 자식 그룹을
+  // 렌더한다"는 관계를 그룹당 1개로 집계한 엣지로 따로 그린다. flow.css가 이 엣지를 지도
+  // 모드(.zoom-far)에서만 보이게 하고 상세 모드에선 숨긴다(그땐 노드 레벨 엣지가 대신 보임).
+  const groupPairs = new Set<string>();
+  for (const n of nodes) {
+    if (n.parentId === null) continue;
+    const parent = byId.get(n.parentId);
+    if (!parent || parent.group === n.group) continue;
+    if (parent.group === PENDING_GROUP || n.group === PENDING_GROUP) continue;
+    groupPairs.add(`${parent.group} ${n.group}`);
+  }
+  for (const pair of groupPairs) {
+    const [parentGroup, childGroup] = pair.split(' ');
+    if (!renderedGroups.has(parentGroup) || !renderedGroups.has(childGroup)) continue;
+    flowEdges.push({
+      id: `group:${parentGroup}->group:${childGroup}`,
+      source: `group:${parentGroup}`,
+      target: `group:${childGroup}`,
+      type: 'smoothstep',
+      className: 'edge-group-link',
+      zIndex: 5,
+      selectable: false,
+      focusable: false,
+    });
+  }
 
   return { flowNodes, flowEdges };
 }

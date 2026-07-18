@@ -21,6 +21,7 @@ function fakeInteractionStore(overrides: Partial<InteractionSnapshot> = {}): Int
   let snapshot: InteractionSnapshot = {
     boardOpen: false,
     highlightedElements: [],
+    hoverElements: [],
     navigateToNodeId: null,
     navigateRequestId: 0,
     pickModeActive: false,
@@ -31,6 +32,7 @@ function fakeInteractionStore(overrides: Partial<InteractionSnapshot> = {}): Int
     getSnapshot: vi.fn(() => snapshot),
     setBoardOpen: vi.fn(),
     highlight: vi.fn(),
+    setHoverElements: vi.fn(),
     requestNavigate: vi.fn(),
     consumeNavigate: vi.fn(),
     setPickMode: vi.fn((active: boolean) => {

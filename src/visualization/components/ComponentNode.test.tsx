@@ -13,6 +13,8 @@ function baseData(overrides: Partial<ComponentNodeData> = {}): ComponentNodeData
     pending: false,
     highlighted: false,
     matched: false,
+    isRouteEntry: false,
+    colorMode: 'light',
     ...overrides,
   };
 }
@@ -127,4 +129,52 @@ describe('ComponentNode', () => {
     const el = container.querySelector('.component-node')!;
     expect(el.className.split(' ')).toEqual(['component-node', 'component-node--composite']);
   });
+
+  // --- 도형 어휘: 라우트 6각형 (ADR-0028) ---
+  it('adds component-node--route when isRouteEntry is true', () => {
+    const { container } = renderComponentNode(baseData({ isRouteEntry: true }));
+    expect(container.querySelector('.component-node')).toHaveClass('component-node--route');
+  });
+
+  it('omits component-node--route when isRouteEntry is false', () => {
+    const { container } = renderComponentNode(baseData({ isRouteEntry: false }));
+    expect(container.querySelector('.component-node')).not.toHaveClass('component-node--route');
+  });
+
+  // --- 손그림 테두리 선택 (ADR-0030) ---
+  it('sets a rough border background-image inline', () => {
+    const { container } = renderComponentNode(baseData());
+    const el = container.querySelector('.component-node') as HTMLElement;
+    expect(el.style.backgroundImage).toContain('data:image/svg+xml');
+  });
+
+  it('uses a different border image for a route hexagon than a plain composite', () => {
+    const { container: plain } = renderComponentNode(baseData({ isRouteEntry: false }));
+    const { container: route } = renderComponentNode(baseData({ isRouteEntry: true }));
+    const plainBg = (plain.querySelector('.component-node') as HTMLElement).style.backgroundImage;
+    const routeBg = (route.querySelector('.component-node') as HTMLElement).style.backgroundImage;
+    expect(routeBg).not.toBe(plainBg);
+  });
+
+  it('uses a different border image in dark mode than light mode (ADR-0030 dark borders)', () => {
+    const { container: light } = renderComponentNode(baseData({ colorMode: 'light' }));
+    const { container: dark } = renderComponentNode(baseData({ colorMode: 'dark' }));
+    const lightBg = (light.querySelector('.component-node') as HTMLElement).style.backgroundImage;
+    const darkBg = (dark.querySelector('.component-node') as HTMLElement).style.backgroundImage;
+    expect(darkBg).not.toBe(lightBg);
+  });
+
+  it('layers an emphasis fill under the border for matched nodes (two background layers)', () => {
+    const { container } = renderComponentNode(baseData({ matched: true }));
+    const bg = (container.querySelector('.component-node') as HTMLElement).style.backgroundImage;
+    // border + fill → two comma-separated url() layers.
+    expect(bg.match(/url\(/g)?.length).toBe(2);
+  });
+
+  it('does not layer an emphasis fill for a plain node (single background layer)', () => {
+    const { container } = renderComponentNode(baseData());
+    const bg = (container.querySelector('.component-node') as HTMLElement).style.backgroundImage;
+    expect(bg.match(/url\(/g)?.length).toBe(1);
+  });
+
 });

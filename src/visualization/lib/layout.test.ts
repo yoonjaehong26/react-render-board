@@ -129,6 +129,80 @@ describe('createLayoutEngine / computeLayout', () => {
     expect(call3.groups.map((g) => g.group)).toEqual(['A', 'B', PENDING_GROUP]);
   });
 
+  // ADR-0034: groups are laid out as a waterfall by their cross-group parent depth.
+  // When a node in group A is the parent of a node in group B, A "renders" B, so B's
+  // frame must sit in a lower band (larger y) than A's.
+  it('places a child group in a lower band than its cross-group parent (waterfall)', () => {
+    const engine = createLayoutEngine();
+    // node 1 (group A) -> node 2 (group B): A renders B.
+    const { groups } = engine.computeLayout([vnode(1, 'A'), vnode(2, 'B', 1)]);
+    const a = groups.find((g) => g.group === 'A')!;
+    const b = groups.find((g) => g.group === 'B')!;
+    expect(b.frame.y).toBeGreaterThan(a.frame.y);
+  });
+
+  it('stacks a three-level group chain into three descending bands', () => {
+    const engine = createLayoutEngine();
+    // A -> B -> C chain across groups.
+    const { groups } = engine.computeLayout([
+      vnode(1, 'A'),
+      vnode(2, 'B', 1),
+      vnode(3, 'C', 2),
+    ]);
+    const a = groups.find((g) => g.group === 'A')!;
+    const b = groups.find((g) => g.group === 'B')!;
+    const c = groups.find((g) => g.group === 'C')!;
+    expect(b.frame.y).toBeGreaterThan(a.frame.y);
+    expect(c.frame.y).toBeGreaterThan(b.frame.y);
+  });
+
+  it('keeps sibling groups (same parent) in the same band, ordered left-to-right by first appearance', () => {
+    const engine = createLayoutEngine();
+    // A renders both B and C; B and C are siblings at the same depth.
+    const { groups } = engine.computeLayout([
+      vnode(1, 'A'),
+      vnode(2, 'B', 1),
+      vnode(3, 'C', 1),
+    ]);
+    const b = groups.find((g) => g.group === 'B')!;
+    const c = groups.find((g) => g.group === 'C')!;
+    expect(b.frame.y).toBe(c.frame.y); // same band
+    expect(b.frame.x).toBeLessThan(c.frame.x); // first-appearance order preserved
+  });
+
+  it('places a shared (multi-parent) group once, in the deepest band among its parents (option A)', () => {
+    const engine = createLayoutEngine();
+    // A -> B (B at depth 1). A -> C, C -> D, so D is at depth 2 via C.
+    // D also rendered directly by B (depth 1) — longest path wins → D sits below C.
+    const { groups } = engine.computeLayout([
+      vnode(1, 'A'),
+      vnode(2, 'B', 1),
+      vnode(3, 'C', 1),
+      vnode(4, 'D', 3), // D rendered by C (depth 1) → D depth 2
+      vnode(5, 'D', 2), // D also rendered by B (depth 1) → still depth 2 (max)
+    ]);
+    const dFrames = groups.filter((g) => g.group === 'D');
+    expect(dFrames).toHaveLength(1); // placed once, not duplicated
+    const a = groups.find((g) => g.group === 'A')!;
+    const c = groups.find((g) => g.group === 'C')!;
+    const d = dFrames[0];
+    expect(c.frame.y).toBeGreaterThan(a.frame.y);
+    expect(d.frame.y).toBeGreaterThan(c.frame.y);
+  });
+
+  it('does not loop forever when groups form a cross-group cycle', () => {
+    const engine = createLayoutEngine();
+    // A -> B and B -> A (a node in each group parents a node in the other): a cycle.
+    // The back-edge is broken so every group still gets a finite band.
+    const { groups } = engine.computeLayout([
+      vnode(1, 'A'),
+      vnode(2, 'B', 1), // A renders B
+      vnode(3, 'A', 2), // B renders A (cycle)
+    ]);
+    expect(groups.map((g) => g.group).sort()).toEqual(['A', 'B']);
+    for (const g of groups) expect(Number.isFinite(g.frame.y)).toBe(true);
+  });
+
   it('computes a sane positive frame width for a group with many siblings', () => {
     const engine = createLayoutEngine();
     const nodes = Array.from({ length: 5 }, (_, i) => vnode(i + 1, 'A'));

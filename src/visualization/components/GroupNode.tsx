@@ -1,5 +1,23 @@
-import { NodeToolbar, Position, useViewport, type NodeProps } from '@xyflow/react';
+import { Handle, NodeToolbar, Position, useViewport, type NodeProps } from '@xyflow/react';
 import type { GroupNodeData } from '../lib/toFlow';
+import type { RoleMarker } from '../lib/roleMarkers';
+import { groupFrameImage } from '../lib/roughStyle';
+import { paletteHex } from '../lib/groupColor';
+import { useGroupAfterglowHeat } from './AfterglowContext';
+
+// 경계 wideview 링 색(라이트/다크) — 경계 프레임(flow.css .boundary-frame--*)과 같은 팔레트.
+const RING_COLOR: Record<RoleMarker, { light: string; dark: string }> = {
+  portal: { light: '#0d9488', dark: '#2dd4bf' },
+  suspense: { light: '#7c3aed', dark: '#a78bfa' },
+  errorBoundary: { light: '#e11d48', dark: '#fb7185' },
+};
+// 경계 wideview 링은 안쪽 경계 프레임(.boundary-frame, 점선)과 같은 "점선" 언어로 통일한다.
+// box-shadow는 점선이 안 되므로 점선 outline을 쓴다(한 겹). 여러 종류면 우선순위 하나로 요약한다.
+const RING_PRIORITY: RoleMarker[] = ['errorBoundary', 'suspense', 'portal'];
+const RING_WIDTH = 2.5; // 화면 기준 링 두께(px)
+const RING_OFFSET = 3; // 그룹 테두리 바깥으로 띄우는 거리(px, 화면 기준)
+// 링 크기 배율(counterScale)의 상한 — 극단적 줌아웃에서 링이 폭발해 이웃 그룹과 뭉치는 걸 막는다.
+const RING_MAX_SCALE = 8;
 
 // ui-philosophy.md의 "영역(region) 기반 그룹핑" — 뭉쳐서 숨기지 않고 회색 박스 경계만 그어준다.
 // 실제 컴포넌트 노드는 이 프레임 "안에" 그대로 남아 있다(React Flow parentId/extent:'parent').
@@ -11,21 +29,85 @@ import type { GroupNodeData } from '../lib/toFlow';
 // 화면 기준 크기를 고정한다 — 그룹 프레임 자체는 월드 좌표대로 계속 줄어들어(그래야 지도가
 // 성립한다) fitView 배치는 그대로 유지하면서, 텍스트만 항상 읽을 수 있는 크기를 유지한다.
 export function GroupNode({ id, data }: NodeProps) {
-  const { label, count, pending, collapsed, colorIndex, manuallyCollapsed, onToggleCollapse } =
-    data as GroupNodeData;
+  const {
+    label,
+    count,
+    pending,
+    collapsed,
+    colorIndex,
+    manuallyCollapsed,
+    onToggleCollapse,
+    width,
+    height,
+    colorMode,
+    boundaryKinds,
+  } = data as GroupNodeData;
   const { zoom } = useViewport();
+  // 지도 모드 그룹 흐름(ADR-0032 Q2 "활동 기상도") — 이 그룹 안 노드들이 바뀌면 프레임이 heat
+  // 색으로 은은히 발광한다. 노드 heat와 같은 파랑→마젠타→빨강 스케일. 흐름 꺼짐/조용하면 0이라
+  // 아무 것도 안 그린다(발광 중인 그룹만 리렌더).
+  const groupHeat = useGroupAfterglowHeat(id);
+  const heatColor =
+    groupHeat > 0 ? `hsl(${Math.round((240 + 120 * Math.min(1, groupHeat)) % 360)} 85% 56%)` : undefined;
   const classes = ['group-node'];
   if (pending) classes.push('group-node--pending');
   if (collapsed) classes.push('group-node--collapsed');
+  if (heatColor) classes.push('group-node--flowing');
   if (colorIndex !== undefined) classes.push(`group-node--palette-${colorIndex}`);
+
+  // 손그림 프레임 테두리(ADR-0030 축3) — 펼쳐진(상세) 그룹에만. 접힌/지도 모드/pending 그룹은
+  // CSS 대시 테두리를 그대로 둔다(지도에서 프레임 수백 개여도 rough 계산 안 함). 크기는 4px
+  // 버킷으로 메모이즈되므로(roughStyle.groupFrameImage) 커밋마다 재계산하지 않는다.
+  const showRough = !collapsed && !pending;
+  if (showRough) classes.push('group-node--rough');
+  const roughStroke =
+    colorIndex !== undefined ? paletteHex(colorIndex, colorMode) : colorMode === 'dark' ? '#475569' : '#9aa3b5';
 
   // zoom은 minZoom(0.001) 아래로 내려가지 않지만, 짧은 전환 애니메이션 도중 관측치가
   // 그보다 살짝 흔들릴 수 있어 0으로 나누는 사고를 막는 하한을 둔다.
   const counterScale = 1 / Math.max(zoom, 0.001);
   const labelStyle = { transform: `scale(${counterScale})`, transformOrigin: 'left center' };
 
+  // 경계 wideview 링(도형 어휘, ADR-0028) — 접힌(지도 모드/뷰포트 밖) 그룹에만 그룹 프레임 바깥에
+  // 점선 색 링을 덧댄다. 펼쳐진(상세) 그룹은 안쪽 정밀 경계 프레임(.boundary-frame)이 이미 보이므로
+  // 링을 빼 이중 표시를 없앤다 → "노드 보이면 정밀 프레임, 안 보이면 그룹 링" 딱 하나씩(semantic zoom).
+  // 두께/오프셋에 counterScale을 곱해 라벨처럼 화면 기준 크기를 일정하게 유지하고(안 그러면 지도
+  // 모드에서 캔버스 축소에 눌려 사라진다), 극단적 줌아웃에서 이웃과 뭉치지 않게 배율 상한을 둔다.
+  // 여러 종류면 우선순위(에러>Suspense>포탈) 하나로 요약한다 — 정확한 종류는 줌인하면 프레임으로 보인다.
+  const ringKind =
+    collapsed && !pending && boundaryKinds && boundaryKinds.length > 0
+      ? RING_PRIORITY.find((k) => boundaryKinds.includes(k))
+      : undefined;
+  const ringScale = Math.min(counterScale, RING_MAX_SCALE);
+
+  const frameStyle =
+    showRough || ringKind || heatColor
+      ? {
+          ...(showRough ? { backgroundImage: groupFrameImage(width, height, roughStroke) } : {}),
+          ...(ringKind
+            ? {
+                outline: `${RING_WIDTH * ringScale}px dashed ${RING_COLOR[ringKind][colorMode]}`,
+                outlineOffset: `${RING_OFFSET * ringScale}px`,
+              }
+            : {}),
+          // 그룹 흐름 발광(ADR-0032 Q2) — heat 색 링 + 은은한 글로우. currentColor 대신 직접 색을
+          // 넣는 이유는 outline(경계 링)이 color를 다른 용도로 쓸 수 있어서다.
+          ...(heatColor ? { boxShadow: `0 0 0 2px ${heatColor}, 0 0 16px 3px ${heatColor}` } : {}),
+        }
+      : undefined;
+
   return (
-    <div className={classes.join(' ')}>
+    <div className={classes.join(' ')} style={frameStyle}>
+      {/* 지도 모드 전용 그룹↔그룹 집계 엣지(ADR-0034)가 붙는 앵커. 부모 그룹의 bottom(source)
+          에서 자식 그룹의 top(target)으로 흘러 waterfall과 방향이 일치한다. 시각적으로는
+          flow.css가 숨기고(엣지 앵커 역할만), 연결 상호작용은 막는다(isConnectable={false}). */}
+      <Handle type="target" position={Position.Top} isConnectable={false} className="group-node__handle" />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        isConnectable={false}
+        className="group-node__handle"
+      />
       {/* 그룹 접기/펼치기(ADR-0029) 토글을 헤더 안의 평범한 버튼으로 넣었더니, 그룹 프레임과
           같은 위치를 지나는 엣지(특히 넓은 hit-test용 stroke를 가진 react-flow__edge-interaction
           경로)가 클릭을 가로챈다는 게 Playwright 실측으로 드러났다 — 그룹 프레임은 늘 배경에

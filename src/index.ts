@@ -23,3 +23,16 @@ export { BoardOverlay, type BoardOverlayProps } from './visualization/BoardOverl
 export { DomHighlightOverlay } from './visualization/components/DomHighlightOverlay';
 export { createInteractionStore } from './visualization/lib/interactionStore';
 export type { InteractionStore, InteractionSnapshot, InteractionListener } from './visualization/lib/interactionStore';
+
+// props 흐름 추적 + 변경 잔상 (ADR-0032). Canvas가 내부에서 자체 afterglowStore를 만들어 쓰므로
+// 이 export는 필수는 아니고, 소비자가 커스텀 통합에서 잔상 상태를 직접 다룰 때를 위한 것이다.
+export { createAfterglowStore } from './visualization/lib/afterglowStore';
+export type { AfterglowStore, AfterglowListener } from './visualization/lib/afterglowStore';
+export {
+  readFiberProps,
+  isTrackable,
+  describeValue,
+  fiberPropsChanged,
+  trackReferenceInDescendants,
+} from './visualization/lib/propsFlow';
+export type { PropRow, PropValueKind } from './visualization/lib/propsFlow';

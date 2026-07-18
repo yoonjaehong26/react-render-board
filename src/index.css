@@ -47,13 +47,10 @@ body {
   padding: 16px;
 }
 
-/* 패널이 도킹된 동안(BoardOverlay.tsx가 document.body에 다는 클래스) 화면 하단이
-   .board-panel(45vh, flow.css)에 가려지므로, 그 아래 콘텐츠를 스크롤로 끌어올릴 수 있게
-   여유를 둔다 — 안 그러면 패널이 열려 있는 동안 마지막 콘텐츠를 영영 클릭할 수 없다
-   (ADR-0025가 도킹 패널로 바꾼 이유 자체가 "실제 앱과 항상 상호작용 가능해야 한다"였다). */
-body.rrb-board-open .subject-root {
-  padding-bottom: calc(45vh + 16px);
-}
+/* ADR-0040(오버레이 전용): 보드 패널은 계측 대상 앱 위에 떠서 덮기만 하고, 앱 레이아웃/CSS는
+   절대 건드리지 않는다. 예전엔 패널 크기만큼 .subject-root에 패딩을 넣어 앱을 밀어냈는데,
+   이는 "관찰 도구가 관찰 대상의 반응형/레이아웃을 바꾼다"는 문제라 제거했다 — 가려진 부분은
+   패널을 이동/크기조절/닫아서 본다(react-scan/TanStack Query Devtools와 같은 모델). */
 
 .demo-app {
   display: flex;

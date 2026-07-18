@@ -11,9 +11,58 @@ describe('createInteractionStore', () => {
     expect(store.getSnapshot()).toEqual({
       boardOpen: false,
       highlightedElements: [],
+      hoverElements: [],
       navigateToNodeId: null,
       navigateRequestId: 0,
       pickModeActive: false,
+    });
+  });
+
+  describe('setHoverElements (pick-mode hover-follow, ADR-0038)', () => {
+    const el = (id: string) => ({ id }) as unknown as Element;
+
+    it('updates hoverElements and notifies when the element set changes', () => {
+      const store = createInteractionStore();
+      const listener = vi.fn();
+      store.subscribe(listener);
+
+      const a = el('a');
+      store.setHoverElements([a]);
+
+      expect(store.getSnapshot().hoverElements).toEqual([a]);
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not notify when the same element is set again (mousemove within one element)', () => {
+      const store = createInteractionStore();
+      const a = el('a');
+      store.setHoverElements([a]);
+
+      const listener = vi.fn();
+      store.subscribe(listener);
+      store.setHoverElements([a]); // same identity → no-op
+
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('has no timer — hover stays until explicitly changed (unlike click highlight)', () => {
+      vi.useFakeTimers();
+      const store = createInteractionStore();
+      store.setHoverElements([el('a')]);
+
+      vi.advanceTimersByTime(HIGHLIGHT_DURATION_MS * 3);
+
+      expect(store.getSnapshot().hoverElements).toHaveLength(1);
+    });
+
+    it('clears hoverElements when pick mode is turned off', () => {
+      const store = createInteractionStore();
+      store.setPickMode(true);
+      store.setHoverElements([el('a')]);
+
+      store.setPickMode(false);
+
+      expect(store.getSnapshot().hoverElements).toEqual([]);
     });
   });
 

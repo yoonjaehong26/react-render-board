@@ -6,6 +6,28 @@
 
 React DevTools의 들여쓰기 리스트 뷰가 아니라, 컴포넌트 구조를 **공간적으로 배치된 노드 다이어그램**으로 보여줍니다. 새 코드베이스에 처음 들어온 사람이 전체 구조를 한눈에 파악하는 것을 목표로 합니다.
 
+## 설치 & 사용
+
+**dev 전용 도구입니다** — 프로덕션 빌드엔 주입되지 않습니다.
+
+```bash
+npm install --save-dev react-render-board
+npx react-render-board init   # 번들러를 감지해 설정을 자동으로 넣어줍니다
+npm run dev                   # 앱 우측 하단에 보드 버튼이 뜹니다
+```
+
+`init`이 번들러별로 설정을 자동 구성합니다:
+
+| 번들러 | `init`이 하는 일 |
+|---|---|
+| **Vite** | `vite.config`의 `plugins`에 `rrbInjectPlugin()` 추가 |
+| **Next.js / Turbopack** | 루트 `layout.tsx`에 조기 `<head>` 스크립트 + `RenderBoardClient` 배선 |
+| **webpack** | `webpack.config`를 `withRenderBoard(...)`로 래핑 (흔한 CJS 형태 자동, 그 외 안내) |
+
+실행 후 앱 화면 우측 하단의 버튼을 누르면 하단 도킹 패널에 실시간 렌더 트리가 그려집니다. 앱 소스 코드는 한 줄도 건드리지 않으며(설정 파일만 수정), 프로덕션에는 들어가지 않습니다.
+
+> 참고: webpack에서 보드 스타일이 필요하면 `import 'react-render-board/style.css'`를 앱 엔트리에 추가하세요(css-loader 필요). Vite/Next는 자동으로 로드합니다.
+
 ## 왜 만드는가
 
 - React DevTools는 강력하지만 텍스트 트리라 "전체 그림"이 직관적으로 안 들어옵니다.
@@ -54,4 +76,4 @@ React DevTools의 들여쓰기 리스트 뷰가 아니라, 컴포넌트 구조�
 
 ## 라이선스
 
-미정 (MIT 권장 — 선행 프로젝트들이 대부분 MIT라 참고 코드 활용에 유리)
+[MIT](LICENSE)

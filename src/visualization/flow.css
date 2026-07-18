@@ -157,6 +157,7 @@
    ComponentNode.tsx가 background-image 인라인 스타일로 얹는다) — 노드 크기가 고정(NODE_WIDTH/
    NODE_HEIGHT)이라 정적 이미지 하나를 모든 노드가 공유해도 어긋나지 않는다. */
 .component-node {
+  position: relative; /* --highlighted::after 손그림 강조 링의 기준 (ADR-0035 후속) */
   width: 100%;
   height: 100%;
   display: flex;
@@ -228,6 +229,50 @@
 .edge-cross-group {
   stroke: #f59e0b !important;
   stroke-dasharray: 4 3;
+}
+
+/* --- 간선 클러터 감쇠: 시각적 감쇠(ADR-0029 결정 #4, 연구문서 7절 a) --- */
+/* 그룹 내 간선은 정보가 이미 위치에 함축돼 있으므로(자식 = 부모 바로 아래 행) hairline으로
+   죽여 잉크를 정보 가치에 비례시킨다. 그룹 간 간선(edge-cross-group)은 위치로 예측 불가능해
+   현행 강도를 유지한다(위 규칙, 감쇠 안 함). */
+.react-flow__edge.edge-same-group .react-flow__edge-path {
+  stroke: #cbd5e1;
+  stroke-width: 1;
+}
+body.rrb-dark-mode .react-flow__edge.edge-same-group .react-flow__edge-path {
+  stroke: #475569;
+}
+/* 그룹 내 깊이가 깊을수록 더 옅게(toFlow가 붙이는 edge-depth-N, N=1..3, 3은 "3 이상"). 깊은
+   간선일수록 트리 위치가 이미 관계를 말해주므로 잉크를 더 줄인다. */
+.react-flow__edge.edge-depth-1 { opacity: 0.7; }
+.react-flow__edge.edge-depth-2 { opacity: 0.5; }
+.react-flow__edge.edge-depth-3 { opacity: 0.35; }
+/* props 흐름 장식(ADR-0032)은 감쇠 대상이 아니다 — 추적/활동 간선은 클러터가 아니라 신호라
+   깊이 opacity를 무시하고 또렷하게 유지한다. */
+.react-flow__edge.edge-tracked,
+.react-flow__edge.edge-hot {
+  opacity: 1;
+}
+
+/* 그룹↔그룹 집계 엣지(ADR-0034): GroupNode의 top/bottom 핸들에 붙는 앵커는 시각적으로 숨긴다
+   (엣지 위치 계산에만 쓰이고, 연결 상호작용은 GroupNode에서 isConnectable={false}로 막았다). */
+.group-node__handle {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 집계 엣지는 지도 모드 전용이다 — 상세 모드에선 노드 레벨 엣지가 부모→자식 관계를 이미
+   보여주므로 숨겨 이중선을 피하고, 지도 모드(.zoom-far, 그룹이 전부 접혀 노드 엣지가 하나도
+   없는 상태)에서만 그룹 프레임끼리 이어 계층 흐름을 드러낸다. 아래 .zoom-far 규칙이 모든
+   엣지를 opacity:0으로 숨기므로, 이 엣지만 되살린다. */
+.react-flow__edge.edge-group-link {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.react-flow__edge.edge-group-link .react-flow__edge-path {
+  stroke: #94a3b8;
+  stroke-width: 2;
 }
 
 /* --- 캔버스 스티키노트(ADR-0029) --- */
@@ -313,6 +358,20 @@
   pointer-events: none;
 }
 
+/* 그룹↔그룹 집계 엣지(ADR-0034)는 지도 모드 전용이라 위 규칙을 역전시켜 여기서만 되살린다. */
+.zoom-far .react-flow__edge.edge-group-link {
+  opacity: 1;
+}
+
+/* 간선 단계형 LOD: 중간 줌(ADR-0029 결정 #4, 연구문서 7절 b). 노드는 이미 보이지만 아직 덜
+   줌인한 구간에선 구조 간선(그룹 횡단 + 그룹 내 얕은 깊이)만 남기고 깊은(edge-detail) 간선을
+   숨긴다. 더 줌인하면(zoom-mid 해제) 위 edge-depth opacity로 페이드인한다. 추적/활동 간선은
+   신호라 이 LOD도 무시하고 유지한다("검색은 언제나 이긴다"의 연장). */
+.zoom-mid .react-flow__edge.edge-detail:not(.edge-tracked):not(.edge-hot) {
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* GroupNode.tsx가 캔버스 줌의 역수를 곱해 라벨을 화면 기준 고정 크기로 유지한다
    (ADR-0016 ②) — 여기서 폰트 크기를 다시 키우면 이중으로 확대돼 오히려 어긋난다. */
 
@@ -327,23 +386,32 @@
 
 /* --- 보드↔DOM 양방향 인터랙션 (ADR-0024/0025) --- */
 
-/* 정방향(보드 노드 클릭) 착지 지점 표시. --cross-group(주황, "경고"에 가까운 톤)과는 다른
-   색으로 구분한다 — 여기는 "지금 이걸 가리키고 있다"는 안내 강조다. */
-.component-node--highlighted {
-  animation: rrb-highlight-pulse 1.2s ease-in-out infinite;
+/* 정방향(보드 노드 클릭)·역방향 착지 지점 표시. 예전엔 네온 box-shadow 글로우였는데 손그림
+   정체성과 이질적이라(사용자 피드백 "글로우 너무 구리다") "마커로 한 번 동그라미 친" 손그림
+   링으로 바꿨다(roughStyle.HIGHLIGHT_RING, ADR-0035 후속). ::after로 노드보다 살짝 크게 얹고
+   opacity만 은은하게 펄스한다 — transform은 React Flow가 노드 위치에 쓰므로 절대 건드리지 않고
+   (건드리면 노드가 제자리를 벗어난다), blur 글로우도 안 쓴다. 링 이미지는 board-panel의 CSS
+   변수(BoardOverlay.tsx)로 내려받아 shared Canvas.tsx를 건드리지 않는다. */
+.component-node--highlighted::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  background: var(--rrb-highlight-ring-light) center / 100% 100% no-repeat;
+  pointer-events: none;
+  animation: rrb-attention 1.3s ease-in-out infinite;
 }
 
-@keyframes rrb-highlight-pulse {
+body.rrb-dark-mode .component-node--highlighted::after {
+  background-image: var(--rrb-highlight-ring-dark);
+}
+
+@keyframes rrb-attention {
   0%,
   100% {
-    box-shadow:
-      0 0 0 3px #6366f1,
-      0 0 14px 3px #6366f199;
+    opacity: 0.4;
   }
   50% {
-    box-shadow:
-      0 0 0 3px #6366f1,
-      0 0 22px 6px #6366f1cc;
+    opacity: 1;
   }
 }
 
@@ -356,24 +424,99 @@
   right: 16px;
   z-index: 2147483000;
   display: flex;
-  gap: 8px;
+  align-items: flex-end; /* 작은 위성이 큰 메인 FAB 바닥에 정렬 */
+  gap: 10px;
 }
 
-.board-toggle {
-  padding: 8px 14px;
-  border-radius: 8px;
-  border: 1px solid #6366f1;
-  background: #eef2ff;
+/* 원형 플로팅 버튼(ADR-0037) — TanStack Query Devtools식 FAB. rough 원 테두리(CHROME_CIRCLE)를
+   background-image로 인라인 지정하고(rrb-rough-chrome), 실선 border는 지운다. */
+.board-fab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background-color: #eef2ff;
   color: #312e81;
-  font-family: ui-monospace, monospace;
-  font-size: 12px;
   cursor: pointer;
+  transition: background-color 120ms ease, transform 120ms ease;
 }
 
-/* "요소 선택" 모드(ADR-0025 후속 수정) — 켜져 있는 동안은 계측 대상 앱의 클릭이 정상 동작
-   대신 역방향 인터랙션으로 소비된다(domInteraction.ts). 눌려 있는 상태를 눈에 띄게 보여준다. */
-.board-toggle--pick-active {
-  background: #6366f1;
+.board-fab:hover {
+  transform: translateY(-1px);
+}
+
+/* 메인 FAB = 보드 열고 닫기. 평소엔 렌더 트리 글리프의 원(∅52px), hover/포커스 시 옆으로
+   "render-board" 워드마크가 펼쳐지며 알약이 된다(ADR-0037 hover-expand, TanStack식).
+   접힘/펼침에서 손그림 테두리 이미지를 원(--fab-circle)↔사각(--fab-pill)으로 갈아끼운다 —
+   두 이미지 모두 인라인 CSS 변수로 내려온다(BoardOverlay.tsx). */
+.board-fab--main {
+  width: 52px;
+  height: 52px;
+  gap: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  background-image: var(--fab-circle);
+  transition: width 170ms ease, border-radius 170ms ease, padding 170ms ease,
+    background-color 120ms ease, transform 120ms ease;
+}
+
+.board-fab__tree {
+  width: 23px;
+  height: 23px;
+  flex: none;
+  display: block;
+}
+
+.board-fab__wordmark {
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  font-size: 15px;
+  transition: max-width 170ms ease, opacity 150ms ease, margin-left 170ms ease;
+}
+
+/* 펼침 배경은 CHROME_BORDER(사각 rough 스케치)라, 완전 둥근 알약(radius 26px)으로 클립하면
+   양 끝 캡에서 사각 테두리가 잘려 "열린" 것처럼 깨져 보인다 → 사각 스케치에 맞는 라운드 사각형
+   (12px)으로 둬 테두리가 온전히 닫히게 한다(ADR-0037 후속 수정). */
+.board-fab--main:hover,
+.board-fab--main:focus-visible {
+  width: 190px;
+  border-radius: 12px;
+  padding: 0 18px;
+  background-image: var(--fab-pill);
+}
+
+.board-fab--main:hover .board-fab__wordmark,
+.board-fab--main:focus-visible .board-fab__wordmark {
+  max-width: 150px;
+  opacity: 1;
+  margin-left: 9px;
+}
+
+/* 열려 있는 동안은 눌린 상태를 채움으로 보여준다. */
+.board-fab--open {
+  background-color: #6366f1;
+  color: #eef2ff;
+}
+
+/* 위성 = 요소 선택(픽) 모드 토글. 메인보다 작은 원, 마우스 포인터 아이콘. */
+.board-fab--pick {
+  width: 36px;
+  height: 36px;
+}
+
+.board-fab__icon {
+  width: 17px;
+  height: 17px;
+  display: block;
+}
+
+/* "요소 선택" 모드(ADR-0025 후속) — 켜져 있는 동안 계측 대상 앱 클릭이 정상 동작 대신 역방향
+   인터랙션으로 소비된다(domInteraction.ts). 눌려 있는 상태를 채움으로 눈에 띄게 보여준다. */
+.board-fab--pick-active {
+  background-color: #6366f1;
   color: #eef2ff;
 }
 
@@ -390,16 +533,151 @@ body.rrb-pick-mode {
    드러나 ADR-0025로 수정했다. */
 .board-panel {
   position: fixed;
+  z-index: 2147482999;
+  background: #fff;
+  box-shadow: 0 0 16px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+}
+
+/* 도킹 방향(ADR-0040): 하단이면 화면 높이의 --rrb-panel-size 만큼, 좌/우면 너비 만큼 차지한다.
+   변수는 BoardOverlay가 body에 vh/vw 단위로 내려주고, 없으면 CSS 기본값으로 폴백한다. */
+.board-panel--bottom {
   bottom: 0;
   left: 0;
   right: 0;
-  height: 45vh;
-  z-index: 2147482999;
-  background: #fff;
+  height: var(--rrb-panel-size, 45vh);
   border-top: 1px solid #d0d3da;
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.board-panel--left {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--rrb-panel-size, 40vw);
+  border-right: 1px solid #d0d3da;
+}
+
+.board-panel--right {
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: var(--rrb-panel-size, 40vw);
+  border-left: 1px solid #d0d3da;
+}
+
+/* 리사이즈 핸들 — 패널의 "안쪽" 가장자리(하단=위, 좌=오른쪽, 우=왼쪽)에 얇게 얹는다. */
+.board-panel__resize {
+  position: absolute;
+  z-index: 3;
+  background: transparent;
+  touch-action: none;
+}
+
+.board-panel__resize::after {
+  content: '';
+  position: absolute;
+  background: #cbd2dc;
+  border-radius: 3px;
+  transition: background-color 120ms ease;
+}
+
+.board-panel__resize:hover::after {
+  background: #6366f1;
+}
+
+.board-panel--bottom .board-panel__resize {
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  cursor: ns-resize;
+}
+.board-panel--bottom .board-panel__resize::after {
+  left: 50%;
+  top: 3px;
+  transform: translateX(-50%);
+  width: 42px;
+  height: 3px;
+}
+
+.board-panel--left .board-panel__resize,
+.board-panel--right .board-panel__resize {
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+}
+.board-panel--left .board-panel__resize {
+  right: 0;
+}
+.board-panel--right .board-panel__resize {
+  left: 0;
+}
+.board-panel--left .board-panel__resize::after,
+.board-panel--right .board-panel__resize::after {
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 42px;
+}
+.board-panel--left .board-panel__resize::after {
+  right: 3px;
+}
+.board-panel--right .board-panel__resize::after {
+  left: 3px;
+}
+
+/* 도킹 위치 전환 컨트롤 — 안쪽 가장자리 중앙에 절반쯤 걸치게 얹는 작은 알약. 리사이즈 핸들과
+   별도 요소(더 높은 z-index)라 클릭이 리사이즈로 새지 않는다. */
+.board-panel__dock {
+  position: absolute;
+  z-index: 5;
   display: flex;
-  flex-direction: column;
+  gap: 2px;
+  padding: 3px;
+  background: #fff;
+  border: 1px solid #d0d3da;
+  border-radius: 8px;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.14);
+}
+
+/* 도킹 컨트롤은 안쪽 가장자리의 "상단 모서리"에 둔다(ADR-0040, 가운데는 툴바/내용과 겹쳐 별로).
+   하단 도킹이면 위쪽 가장자리의 오른쪽 끝, 좌/우 사이드바면 안쪽 세로 가장자리의 위쪽 끝. */
+.board-panel--bottom .board-panel__dock {
+  top: -13px;
+  right: 14px;
+}
+.board-panel--left .board-panel__dock {
+  top: 12px;
+  right: -13px;
+}
+.board-panel--right .board-panel__dock {
+  top: 12px;
+  left: -13px;
+}
+
+.board-panel__dock-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.board-panel__dock-btn:hover {
+  background: #eef2ff;
+  color: #4f46e5;
+}
+.board-panel__dock-btn--active {
+  background: #6366f1;
+  color: #fff;
 }
 
 /* DomHighlightOverlay.tsx가 document.body에 포탈로 그리는 "React Scan 스타일" 테두리.
@@ -417,6 +695,25 @@ body.rrb-pick-mode {
   border-radius: 4px;
   background: rgba(99, 102, 241, 0.08);
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+}
+
+/* 픽 모드 hover-follow 프리뷰(ADR-0038) — 클릭 하이라이트(위 실선 박스)와 구분해 옅은 대각선
+   헷칭으로 그린다. 헷칭은 CSS repeating-linear-gradient라 요소 크기와 무관하게 완벽히 늘어나고
+   JS 계산이 0이다(정적 rough 이미지를 늘렸더니 선 두께까지 뻥튀기돼 큰 요소에서 통짜로 칠해진
+   문제를 이 방식으로 대체 — 이 프리뷰는 커서 아래 요소 하나뿐이라 애초에 노드 수 비례 비용이
+   없다). 요소가 바뀔 때 위치/크기를 짧게 전환해 "손으로 짚어가는" 미끄러지는 느낌을 준다. */
+.dom-highlight-overlay__hover {
+  position: fixed;
+  border: 2px solid #6366f1;
+  border-radius: 5px;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(99, 102, 241, 0.12),
+    rgba(99, 102, 241, 0.12) 2px,
+    transparent 2px,
+    transparent 7px
+  );
+  transition: top 90ms ease-out, left 90ms ease-out, width 90ms ease-out, height 90ms ease-out;
 }
 
 /* --- 다크모드 (ADR-0027) ---
@@ -514,6 +811,31 @@ body.rrb-dark-mode .board-panel {
   border-top-color: #1f2937;
 }
 
+/* 도킹 컨트롤/리사이즈 그립 다크 대응(ADR-0040) */
+body.rrb-dark-mode .board-panel--bottom {
+  border-top-color: #1f2937;
+}
+body.rrb-dark-mode .board-panel--left {
+  border-right-color: #1f2937;
+}
+body.rrb-dark-mode .board-panel--right {
+  border-left-color: #1f2937;
+}
+body.rrb-dark-mode .board-panel__dock {
+  background: #111827;
+  border-color: #334155;
+}
+body.rrb-dark-mode .board-panel__dock-btn {
+  color: #94a3b8;
+}
+body.rrb-dark-mode .board-panel__dock-btn:hover {
+  background: #1e293b;
+  color: #c7d2fe;
+}
+body.rrb-dark-mode .board-panel__resize::after {
+  background: #475569;
+}
+
 body.rrb-dark-mode .toolbar__sticky-add {
   background: #422006;
   border-color: #a16207;
@@ -556,4 +878,426 @@ body.rrb-dark-mode .context-menu__item {
 
 body.rrb-dark-mode .context-menu__item:hover {
   background: #1f2937;
+}
+
+/* ============================================================================
+   시각 정체성: 도형 어휘(ADR-0028) + 손그림(ADR-0030) — 세션1(시각 언어) 소유 섹션.
+   여기 아래는 세션1이 추가한다. rough 테두리/채움의 실제 이미지는 roughStyle.ts가 만들고
+   (background-image 인라인), CSS는 형태(clip-path)·워드마크 폰트·볼펜 크롬 훅만 맡는다.
+   ============================================================================ */
+
+/* 라우트 진입점 6각형(ADR-0028). roughStyle.ts의 HEX_CUT_RATIO(0.18)와 폴리곤 x%가 반드시
+   일치해야 한다(하나 바꾸면 둘 다). clip-path가 배경색(팔레트 틴트)까지 6각형으로 잘라, rough
+   6각형 테두리와 형태가 맞물린다 — 사각 배경 위에 6각형 선만 얹혀 어긋나 보이는 걸 막는다. */
+.component-node--route {
+  clip-path: polygon(18% 0, 82% 0, 100% 50%, 82% 100%, 18% 100%, 0 50%);
+}
+
+/* 구조적 역할 경계(도형 어휘, ADR-0028) — 포탈/Suspense/에러 바운더리를 "이름표 붙은 프레임"으로
+   두른다(사용자 결정: 아이콘 뱃지 대신 감싸는 영역을 박스로). 개발자가 아는 단어를 이름표로 써서
+   범례가 필요 없다. 프레임은 React Flow 노드(type:'boundary', BoundaryFrame.tsx)라 그룹 자식으로
+   깔리고, pointer-events:none으로 멤버 노드 클릭을 가로채지 않는다. 색: 포탈=teal, Suspense=violet,
+   에러 바운더리=rose. */
+.boundary-frame {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: 1.5px dashed currentColor;
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+/* 이름표는 프레임 "안쪽 상단"에 둔다(테두리를 걸치지 않음). boundaryFrames.ts의 TOP_INSET이
+   그룹 라벨과 첫 멤버 사이 빈 띠에 이 이름표 자리를 확보하므로, 그룹 라벨(상단)과 세로로 분리돼
+   가로 위치와 무관하게 겹치지 않는다. */
+.boundary-frame__label {
+  position: absolute;
+  top: 3px;
+  left: 8px;
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: #fff;
+  color: inherit;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.boundary-frame--portal {
+  color: #0d9488;
+}
+.boundary-frame--suspense {
+  color: #7c3aed;
+}
+.boundary-frame--errorBoundary {
+  color: #e11d48;
+}
+
+.react-flow.dark .boundary-frame__label {
+  background: #0b1120;
+}
+.react-flow.dark .boundary-frame--portal {
+  color: #2dd4bf;
+}
+.react-flow.dark .boundary-frame--suspense {
+  color: #a78bfa;
+}
+.react-flow.dark .boundary-frame--errorBoundary {
+  color: #fb7185;
+}
+
+/* 펼쳐진 그룹의 손그림 프레임(ADR-0030 축3, roughStyle.groupFrameImage) — CSS 실선/대시 대신
+   rough 이미지가 테두리를 그리므로 CSS border를 지운다. 접힌/지도 모드 그룹엔 이 클래스가 안
+   붙어 기존 대시 테두리를 유지한다(GroupNode.tsx showRough 참고). 배경 틴트(fill)는 그대로 둔다. */
+.group-node--rough {
+  border-color: transparent;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 100% 100%;
+}
+
+/* 손글씨 워드마크(ADR-0030 축1) — "render-board" 로고에만 손글씨체를 쓴다(다이어그램 라벨은
+   식별자 판독성을 위해 모노스페이스 유지). OFL 오픈소스 웹폰트(Excalifont 등)를 self-host
+   @font-face로 얹으면 이 스택 맨 앞에 자연히 들어온다 — 아직 정식 에셋을 못 넣어(오프라인,
+   experiments/Virgil.woff2는 검증용 사본이라 재사용 금지) 지금은 시스템 손글씨 계열로 폴백한다. */
+:root {
+  --rrb-handwriting: 'Excalifont', 'Comic Sans MS', 'Segoe Print', 'Bradley Hand', 'Chalkboard SE', cursive;
+}
+
+.rrb-wordmark {
+  font-family: var(--rrb-handwriting);
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+/* 볼펜 세기 rough 크롬(ADR-0030 축2) — roughStyle.CHROME_BORDER를 background-image로 얹는
+   버튼용. 손그림 테두리가 CSS 실선 border를 대신하므로 실선을 지우고, 크기가 제각각인 크롬을
+   위해 정적 이미지를 늘린다(roughness 0.2라 늘려도 뭉개지지 않는다, "볼펜 끝으로 그린 버튼"). */
+.rrb-rough-chrome {
+  border-color: transparent;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+}
+
+/* 툴바(상단 UI)도 손그림 언어로 — 사용자 피드백 "위 UI 손그림 느낌으로". board-panel의 CSS
+   변수(BoardOverlay.tsx)로 내려온 볼펜 rough 테두리를 툴바 버튼/검색박스에 얹고 CSS 실선
+   border를 지운다. 버튼 각자의 배경 색(다크/메모 등)은 그대로 두고 테두리만 손그림으로 통일한다.
+   shared Canvas.tsx의 툴바 JSX는 안 건드리고, 세션2가 추가한 버튼(잔상/일시정지)도 `.toolbar
+   button` 선택자로 함께 손그림이 된다. 캔버스 안의 컨트롤/노드 버튼은 `.toolbar` 밑이 아니라 안 걸린다. */
+.board-panel .toolbar button,
+.board-panel .toolbar__search {
+  border-color: transparent;
+  background-image: var(--rrb-chrome-border-light);
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+}
+
+body.rrb-dark-mode .board-panel .toolbar button,
+body.rrb-dark-mode .board-panel .toolbar__search {
+  background-image: var(--rrb-chrome-border-dark);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ADR-0032 — props 흐름 추적 + 변경 잔상(afterglow)
+   이 파일은 다른 세션과 공유되므로, 이 기능의 스타일은 전부 이 구획 안에만 둔다.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* props 패널을 캔버스 우측에 절대 배치하려면 캔버스가 위치 기준이 돼야 한다. */
+.canvas {
+  position: relative;
+}
+
+/* props 패널(ADR-0032 1층) — 우선순위 정렬 스크롤 리스트. 캔버스 우측 상단에 겹쳐 뜬다. */
+.props-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: 280px;
+  max-width: calc(100% - 24px);
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1px solid #d0d3da;
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(15, 23, 42, 0.16);
+  z-index: 20;
+  font-size: 12px;
+  overflow: hidden;
+}
+
+.props-panel__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f8fafc;
+}
+
+.props-panel__title {
+  font-family: ui-monospace, monospace;
+  font-weight: 600;
+  font-size: 13px;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.props-panel__close {
+  border: none;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.props-panel__close:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.props-panel__empty {
+  margin: 0;
+  padding: 16px 12px;
+  color: #94a3b8;
+}
+
+.props-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* 각 prop 행 — 추적 가능 행은 버튼처럼 클릭 가능, primitive는 흐리게(추적 불가). */
+.props-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  padding: 5px 7px;
+  font-size: 12px;
+  font-family: ui-monospace, monospace;
+  color: #1e293b;
+  cursor: pointer;
+}
+.props-row:hover:not(:disabled) {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+}
+/* primitive 등 추적 불가 행: 흐리게 + 클릭 불가(ADR-0032 "primitive는 아래로 흐리게"). */
+.props-row--untrackable {
+  cursor: default;
+  color: #94a3b8;
+}
+/* 변경된 prop: 지속 마커(왼쪽 색 띠) — b1 이번 커밋 변경. */
+.props-row--changed {
+  border-left: 3px solid #f59e0b;
+}
+/* 추적 중인 prop: 강조 테두리. */
+.props-row--tracked {
+  background: #ecfeff;
+  border-color: #22d3ee;
+}
+
+.props-row__key {
+  font-weight: 600;
+  color: #0f172a;
+  flex-shrink: 0;
+}
+.props-row--untrackable .props-row__key {
+  color: #94a3b8;
+  font-weight: 500;
+}
+.props-row__value {
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.props-row__badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-family: system-ui, sans-serif;
+  padding: 1px 5px;
+  border-radius: 999px;
+  line-height: 1.5;
+}
+.props-row__badge--changed {
+  background: #fef3c7;
+  color: #92400e;
+}
+.props-row__badge--tracked {
+  background: #cffafe;
+  color: #155e75;
+}
+
+.props-panel__footer {
+  padding: 7px 10px;
+  border-top: 1px solid #e5e7eb;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 11px;
+}
+.props-panel__footer code {
+  font-family: ui-monospace, monospace;
+  background: #e2e8f0;
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
+/* 참조 추적 하이라이트(ADR-0032 3층) — 흐름의 끝점 노드는 청록 외곽선으로 표식(검색 매치/역방향
+   착지와 구분). 하지만 "흐름" 자체는 아래 간선 강조가 주가 된다(레퍼런스의 "props는 간선에"). */
+.component-node--tracked {
+  outline: 2px dashed #06b6d4;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* 참조가 실제로 지나간 경로 = 추적 서브체인의 기존 부모→자식 간선(ADR-0032). 청록 굵은 선 +
+   흐르는 점선 애니메이션(animated)으로 "이 값이 여기로 흐른다"를 보여주고, 간선 라벨에 흐르는
+   prop 이름을 얹는다. 그룹 횡단 간선(--cross-group) 위에 겹쳐도 이기도록 우선순위를 높인다. */
+.react-flow__edge.edge-tracked .react-flow__edge-path {
+  stroke: #06b6d4 !important;
+  stroke-width: 3 !important;
+  stroke-dasharray: 6 3 !important;
+}
+.react-flow__edge.edge-tracked .react-flow__edge-text {
+  fill: #0e7490;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+}
+.react-flow__edge.edge-tracked .react-flow__edge-textbg {
+  fill: #ecfeff;
+}
+body.rrb-dark-mode .react-flow__edge.edge-tracked .react-flow__edge-text {
+  fill: #67e8f9;
+}
+body.rrb-dark-mode .react-flow__edge.edge-tracked .react-flow__edge-textbg {
+  fill: #083344;
+}
+
+/* 흐름 간선(ADR-0032) — 이 도구의 주(主) 동적 표현. 자식이 방금 props를 받은 간선을 부모→자식
+   방향으로 "흐르게" 한다. animated=true가 React Flow의 움직이는 점선(source→target 방향)을 주므로,
+   여기서는 색(따뜻한 주황)과 굵기만 얹으면 데이터가 트리를 타고 내려가는 게 보인다. 정밀 추적
+   (청록 점선+라벨)과 색·역할이 구분된다. */
+.react-flow__edge.edge-hot .react-flow__edge-path {
+  stroke: #fb923c !important;
+  stroke-width: 2.5 !important;
+  filter: drop-shadow(0 0 2px rgba(251, 146, 60, 0.7));
+}
+
+/* 변경 노드 표식(ADR-0032) — 흐름의 주인공은 간선(위 edge-hot)이고, 노드는 "여기가 방금 바뀌었다"를
+   알리는 은은한 보조 표식일 뿐이다(예전의 두꺼운 색 링에서 축소). heat 색(파랑=가끔→빨강=자주,
+   ComponentNode가 인라인 color로 줌)을 얇은 링으로만 두르고, color transition으로 천천히 식는다. */
+.component-node__afterglow {
+  position: absolute;
+  inset: -2px;
+  border-radius: 5px;
+  pointer-events: none;
+  z-index: -1;
+  border: 1.5px solid currentColor;
+  transition: color 280ms linear, opacity 280ms linear;
+}
+
+/* 지도 모드 그룹 흐름(ADR-0032 Q2) — 그룹 안 노드들이 바쁘면 프레임이 heat 색으로 발광한다.
+   box-shadow(색·굵기)는 GroupNode가 인라인으로 heat 색과 함께 주고, 여기서는 그 변화가 식으며
+   부드럽게 이어지도록 transition만 건다("활동 기상도": 어느 도메인이 살아있나 한눈에). */
+.group-node--flowing {
+  transition: box-shadow 280ms linear;
+}
+
+/* 잔상/일시정지 툴바 버튼(ADR-0032) — 기존 toolbar 버튼과 같은 계열, 켜지면 강조. */
+.toolbar__afterglow,
+.toolbar__afterglow-pause {
+  font-size: 12px;
+  padding: 5px 10px;
+  border: 1px solid #d0d3da;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+}
+.toolbar__afterglow--on {
+  background: #fff7ed;
+  border-color: #fb923c;
+  color: #9a3412;
+}
+.toolbar__afterglow-pause--on {
+  background: #eff6ff;
+  border-color: #60a5fa;
+  color: #1e40af;
+}
+
+/* ── 다크모드 대응 (body.rrb-dark-mode / .react-flow.dark) ── */
+body.rrb-dark-mode .props-panel {
+  background: #0b1120;
+  border-color: #1f2937;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+}
+body.rrb-dark-mode .props-panel__header,
+body.rrb-dark-mode .props-panel__footer {
+  background: #111827;
+  border-color: #1f2937;
+}
+body.rrb-dark-mode .props-panel__title {
+  color: #e5e7eb;
+}
+body.rrb-dark-mode .props-panel__close {
+  color: #94a3b8;
+}
+body.rrb-dark-mode .props-panel__close:hover {
+  background: #1f2937;
+  color: #e5e7eb;
+}
+body.rrb-dark-mode .props-row {
+  color: #cbd5e1;
+}
+body.rrb-dark-mode .props-row:hover:not(:disabled) {
+  background: #1e293b;
+  border-color: #334155;
+}
+body.rrb-dark-mode .props-row__key {
+  color: #e2e8f0;
+}
+body.rrb-dark-mode .props-row--tracked {
+  background: #083344;
+  border-color: #0e7490;
+}
+body.rrb-dark-mode .props-panel__footer {
+  color: #94a3b8;
+}
+body.rrb-dark-mode .props-panel__footer code {
+  background: #1f2937;
+}
+body.rrb-dark-mode .toolbar__afterglow,
+body.rrb-dark-mode .toolbar__afterglow-pause {
+  background: #1f2937;
+  border-color: #374151;
+  color: #e5e7eb;
+}
+body.rrb-dark-mode .toolbar__afterglow--on {
+  background: #431407;
+  border-color: #ea580c;
+  color: #fed7aa;
+}
+body.rrb-dark-mode .toolbar__afterglow-pause--on {
+  background: #172554;
+  border-color: #2563eb;
+  color: #bfdbfe;
 }

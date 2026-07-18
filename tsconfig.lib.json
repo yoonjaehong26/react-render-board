@@ -8,6 +8,6 @@
     "rootDir": "./src",
     "outDir": "./dist-lib"
   },
-  "include": ["src/index.ts", "src/data", "src/hooking", "src/visualization"],
+  "include": ["src/index.ts", "src/inject.tsx", "src/data", "src/hooking", "src/visualization"],
   "exclude": ["**/*.test.ts", "**/*.test.tsx", "src/test"]
 }

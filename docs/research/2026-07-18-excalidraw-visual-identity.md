@@ -3,6 +3,8 @@
 조사일: 2026-07-18
 목적: 사용자가 원하는 "Excalidraw풍 손그림(sketchbook) + 과감한 색" 미학을 이미 부분 구현된 `roughStyle.ts`/`groupColor.ts`/`colorModePreference.ts` 위에 어떻게 더 다듬을지 조사한다. **코드 변경 없음 — 순수 조사 + 제안.** 최종 반영은 이 문서가 아니라 사용자와의 별도 논의에서 결정한다.
 
+**범위**: 처음엔 다이어그램(그룹/컴포넌트 노드)만 다뤘으나, 이 도구가 호스트 페이지 위에 얹는 나머지 UI 표면 — 플로팅 버튼(`BoardOverlay.tsx`)과 "React Scan 스타일" DOM 하이라이트 박스(`DomHighlightOverlay.tsx`) — 도 같은 테마로 볼 만한지 이어서 조사했다(7~10절).
+
 방법론: (1) 이 저장소에 이미 체크아웃돼 있는 실제 Excalidraw 소스(`experiments/real-app-validation/excalidraw/`)를 직접 읽어 rough.js 옵션·색 팔레트·폰트·spacing 토큰의 정확한 값을 확인했다. (2) Excalidraw 팀/커뮤니티가 이 미학을 채택한 이유에 대한 공개 자료를 웹에서 확인했다. (3) 이 프로젝트의 기존 구현(`roughStyle.ts`/`groupColor.ts`/`GroupNode.tsx`/`flow.css`)과 대조했다. (4) 다크모드 대비는 실제 hex 값으로 WCAG 대비율을 계산해 검증했다(추정이 아니라 계산).
 
 ---
@@ -138,14 +140,58 @@ ADR-0019에 따르면 berry-admin dashboard가 최대 74개 그룹(수정 전), 
 
 ---
 
+## 7. 다이어그램 밖 — 전체 UI를 3개 레이어로 나눠서 보기
+
+지금까지(1~6절)는 전부 **콘텐츠**(그룹/컴포넌트 노드) 얘기였다. 이 도구가 실제로 그리는 화면은 성격이 다른 3개 레이어로 나뉜다:
+
+| 레이어 | 예시 | 개수 규모 | 성능 제약 |
+|---|---|---|---|
+| ① 콘텐츠 (다이어그램) | 그룹 프레임, 컴포넌트 노드 | O(n) — 수백~수천 개 | **있음** — 1~6절이 다룬 캐싱/게이팅이 전부 이것 때문 |
+| ② 패널 크롬 (도킹 패널 내부) | 툴바, 검색창, 체크박스, 다크모드 토글 | O(1) — 인스턴스 1개 | 없음 |
+| ③ 오버레이/포인터 (호스트 페이지 위에 얹는 것) | 플로팅 버튼(`board-toggle-group`), DOM 하이라이트 박스(`dom-highlight-overlay__box`) | O(1)~O(few) — 버튼 2~3개, 하이라이트 요소 1~3개 | 없음 |
+
+**중요한 발견**: ①의 "정적 이미지 캐싱"·"뷰포트 게이팅" 같은 장치는 전부 "노드가 수천 개일 수 있다"는 문제에서 나온 것이지, rough.js 자체가 원래 느려서가 아니다. ③(플로팅 버튼, DOM 하이라이트 박스)은 애초에 개수가 노드 수와 무관하게 항상 한 자릿수라 **①에서 고민한 성능 제약이 처음부터 적용되지 않는다** — 매 렌더 라이브로 rough.js를 계산해도 전혀 문제없다. 사용자가 "재밌겠다"고 한 지점이 정확히 이 자리다: ①보다 훨씬 자유롭게 실험할 수 있는 영역이다.
+
+②(패널 크롬)는 5절에서 이미 다룬 "크롬은 중립, 색은 콘텐츠에만"(Excalidraw의 UI 크롬=Assistant 산세리프, 캔버스만 손글씨) 원칙을 그대로 적용하는 게 맞다고 본다. ③은 성격이 다르다 — 패널 "안"의 설정 UI가 아니라, 도구가 호스트 페이지 위로 **손을 뻗어 뭔가를 가리키거나 조작하는** 동작에 가깝다(버튼을 눌러 패널을 열고, 하이라이트로 요소를 짚어준다). Excalidraw로 비유하면 ②는 "패널/메뉴"에 가깝고 ③은 오히려 "캔버스 위에 실제로 그려지는 마크"에 더 가깝다 — 그래서 ③은 손글씨/러프 은유를 ②보다 대담하게 써도 Excalidraw의 원래 구분("크롬 vs 콘텐츠")과 모순되지 않는다.
+
+## 8. 플로팅 버튼(`BoardOverlay.tsx`) — 손그림 적용 제안
+
+지금 `.board-toggle`은 `border: 1px solid #6366f1; background: #eef2ff;` 같은 각 잡힌 사각 버튼이다(`flow.css`). 두 개(`🎯 요소 선택`, `render-board 열기/닫기`)뿐이고, **라벨 텍스트 자체가 상태에 따라 길이가 바뀐다**(`요소 선택` ↔ `요소 선택 중… (취소)`, `열기` ↔ `닫기`) — 그래서 애초에 `roughStyle.ts`처럼 "고정 크기 2장을 캐싱"하는 트릭을 쓸 이유도, 필요도 없다(7절의 결론대로 그럴 필요 자체가 없는 O(1) 자리다).
+
+**제안(draft)**:
+- 버튼 배경에 rough.js로 그린 손그림 사각/둥근 사각 테두리를 **라이브로**(렌더마다 새로 계산해도 무방) 씌운다.
+- `board-toggle--pick-active`(픽 모드 켜짐) 상태에 roughness/strokeWidth를 살짝 올려 "지금 활성 상태"를 선이 더 부산해지는 것으로 표현하는 아이디어 — 색만 바꾸는 지금 방식(`background: #6366f1`)보다 "지금 도구가 활성화돼 있다"는 손짓 느낌을 더 살릴 수 있다.
+- 이 자리는 향후 추가될 다른 플로팅 버튼(필터/주석 등 미구현 UX 기능, `project-status.md` 2절 표 참고)에도 그대로 확장되는 공통 컴포넌트로 만들어두면 매번 새로 고민할 필요가 없다.
+
+성능 검증이 필요 없는 자리라 이건 실제로 구현 난이도가 낮다 — 다만 여전히 "실제로 그려보고 눈으로 확인"은 필요하다(조사만으로 최종 톤을 확정할 수 없음).
+
+## 9. DOM 하이라이트 박스("React Scan 스타일") — 손그림 적용 제안 + 아키텍처 주의점
+
+`DomHighlightOverlay.tsx`가 그리는 것: `interactionStore`가 넘긴 실제 DOM 요소의 `getBoundingClientRect()`를 재서 `document.body`에 포탈로 절대좌표 박스를 얹는다(2px 실선 인디고 테두리 + 옅은 배경 wash, `HIGHLIGHT_DURATION_MS=1600ms` 후 자동 소멸). 이 자리도 O(1)~O(few)라 7절 기준으로 손그림을 자유롭게 실험할 수 있다.
+
+**선례 확인**: rough.js와 같은 저자(Preet Shihn, rough-stuff 조직)가 만든 [Rough Notation](https://github.com/rough-stuff/rough-notation)이 정확히 이 문제("이미 존재하는 임의의 DOM 요소를 손그림 스타일로 표시")를 다루는 라이브러리다. `box`/`circle`/`highlight`(형광펜 워시)/`underline`/`strike-through`/`crossed-off`/`bracket` 7종 주석 타입을 제공하고, 애니메이션(기본 800ms, "그려지는" 느낌)이 내장돼 있다(3.83kb gzip). "임의 요소를 손그림으로 짚어준다"는 발상 자체가 이미 검증된 관례라는 근거가 된다.
+
+**단, 그대로 채택하면 안 되는 이유(실제 소스 확인)**: Rough Notation 공식 문서가 명시하길, `annotate()`는 **SVG를 대상 요소의 형제(sibling)로 실제 DOM에 삽입**한다 — 원문: `"This will add an SVG element as a sibling to the element, which may be troublesome in certain situations like in a <table>"`. 이건 이 프로젝트가 지금 `flow.css`/`DomHighlightOverlay.tsx` 주석에서 명시하는 원칙 — **"호스트 페이지 DOM에 손대지 않는다"**(`pointer-events: none`, 포탈로 `document.body`에만 그리고 좌표만 읽음) — 와 정면으로 부딪힌다. 계측 대상이 임의의 제3자 앱(그 자체로 React일 수도 있는)이라, 그 DOM 트리에 형제 노드를 실제로 끼워 넣으면 호스트의 CSS 선택자(`:nth-child` 등)나 React 재조정에 영향을 줄 위험이 있다 — 라이브러리 저자 스스로도 "테이블 같은 구조에서 문제가 될 수 있다"고 인정한 한계다.
+
+**제안(draft)**: Rough Notation을 새 의존성으로 추가하지 말고, **이미 있는 `roughjs` 의존성과 이미 있는 `document.body` 포탈 구조를 그대로 쓰되, 그려지는 내용만 clean CSS border → rough.js SVG로 바꾼다.** 즉 지금처럼 `getBoundingClientRect()`로 좌표만 읽고, 그 좌표에 맞춰 `roughStyle.ts`와 같은 방식(`rough.generator().rectangle(...)`)으로 SVG 경로를 **이번엔 라이브로**(캐싱 불필요, O(few)라서) 그려서 오버레이 안에 넣는다 — 호스트 DOM에는 지금처럼 여전히 아무것도 삽입하지 않는다. Rough Notation의 `highlight` 타입(형광펜 워시)이 주는 발상은 `fillStyle: 'hachure'`(대각선 빗금 채움, Excalidraw의 실제 옵션 중 하나, 1-1절 참고)로 흉내 낼 수 있어 지금의 단순 `rgba` 배경보다 "마커로 표시했다"는 은유가 더 강해진다.
+- **애니메이션**: `HIGHLIGHT_DURATION_MS`(1600ms) 동안 나타났다 사라지는 지금 구조에, Rough Notation 식의 "그려지는" 애니메이션(SVG stroke 애니메이션으로 손이 지금 막 그은 것처럼)을 짧게 얹으면 "방금 마커로 짚었다"는 느낌이 강해질 수 있다 — 다만 구체적 구현 방식(stroke-dasharray offset 등)은 이 조사에서 검증하지 않았다.
+
+## 10. 스티키노트 주석 기능과의 연결 (참고)
+
+`docs/project-status.md` 2절의 미구현 UX 표에 있는 "캔버스 주석(스티키노트)" — [`2026-07-17-react-flow-ux-capabilities.md`](2026-07-17-react-flow-ux-capabilities.md)가 공식 `AnnotationNode` 예제로 가능하다고 이미 조사해둔 기능 — 은 손그림 미학과 가장 자연스럽게 맞아떨어지는 자리다. 스티키노트 자체가 종이/손글씨 은유의 원형이라, 이 기능을 실제로 구현할 때가 1-3절에서 다룬 손글씨체를 가장 부담 없이 시험해볼 자리로 보인다(콘텐츠 라벨의 camelCase 판독성 문제도 없다 — 스티키노트는 사용자가 직접 자유 텍스트를 쓰는 자리이므로).
+
+---
+
 ## 관련 문서
 
 - 기존 부분 구현: [`src/visualization/lib/roughStyle.ts`](../../src/visualization/lib/roughStyle.ts) · [`groupColor.ts`](../../src/visualization/lib/groupColor.ts) · [`colorModePreference.ts`](../../src/visualization/lib/colorModePreference.ts)
+- 오버레이/포인터 레이어(7~9절): [`src/visualization/BoardOverlay.tsx`](../../src/visualization/BoardOverlay.tsx) · [`src/visualization/components/DomHighlightOverlay.tsx`](../../src/visualization/components/DomHighlightOverlay.tsx) · [`src/visualization/lib/interactionStore.ts`](../../src/visualization/lib/interactionStore.ts)
 - 다이어그램 표기법 조사(색상 규칙 초안): [`2026-07-17-diagram-notation-conventions.md`](2026-07-17-diagram-notation-conventions.md)
-- React Flow UX 기능 조사: [`2026-07-17-react-flow-ux-capabilities.md`](2026-07-17-react-flow-ux-capabilities.md)
+- React Flow UX 기능 조사(스티키노트 포함): [`2026-07-17-react-flow-ux-capabilities.md`](2026-07-17-react-flow-ux-capabilities.md)
 - UI 철학("색상은 되돌리기 쉬운 영역"): [`../ui-philosophy.md`](../ui-philosophy.md)
 - 뷰포트 기반 부분 재계산(그룹 프레임 rough 캐싱 논의의 전제): [ADR-0017](../decisions/0017-viewport-based-partial-recompute.md)
 - 그룹 수 실측치: [ADR-0019](../decisions/0019-library-hint-whitelist-inversion.md)
+- 양방향 인터랙션(하이라이트 박스의 배경): [ADR-0024](../decisions/0024-board-dom-bidirectional-interaction.md) · [ADR-0026](../decisions/0026-bidirectional-interaction-implementation.md)
 
 ## 출처
 
@@ -159,3 +205,4 @@ ADR-0019에 따르면 berry-admin dashboard가 최대 74개 그룹(수정 전), 
 **웹**
 - [Excalidraw](https://excalidraw.com/)
 - [Why is Excalidraw so fucking good? - Off by one](https://offbyone.us/posts/why-is-excalidraw-so-good/)
+- [Rough Notation (GitHub, rough-stuff)](https://github.com/rough-stuff/rough-notation) — DOM 요소를 형제 SVG로 삽입하는 방식(README에 명시) 확인, 새 의존성으로 채택하지 않기로 한 근거

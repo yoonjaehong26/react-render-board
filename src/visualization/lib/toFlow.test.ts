@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { toFlow, type ComponentNodeData, type GroupNodeData } from './toFlow';
+import { toFlow, isRouteGroup, type ComponentNodeData, type GroupNodeData } from './toFlow';
 import { createLayoutEngine } from './layout';
 import { PENDING_GROUP } from './normalize';
 import type { VisibleNode } from './normalize';
@@ -177,37 +177,117 @@ describe('toFlow', () => {
     expect(flowEdges).toHaveLength(0);
   });
 
-  it('only creates an edge when both the parent and the child ended up expanded', () => {
+  it('only creates a node-level edge when both the parent and the child ended up expanded', () => {
     const nodes = [vnode(1, 'A'), vnode(2, 'B', 1)];
+    // ADR-0034 adds an aggregated group->group edge regardless of expansion, so this test
+    // filters to node-level edges (everything except edge-group-link).
+    const nodeEdges = (r: ReturnType<typeof toFlow>) =>
+      r.flowEdges.filter((e) => e.className !== 'edge-group-link');
     const engine = createLayoutEngine();
 
     const onlyParentExpanded = toFlow(nodes, engine, { shouldExpandGroup: (_f, group) => group === 'A' });
-    expect(onlyParentExpanded.flowEdges).toHaveLength(0);
+    expect(nodeEdges(onlyParentExpanded)).toHaveLength(0);
 
     const engine2 = createLayoutEngine();
     const onlyChildExpanded = toFlow(nodes, engine2, { shouldExpandGroup: (_f, group) => group === 'B' });
-    expect(onlyChildExpanded.flowEdges).toHaveLength(0);
+    expect(nodeEdges(onlyChildExpanded)).toHaveLength(0);
 
     const engine3 = createLayoutEngine();
     const bothExpanded = toFlow(nodes, engine3, { shouldExpandGroup: () => true });
-    expect(bothExpanded.flowEdges).toHaveLength(1);
-    expect(bothExpanded.flowEdges[0].id).toBe('1->2');
-    expect(bothExpanded.flowEdges[0].source).toBe('1');
-    expect(bothExpanded.flowEdges[0].target).toBe('2');
+    const both = nodeEdges(bothExpanded);
+    expect(both).toHaveLength(1);
+    expect(both[0].id).toBe('1->2');
+    expect(both[0].source).toBe('1');
+    expect(both[0].target).toBe('2');
   });
 
   it('styles cross-group edges with edge-cross-group className and a higher zIndex than same-group edges', () => {
     const crossGroupNodes = [vnode(1, 'A'), vnode(2, 'B', 1)];
     const engine = createLayoutEngine();
     const { flowEdges: crossEdges } = toFlow(crossGroupNodes, engine, { shouldExpandGroup: () => true });
+    // 그룹 간 간선은 감쇠하지 않는다 — 현행 강도(주황 점선) 유지 (ADR-0029 결정 #4).
     expect(crossEdges[0].className).toBe('edge-cross-group');
     expect(crossEdges[0].zIndex).toBe(10);
 
     const sameGroupNodes = [vnode(1, 'A'), vnode(2, 'A', 1)];
     const engine2 = createLayoutEngine();
     const { flowEdges: sameEdges } = toFlow(sameGroupNodes, engine2, { shouldExpandGroup: () => true });
-    expect(sameEdges[0].className).toBeUndefined();
+    // 그룹 내 간선은 깊이 감쇠 클래스가 붙는다(시각적 감쇠, 7절 a). 깊이 1은 구조 간선이라 detail 아님.
+    expect(sameEdges[0].className).toBe('edge-same-group edge-depth-1');
     expect(sameEdges[0].zIndex).toBe(1);
+  });
+
+  it('tags same-group edges with a group-depth bucket and marks deep edges as edge-detail (ADR-0029 clutter LOD)', () => {
+    // A 그룹 안의 사슬: 1 → 2 → 3 → 4 → 5 (전부 같은 그룹). 그룹 내 깊이 1,2,3,4로 증가.
+    const nodes = [vnode(1, 'A'), vnode(2, 'A', 1), vnode(3, 'A', 2), vnode(4, 'A', 3), vnode(5, 'A', 4)];
+    const engine = createLayoutEngine();
+    const { flowEdges } = toFlow(nodes, engine, { shouldExpandGroup: () => true });
+    const byId = new Map(flowEdges.map((e) => [e.id, e.className]));
+
+    // 깊이 1·2는 구조 간선(detail 아님), 깊이 3부터 detail(중간 줌에서 숨김). 버킷은 3에서 포화.
+    expect(byId.get('1->2')).toBe('edge-same-group edge-depth-1');
+    expect(byId.get('2->3')).toBe('edge-same-group edge-depth-2');
+    expect(byId.get('3->4')).toBe('edge-same-group edge-depth-3 edge-detail');
+    expect(byId.get('4->5')).toBe('edge-same-group edge-depth-3 edge-detail');
+  });
+
+  it('resets group depth at group boundaries so a child entering a new group starts shallow', () => {
+    // A(1) → B(2) → B(3): 2는 B로 새로 진입(그룹 경계, 깊이 리셋), 3은 B 안에서 깊이 1.
+    const nodes = [vnode(1, 'A'), vnode(2, 'B', 1), vnode(3, 'B', 2)];
+    const engine = createLayoutEngine();
+    const { flowEdges } = toFlow(nodes, engine, { shouldExpandGroup: () => true });
+    const byId = new Map(flowEdges.map((e) => [e.id, e.className]));
+    expect(byId.get('1->2')).toBe('edge-cross-group'); // 그룹 경계
+    expect(byId.get('2->3')).toBe('edge-same-group edge-depth-1'); // 리셋 후 얕음
+  });
+
+  // ADR-0034: node-level edges only render when both endpoint nodes are expanded, so map
+  // mode (all groups collapsed) shows no hierarchy. An aggregated group->group edge is
+  // emitted per cross-group pair, drawn only in map mode via the edge-group-link class.
+  it('emits an aggregated group->group edge for each cross-group parent relationship, even when groups are collapsed', () => {
+    // A renders B renders C — three groups in a chain, all collapsed (map mode).
+    const nodes = [vnode(1, 'A'), vnode(2, 'B', 1), vnode(3, 'C', 2)];
+    const engine = createLayoutEngine();
+    const { flowEdges } = toFlow(nodes, engine, { shouldExpandGroup: () => false });
+
+    const groupEdges = flowEdges.filter((e) => e.className === 'edge-group-link');
+    expect(groupEdges).toHaveLength(2);
+    const ids = groupEdges.map((e) => e.id).sort();
+    expect(ids).toEqual(['group:A->group:B', 'group:B->group:C']);
+    const ab = groupEdges.find((e) => e.id === 'group:A->group:B')!;
+    expect(ab.source).toBe('group:A');
+    expect(ab.target).toBe('group:B');
+  });
+
+  it('deduplicates the aggregated group edge when many nodes cross the same two groups', () => {
+    // Two separate A-nodes each parent a B-node: one aggregated A->B edge, not two.
+    const nodes = [vnode(1, 'A'), vnode(2, 'A'), vnode(3, 'B', 1), vnode(4, 'B', 2)];
+    const engine = createLayoutEngine();
+    const { flowEdges } = toFlow(nodes, engine, { shouldExpandGroup: () => false });
+    const groupEdges = flowEdges.filter((e) => e.className === 'edge-group-link');
+    expect(groupEdges).toHaveLength(1);
+    expect(groupEdges[0].id).toBe('group:A->group:B');
+  });
+
+  it('does not emit an aggregated edge to a group whose frame was filtered out', () => {
+    // A renders B, but filter to only A's node — B's frame is not rendered, so no dangling edge.
+    const nodes = [vnode(1, 'A'), vnode(2, 'B', 1)];
+    const engine = createLayoutEngine();
+    const { flowEdges } = toFlow(nodes, engine, {
+      shouldExpandGroup: () => false,
+      matchedIds: new Set([1]),
+      filterToMatches: true,
+    });
+    const groupEdges = flowEdges.filter((e) => e.className === 'edge-group-link');
+    expect(groupEdges).toHaveLength(0);
+  });
+
+  it('does not emit aggregated group edges touching the PENDING group', () => {
+    const nodes = [vnode(1, 'A'), vnode(2, PENDING_GROUP, 1)];
+    const engine = createLayoutEngine();
+    const { flowEdges } = toFlow(nodes, engine, { shouldExpandGroup: () => false });
+    const groupEdges = flowEdges.filter((e) => e.className === 'edge-group-link');
+    expect(groupEdges).toHaveLength(0);
   });
 
   it('marks the PENDING_GROUP frame and its expanded members as pending, with the expected label', () => {
@@ -309,6 +389,81 @@ describe('toFlow', () => {
     const { flowNodes } = toFlow(nodes, engine, { shouldExpandGroup: () => true });
 
     expect(() => (flowNodes.find((n) => n.id === 'group:A')!.data as GroupNodeData).onToggleCollapse()).not.toThrow();
+  });
+
+  describe('isRouteGroup (도형 어휘 — 라우트 판별, ADR-0028)', () => {
+    it('matches Next.js App Router route entry files', () => {
+      expect(isRouteGroup('app/dashboard/page.tsx')).toBe(true);
+      expect(isRouteGroup('src/app/(marketing)/page.jsx')).toBe(true);
+      expect(isRouteGroup('page.ts')).toBe(true);
+    });
+    it('rejects ordinary component/domain groups', () => {
+      expect(isRouteGroup('domains/checkout')).toBe(false);
+      expect(isRouteGroup('components/PageHeader.tsx')).toBe(false); // "page" 안 붙은 파일명 오탐 방지
+      expect(isRouteGroup(PENDING_GROUP)).toBe(false);
+    });
+  });
+
+  describe('isRouteEntry (라우트 6각형 파생, ADR-0028)', () => {
+    it('marks a route-group node that has no parent as a route entry', () => {
+      const nodes = [vnode(1, 'app/dashboard/page.tsx')];
+      const engine = createLayoutEngine();
+      const { flowNodes } = toFlow(nodes, engine, { shouldExpandGroup: () => true });
+      expect((flowNodes.find((n) => n.id === '1')!.data as ComponentNodeData).isRouteEntry).toBe(true);
+    });
+
+    it('marks the group-crossing entry node, but NOT inline children in the same route group', () => {
+      // node 1: route-group root (entry). node 2: child in the SAME route group (inline child, not an entry).
+      const nodes = [vnode(1, 'app/dashboard/page.tsx'), vnode(2, 'app/dashboard/page.tsx', 1)];
+      const engine = createLayoutEngine();
+      const { flowNodes } = toFlow(nodes, engine, { shouldExpandGroup: () => true });
+      expect((flowNodes.find((n) => n.id === '1')!.data as ComponentNodeData).isRouteEntry).toBe(true);
+      expect((flowNodes.find((n) => n.id === '2')!.data as ComponentNodeData).isRouteEntry).toBe(false);
+    });
+
+    it('marks a node whose parent lives in a different group as a route entry (group boundary)', () => {
+      const nodes = [vnode(1, 'domains/shell'), vnode(2, 'app/settings/page.tsx', 1)];
+      const engine = createLayoutEngine();
+      const { flowNodes } = toFlow(nodes, engine, { shouldExpandGroup: () => true });
+      expect((flowNodes.find((n) => n.id === '2')!.data as ComponentNodeData).isRouteEntry).toBe(true);
+    });
+
+    it('never marks a node in a non-route group as a route entry', () => {
+      const nodes = [vnode(1, 'domains/checkout')];
+      const engine = createLayoutEngine();
+      const { flowNodes } = toFlow(nodes, engine, { shouldExpandGroup: () => true });
+      expect((flowNodes.find((n) => n.id === '1')!.data as ComponentNodeData).isRouteEntry).toBe(false);
+    });
+
+    it('never marks a host node as a route entry even at a route-group boundary (role, not host)', () => {
+      const hostRoot: VisibleNode = {
+        id: 1,
+        displayName: 'div',
+        kind: 'host',
+        parentId: null,
+        group: 'app/dashboard/page.tsx',
+        isAnonymous: false,
+      };
+      const engine = createLayoutEngine();
+      const { flowNodes } = toFlow([hostRoot], engine, { shouldExpandGroup: () => true });
+      expect((flowNodes.find((n) => n.id === '1')!.data as ComponentNodeData).isRouteEntry).toBe(false);
+    });
+  });
+
+  describe('colorMode passthrough (손그림 다크 테두리 선택, ADR-0030)', () => {
+    it('defaults component nodes to light mode when colorMode is omitted', () => {
+      const nodes = [vnode(1, 'A')];
+      const engine = createLayoutEngine();
+      const { flowNodes } = toFlow(nodes, engine, { shouldExpandGroup: () => true });
+      expect((flowNodes.find((n) => n.id === '1')!.data as ComponentNodeData).colorMode).toBe('light');
+    });
+
+    it('passes the given colorMode onto every component node', () => {
+      const nodes = [vnode(1, 'A')];
+      const engine = createLayoutEngine();
+      const { flowNodes } = toFlow(nodes, engine, { shouldExpandGroup: () => true, colorMode: 'dark' });
+      expect((flowNodes.find((n) => n.id === '1')!.data as ComponentNodeData).colorMode).toBe('dark');
+    });
   });
 
   it('gives group frames the static UX-intent fields: non-selectable, non-draggable, behind other nodes', () => {

@@ -38,10 +38,12 @@
 
 보드에서 실제로 되는 것: 실시간 렌더 트리 관찰, 도메인별 그룹 프레임, 줌아웃 시 지도 모드/줌인 시 상세 모드 전환, host 노드 토글, 수천 개 노드까지 안 뭉개짐(P0~P4 반영 후).
 
-### 🟢 보드 ↔ 실제 DOM 양방향 인터랙션 — 구현됨 (ADR-0024/0025/0026)
+### 🟢 보드 ↔ 실제 DOM 양방향 인터랙션 — 구현됨 (ADR-0024/0025/0026, hover 프리뷰 ADR-0038)
 
-- **정방향**: 보드에서 컴포넌트 노드를 클릭하면 대응하는 실제 화면 요소에 하이라이트 테두리가 잠깐(1.6초) 뜬다. 도킹 패널이라 보드를 안 닫아도 실제 화면이 항상 보인다.
-- **역방향**: 계측 대상 앱에서 Alt(⌥)+클릭하거나 "🎯 요소 선택" 모드를 켠 채 클릭하면, 그 요소에 대응하는 보드 노드로 자동 이동+강조되고 그 실제 요소에도 하이라이트가 뜬다. 평소 클릭(Alt 없음, 픽 모드 꺼짐)은 전혀 건드리지 않는다 — 처음 구현은 모든 클릭에 반응해 정상적인 앱 조작을 막는 회귀가 있었고, 실측(`scripts/verify.mjs`)으로 발견해 고쳤다(ADR-0026).
+- **정방향**: 보드에서 컴포넌트 노드를 클릭하면 대응하는 실제 화면 요소에 하이라이트 테두리가 잠깐(1.6초) 뜬다. 도킹 패널이라 보드를 안 닫아도 실제 화면이 항상 보인다. **더블클릭하면 그 실제 요소로 스크롤 이동 + 하이라이트**(ADR-0043) — 오버레이 패널에 가려지거나 스크롤로 밀려난 요소를 한 번에 데려온다(라우터는 안 건드림: 노드로 보인다 = 이미 현재 라우트에 마운트됨).
+- **역방향**: 계측 대상 앱에서 Alt(⌥)+클릭하거나 "요소 선택" 모드를 켠 채 클릭하면, 그 요소에 대응하는 보드 노드로 자동 이동+강조되고 그 실제 요소에도 하이라이트가 뜬다. 평소 클릭(Alt 없음, 픽 모드 꺼짐)은 전혀 건드리지 않는다 — 처음 구현은 모든 클릭에 반응해 정상적인 앱 조작을 막는 회귀가 있었고, 실측(`scripts/verify.mjs`)으로 발견해 고쳤다(ADR-0026).
+- **hover-follow 프리뷰(ADR-0038)**: 픽 모드를 켠 채 마우스를 움직이면 커서 아래 요소가 실시간으로 강조돼(깔끔한 테두리 + 옅은 대각선 헷칭) "클릭하면 이게 선택된다"를 미리 보여준다(react-scan/DevTools 엘리먼트 피커 모델). 헷칭은 CSS 그라디언트라 요소 크기 무관·JS 계산 0 + rAF 스로틀 + 픽 모드일 때만 리스너라 비용 O(1). (처음엔 노드용 정적 rough 이미지를 늘려 썼다가 큰 요소에서 통짜로 칠해지는 걸 실측으로 발견해 교체.)
+- **패널 크기 조절 + 도킹 전환(ADR-0040)**: 도킹 패널을 안쪽 가장자리 드래그로 크기 조절하고, 상단 모서리 알약 컨트롤로 하단/좌/우 사이드바로 위치를 바꿀 수 있다(localStorage로 유지, 크기는 화면 비율로 저장해 방향 전환·창 리사이즈에도 유지). **오버레이 전용** — 패널은 위에 떠서 덮기만 하고 계측 대상 앱의 레이아웃/CSS는 절대 안 건드린다(관찰 도구가 관찰 대상을 바꾸지 않음, react-scan/TanStack 모델). 가려진 부분은 패널 이동/크기조절/닫기로 본다.
 - 데이터 스키마(`RenderNode`)는 그대로다 — id→Fiber 보조 조회(`fibersById`)와 완전히 분리된 `interactionStore`로 얹었다.
 
 ### 🟢 검색 하이라이트 + 자동 이동, 다크모드 + 도메인별 커스텀 팔레트 — 구현됨 (ADR-0027)
@@ -85,23 +87,24 @@
 
 **요약: 원래 후보 표(필터/주석/코드접근/테마/그룹접기/컨텍스트메뉴) 전부 구현 완료 — 코드접근과 JSDoc 툴팁 둘만 남았고, 둘 다 데이터 스키마 확장이나 별도 리서치라는 명확한 선행 조건이 있어 의도적으로 미뤄둔 상태다.**
 
-### 🟡 시각 언어(도형·손그림) — 스킨 일부 구현, 도형 어휘는 방향 확정·미구현
+### 🟢 시각 언어(도형·손그림) — 도형 어휘(6각형/포탈/경계) + 손그림 대부분 구현(ADR-0035), 워드마크 폰트 에셋만 남음
 
 사용자 Figma 다이어그램의 가독성 기법을 이 도구에 옮기는 작업. 색/배경(도메인=색)은 ADR-0027 팔레트로 완료됐고, 나머지는:
 
 | 요소 | 상태 |
 |---|---|
-| 손그림 시각 정체성(Excalidraw풍 rough.js) | 🟡 **일부 구현, 방향 확정([ADR-0030](decisions/0030-excalidraw-hand-drawn-visual-identity.md))** — 컴포넌트 노드 테두리는 정적 SVG 스케치로 구현됨(노드 수 무관 O(1), `roughStyle.ts`). 확정된 방향: 역할별 rough 세기(노드=스케치/크롬=볼펜/강조=마커·햇칭), 손글씨 폰트는 "render-board" 워드마크에만, 라벨은 모노스페이스. 다크용 테두리 4장·볼펜 크롬·워드마크 폰트는 미구현, 그룹 프레임 rough는 프로파일링 후 결정 |
-| 도형 = 역할(라우트 6각형/경계/포탈) | 미구현 — **방향 확정([ADR-0028](decisions/0028-shape-vocabulary-for-node-roles.md))**. 라우트 6각형은 `groupHint`만으로 스키마 변경 없이 가능(1순위), 경계는 `classify` 확장 선행 필요 |
-| 직교 배선(선 정리) | 미구현 — **조사 완료, 배선은 보류**([ADR-0029](decisions/0029-orthogonal-edge-routing-deferred.md)). 막힌 증거 없어 지금 안 넣음. 진행 시 제1후보는 규칙 기반 특화 배선기(libavoid 폴백). 대신 간선 클러터 감쇠(스타일/LOD)가 배선보다 먼저인 다음 후보. [조사](research/2026-07-18-orthogonal-edge-routing.md) |
+| 손그림 시각 정체성(Excalidraw풍 rough.js) | 🟢 **대부분 구현([ADR-0030](decisions/0030-excalidraw-hand-drawn-visual-identity.md)/[ADR-0035](decisions/0035-shape-and-hand-drawn-implementation.md))** — 노드 테두리 정적 SVG 스케치(노드 수 무관 O(1), `roughStyle.ts`). **다크 대응 테두리 6장, 강조 마커·햇칭, 볼펜 세기 크롬, 워드마크 손글씨 마크업**, 그리고 사용자 피드백으로 **노드 rough 세기 강화 + 펼쳐진 그룹 프레임 rough(크기 버킷 메모이즈)** 추가. 플로팅 버튼을 원형 FAB+픽 위성으로 바꾸며 **rough 원 크롬(`CHROME_CIRCLE`)으로 확장**([ADR-0037](decisions/0037-circular-floating-button-with-pick-satellite.md)). **남은 것: 워드마크 OFL 웹폰트 에셋(오프라인 미확보, 지금은 시스템 손글씨 폴백)** |
+| 도형 = 역할(라우트 6각형/경계/포탈) | 🟢 **전부 구현·데모 확인([ADR-0035](decisions/0035-shape-and-hand-drawn-implementation.md))** — 라우트 6각형(`group`이 `page.tsx`로 끝나는 진입 노드, clip-path), 포탈 표식(⧉), Suspense 경계(⏳ 점선), 에러 바운더리(🛡 점선) 전부. **실측 결과 셋 다 스키마 변경 없이 `fibersById` 사이드채널 파생으로 가능**(`roleMarkers.ts` — 노드 fiber의 `.return`을 올라가 경계 감지, 경계당 콘텐츠 루트 1개에만 표식). 데모 fixture(포탈 모달·보고서 lazy/Suspense·에러 유발)로 실행 화면 확인. Context 마름모는 여전히 별도 실험 보류(ADR-0028 스코프 밖) |
+| 간선 클러터 감쇠(스타일/LOD) | 🟢 **구현([ADR-0041](decisions/0041-edge-clutter-attenuation.md))** — ADR-0029 결정 #4(연구문서 7절 a·b)를 구현했다. **a. 시각적 감쇠**: 그룹 내 간선은 hairline + 그룹 내 깊이별 opacity(d1 0.70>d2 0.50>d3 0.35)로 죽이고, 그룹 간 간선은 현행 강도 유지("잉크를 정보 가치에 비례" — 위치가 이미 말해주는 그룹 내는 죽이고 위치가 못 말해주는 그룹 간은 살림). **b. 단계형 LOD**: 이진(지도=전부 숨김↔상세=전부 표시)을 3단으로 — 중간 줌(`zoom-mid`)은 구조 간선(그룹 횡단+얕은 깊이)만, 더 줌인하면 깊은 detail 간선 페이드인. 깊이는 그룹 경계에서 리셋돼 라이브 안정성이 레이아웃에서 상속(배선기 없음). 신규 fixture `deeptree`(깊이 1~5 단일 그룹) + `verify:edge-clutter`로 실측. 감쇠 예외: props 흐름 장식(ADR-0032). |
+| 직교 배선(선 정리) | 미구현 — **조사 완료, 배선은 보류**([ADR-0029](decisions/0029-orthogonal-edge-routing-deferred.md)). 막힌 증거 없어 지금 안 넣음. 진행 시 제1후보는 규칙 기반 특화 배선기(libavoid 폴백). 클러터 감쇠(위 행, ADR-0041)를 먼저 얹었다. **간선 위 props 라벨([ADR-0039](decisions/0039-lod-edge-prop-labels.md))**은 "국소 클러터 판정"이 선행 조건이라 배선 라운드로 남김(ADR-0041은 depth 기반 LOD까지). [조사](research/2026-07-18-orthogonal-edge-routing.md) |
 
-### 🟡 데이터 스코프 확장(props/전역상태) — props는 방향 확정·미구현, 전역상태는 보류
+### 🟡 데이터 스코프 확장(props/전역상태) — props는 구현 완료, 전역상태는 보류
 
 렌더 트리를 넘어 데이터 흐름까지 보여주는 프론티어. 세 갈래로 난이도가 갈린다:
 
 | 스코프 | 상태 |
 |---|---|
-| props 흐름 추적 + 변경 잔상(afterglow) | 미구현 — **방향 확정([ADR-0032](decisions/0032-props-flow-and-change-afterglow.md))**. props는 트리를 따라 흐르므로 새 간선·배선·스키마 변경 없이 `fibersById`+`interactionStore`로 얹힘(ADR-0026 구조). 노드 선택→props 패널, 변경 감지(지난 렌더 대비), prop 클릭→참조 추적 하이라이트, 변경 잔상(느린 decay+누적 열+일시정지 — React Scan의 "너무 빨라 못 봄" 결함 회피) |
+| props 흐름 추적 + 변경 잔상(afterglow) | ✅ **완료([ADR-0032](decisions/0032-props-flow-and-change-afterglow.md), 2026-07-18)**. 스키마 불변 — `fibersById`(클릭당 O(1) 읽기) + 신규 `afterglowStore`로 얹었다. 노드 선택→우선순위 정렬 props 패널(`propsFlow.ts`/`PropsPanel.tsx`), 변경 감지(b1: memoizedProps vs alternate), prop 클릭→자손 참조 추적 하이라이트(새 간선 없음), 변경 잔상(느린 decay+누적 열+일시정지). heat/추적은 toFlow data가 아니라 context로 내려 decay 틱마다 flowNodes 재생성을 피했고(ADR-0017 일관), 일시정지는 Canvas 진입점에서 snapshot을 freeze한다. `npm run verify:props-flow`로 통합 검증(발광 39개, 일시정지 후 유지). Context/Zustand는 여전히 보류 |
 | Context(Provider→Consumer) | **보류** — 트리를 깨는 새 간선(배선 소환). 기술은 깨끗함(`fiber.dependencies`/bippy `traverseContexts`). "나중에 필요해지면"(ADR-0032) |
 | Zustand/외부 스토어 | **보류** — Fiber 트리 밖, `useSyncExternalStore` 휴리스틱만 가능(익명·불안정). 스파이크 또는 안 함(ADR-0032) |
 
@@ -128,7 +131,7 @@
 | 스트레스: 대규모 | 수천 노드(합성 + shadcn-admin 9,240노드) | 1,500~2,000노드부터 붕괴. **MAX_DEPTH 버그** 발견 | [0014](decisions/0014-thousands-of-components-stress-test.md) |
 | 스트레스: 라우팅 | berry-admin 라우트 전환 + 코드 스플리팅 | 데이터 레벨 클린. **카메라 정체** 등 발견 | [0015](decisions/0015-routing-transition-validation.md) |
 | **백로그 해소** | P0~P4 결함 5건 순서대로 수정(프로파일링 → 뷰포트 기반 부분 재계산 → 지도 모드 LOD/카메라 refit → 그룹핑 화이트리스트 반전) | 5건 전부 해소. 응답 배율 초선형→~1배 평탄화, 지도 모드 백지→콘텐츠 표시, 카메라 자동 추적 | [0016](decisions/0016-max-depth-sibling-counting-fix.md)–[0019](decisions/0019-library-hint-whitelist-inversion.md) |
-| 배포/진입 UX 방향 | 연결 방식(CLI 자동 초기화) + 노출 위치(같은 페이지 플로팅 버튼+포탈) 결정, 4개 번들러 기술 검증 | 방향 확정(구현 0%). npm+CLI init + TanStack Query식 오버레이. Vite/webpack/Rspack/Turbopack 전부 조건부 GO | [0020](decisions/0020-distribution-entry-ux-direction.md)·[0021](decisions/0021-bundler-injection-feasibility.md) |
+| 배포/진입 UX 방향 | 연결 방식(CLI 자동 초기화) + 노출 위치(같은 페이지 플로팅 버튼+포탈) 결정, 4개 번들러 기술 검증 | 방향 확정 → **연결 방식 구현 완료(ADR-0036)**: CLI init(Vite 자동 패치) + Vite 플러그인(1순위) + webpack/Rspack/Turbopack 조건부 + dev 전용 삼중 가드. 노출 위치는 ADR-0025로 이미 완료 | [0020](decisions/0020-distribution-entry-ux-direction.md)·[0021](decisions/0021-bundler-injection-feasibility.md)·[0036](decisions/0036-distribution-connection-implementation.md) |
 
 > 이 과정에서 여러 Claude Code 세션이 같은 저장소를 병행 편집했고, ADR 번호 충돌·fixture 설계 수렴이 반복적으로 발생했다. 매번 다음 빈 번호로 조정하고 서로 상호 참조하는 방식으로 정리했다(ADR-0012·0013·0014의 병행 세션 메모 참고).
 
@@ -195,7 +198,7 @@
 |---|---|---|
 | **1. 훅킹/백엔드** | 🟢 견고 | 실제 앱 3개에서 크래시 0. 남은 결함 없음. **라이브러리 확정됨(bippy, ADR-0022)**. bippy API 드리프트만 주의(버전업 시 `.d.ts` 직접 확인 규칙 — ADR-0002). `domInteraction.ts`(DOM↔Fiber 매핑, ADR-0026) 추가. 유닛 테스트 17개(`fiberInspector`·`domInteraction`) |
 | **2. 데이터** | 🟢 견고 | 정합성·호환성 완벽. **P0 MAX_DEPTH 버그 해소됨**(ADR-0016). `fibersById` 보조 조회 추가(ADR-0026, `RenderNode` 스키마 자체는 불변). 유닛 테스트 25개(`serialize`·`sourceHints`·`store`) |
-| **3. 시각화** | 🟢 견고, 대규모까지 검증됨 | 소~중 규모는 물론 대규모(9,000+ 노드, 74개 그룹)에서도 응답성·지도 모드·카메라 추적·그룹 품질 전부 확인. **P1~P4 결함 4건 해소됨**(ADR-0017~0019). 도킹 패널 셸(`BoardOverlay.tsx`, ADR-0025) + 양방향 인터랙션(`interactionStore.ts`/`DomHighlightOverlay.tsx`, ADR-0026) + 검색/다크모드/도메인 팔레트(`search.ts`/`groupColor.ts`/`colorModePreference.ts`, ADR-0027) + 그룹 접기/컨텍스트 메뉴/스티키노트(`stickyNotes.ts`, `ContextMenu.tsx`, `NodeToolbar`, ADR-0031) + 그룹+개별 필터(`toFlow.ts`의 `filterToMatches`, ADR-0033) 추가. 유닛 테스트 125개 이상(`lib/*` + 컴포넌트) |
+| **3. 시각화** | 🟢 견고, 대규모까지 검증됨 | 소~중 규모는 물론 대규모(9,000+ 노드, 74개 그룹)에서도 응답성·지도 모드·카메라 추적·그룹 품질 전부 확인. **P1~P4 결함 4건 해소됨**(ADR-0017~0019). 도킹 패널 셸(`BoardOverlay.tsx`, ADR-0025) + 양방향 인터랙션(`interactionStore.ts`/`DomHighlightOverlay.tsx`, ADR-0026) + 검색/다크모드/도메인 팔레트(`search.ts`/`groupColor.ts`/`colorModePreference.ts`, ADR-0027) + 그룹 접기/컨텍스트 메뉴/스티키노트(`stickyNotes.ts`, `ContextMenu.tsx`, `NodeToolbar`, ADR-0031) + 그룹+개별 필터(`toFlow.ts`의 `filterToMatches`, ADR-0033) + 그룹 간 waterfall 층 배치 + 지도 모드 그룹↔그룹 집계 엣지(`layout.ts`의 `computeGroupDepths`, `toFlow.ts`의 `edge-group-link`, ADR-0034) 추가. 유닛 테스트 125개 이상(`lib/*` + 컴포넌트) |
 
 레이어별 유닛 테스트(총 184개, vitest) + 기존 Playwright 통합 검증(`scripts/verify*.mjs`)의 역할 분리와 세부 내용은 [ADR-0023](decisions/0023-production-hardening-tests-and-package-prep.md)·[ADR-0026](decisions/0026-bidirectional-interaction-implementation.md)·[ADR-0027](decisions/0027-search-and-theme-ux-round.md)·[ADR-0031](decisions/0031-collapse-context-menu-sticky-notes.md)·[ADR-0033](decisions/0033-group-and-individual-filter.md) 참고. `npm run test`로 실행한다.
 
@@ -217,14 +220,14 @@ vision.md가 던진 성공 질문("완성 후에도 계속 붙잡을 동기가 �
 
 - 이 결정의 실무적 함의: 재구현 스코프를 **축소하지 않는다.** P0~P4를 전부 반영하는 것을 기본값으로 했고, 실제로 MVP 코드 단계에서 다섯 개 모두 완료했다(특정 전략에 맞춰 P3·P4를 생략하는 선택지는 열지 않았다).
 - 커뮤니티 확산 노력(오픈소스화 여부·홍보 등) 같은 "전략 종속" 작업은 여전히 완성 후 재논의 대상 — 지금 백로그에 넣지 않는다.
-- **예외 (2026-07-17 추가):** 배포/설치 UX 중 "연결 방식 + UI 노출 위치"의 **방향성**만은 지금 정했다([ADR-0020](decisions/0020-distribution-entry-ux-direction.md)) — npm CLI 자동 초기화 + 같은 페이지 플로팅 버튼(TanStack Query Devtools 패턴). 이건 전략(오픈소스화할지 말지)과 무관하게, "같은 페이지 안에 있어야 한다"는 게 요소 클릭 연동 같은 향후 기능의 아키텍처 전제조건이라 지금 정하지 않으면 나중에 되돌리기 비쌌기 때문이다. 번들러별(Vite/webpack/Rspack/Turbopack) 기술 검증도 끝났다([ADR-0021](decisions/0021-bundler-injection-feasibility.md), 4개 전부 조건부 GO). **구현 자체는 아직 0%** — 방향만 정해졌다.
+- **예외 (2026-07-17 추가):** 배포/설치 UX 중 "연결 방식 + UI 노출 위치"의 **방향성**만은 지금 정했다([ADR-0020](decisions/0020-distribution-entry-ux-direction.md)) — npm CLI 자동 초기화 + 같은 페이지 플로팅 버튼(TanStack Query Devtools 패턴). 이건 전략(오픈소스화할지 말지)과 무관하게, "같은 페이지 안에 있어야 한다"는 게 요소 클릭 연동 같은 향후 기능의 아키텍처 전제조건이라 지금 정하지 않으면 나중에 되돌리기 비쌌기 때문이다. 번들러별(Vite/webpack/Rspack/Turbopack) 기술 검증도 끝났다([ADR-0021](decisions/0021-bundler-injection-feasibility.md), 4개 전부 조건부 GO). **연결 방식 축은 2026-07-18 구현 완료**([ADR-0036](decisions/0036-distribution-connection-implementation.md)) — CLI init + Vite 플러그인 + 조건부 어댑터 + dev 전용 삼중 가드.
 
 ### 7-3. 권장 다음 단계 (전략 보류 = 전부 완성 우선)
 1. ~~P0(MAX_DEPTH)를 지금 MVP 코드에서 즉시 수정~~ — 완료(ADR-0016), P1~P4도 같은 라운드에서 함께 완료(ADR-0017~0019).
 2. **남은 갈림길** (전부 "완성"으로 가는 경로라 7-2 원칙엔 안 어긋남):
    - (a) 2절 "UX 레이어" 표(필터/주석/코드접근/테마) — 지금 위에 얹기. **양방향 DOM 인터랙션은 2026-07-18에 먼저 완료**(아래 참고) — 원래 표에는 없던 항목이지만 ADR-0024 논의 중 발견된 우선순위 높은 기능이었다. **검색 하이라이트+자동 이동, 다크모드+도메인 팔레트도 2026-07-18에 완료**(ADR-0027). **그룹 접기/펼치기, 우클릭 컨텍스트 메뉴, 캔버스 스티키노트까지 같은 날 완료**(ADR-0031). **그룹+개별 동시 필터도 같은 날 완료**(ADR-0033) — 이걸로 원래 표 전부가 끝났다. 코드접근(스키마 확장 필요)과 JSDoc 툴팁(ADR-0007과 충돌)만 명확한 선행 조건이 있어 남아 있다.
    - ~~(b) 검증된 3-레이어 구조를 **정식 재구현**~~ — **완료(2026-07-17).** 테스트 커버리지(vitest 91개) + 패키지 배포 준비(`src/index.ts`, peerDependencies, `build:lib`) + ADR-0002의 열린 결정 확정(bippy, ADR-0022)까지 끝냈다. 세부 내용은 [ADR-0023](decisions/0023-production-hardening-tests-and-package-prep.md) 참고. 아키텍처·스키마는 그대로이므로 "재구현"의 실체는 품질/테스트/배포 준비였다.
-   - (c) [ADR-0020](decisions/0020-distribution-entry-ux-direction.md)/[0021](decisions/0021-bundler-injection-feasibility.md)이 정한 방향대로 **배포 진입 경험 구현** — "노출 위치" 축(플로팅 버튼 + 패널)은 **완료**했다(2026-07-18, [ADR-0025](decisions/0025-docked-panel-shell-amendment.md)가 전체화면에서 도킹 패널로 세부 수정). "연결 방식" 축(CLI `init`, 번들러별 자동 주입)은 **여전히 0%** — 방향만 정해졌고 코드는 없음.
+   - (c) [ADR-0020](decisions/0020-distribution-entry-ux-direction.md)/[0021](decisions/0021-bundler-injection-feasibility.md)이 정한 방향대로 **배포 진입 경험 구현** — "노출 위치" 축(플로팅 버튼 + 패널)은 **완료**했다(2026-07-18, [ADR-0025](decisions/0025-docked-panel-shell-amendment.md)가 전체화면에서 도킹 패널로 세부 수정). "연결 방식" 축(CLI `init`, 번들러별 자동 주입)도 **완료**했다(2026-07-18, [ADR-0036](decisions/0036-distribution-connection-implementation.md)) — `npx react-render-board init`이 Vite config를 자동 패치하고, `react-render-board/vite` 플러그인이 `transformIndexHtml`로 `react-render-board/inject` 런타임을 앱 소스 무수정으로 주입한다. **Next.js/Turbopack도 `layout.tsx` 자동 패치**(`cli/next.mjs`) — Turbopack엔 플러그인 API가 없고 클라이언트 import는 Next Fast-Refresh 훅 선점에 밀리므로, ADR-0021이 실측한 유일한 승리 경로인 루트 layout `<head>` 동기 `<script>`를 자동 삽입한다(초기 커밋부터 훅 버퍼링 + dev 신호 `__RRB_DEV__` + 플로팅 버튼). **Vite·Turbopack 둘 다 `init` 한 번으로 실제 React Flow 캔버스까지 뜬다** — Next는 `init`이 layout `<head>` 조기 스크립트 + `<body>` `<RenderBoardClient/>` + `RenderBoardClient.tsx` 생성을 자동으로 하고, 그 컴포넌트가 하이드레이션 후 런타임을 로드하면 버퍼된 초기 커밋을 재생해 Next 앱 트리를 캔버스에 그린다(실측 노드 20개). 이걸 뚫는 과정에서 "rolldown이 심는 CJS require 셰임을 Turbopack이 재번들 못 함"을 발견해 lib의 deps(bippy·@xyflow·roughjs)를 external로 빼는 정석 패키징으로 고쳤고, dev 판별을 주입 레이어가 세우는 `__RRB_DEV__` 신호로 통일했다(ADR-0036). **webpack도 원커맨드 실측 완료** — `init`이 config를 `withRenderBoard`로 자동 래핑(`patchWebpackConfig`: 파일 끝에 `module.exports = withRenderBoard(module.exports)`를 덧붙여 흔한 CJS 형태를 안전 래핑, 함수/배열/ESM만 안내 폴백)하고, html-webpack-plugin `beforeEmit`으로 `<head>` 조기 스크립트(Next와 공유) + 런타임 entry의 2단 구조로 실제 캔버스가 뜬다. 즉 **Vite·Turbopack·webpack 세 경로 모두 `npm install`→`init`→`dev` 원커맨드로 실제 React Flow 캔버스까지 Playwright로 실측**됐다. dev 전용 다중 가드(플러그인 `apply:'serve'` + 헬퍼 `mode` + Next `process.env.NODE_ENV` 정적 제외 + 런타임 `__RRB_DEV__`). `verify:init`(Vite)·`verify:init-next`(Turbopack 연결, onCommitFiberRoot 12회)·`verify:init-next-canvas`(Turbopack 원커맨드 end-to-end, 캔버스 20노드)·`verify:init-webpack`(webpack pack→install→withRenderBoard→serve, 캔버스)로 회귀 검증. **npm 배포 준비까지 완료([ADR-0042](decisions/0042-npm-publish-prep-and-mit.md))** — private 해제·`0.1.0`·MIT LICENSE·publishConfig·prepublishOnly(build:lib 게이트)·README 설치 섹션. `npm pack --dry-run`으로 산출물(dist-lib+cli만, src/ 없음, 75.2kB) 확인, 이름 `react-render-board` 사용 가능(npm 404). 실제 `npm publish`는 소유자 계정 로그인이 필요한 되돌리기 어려운 공개 행동이라 소유자가 직접 실행(publish≠소스공개 — files로 dist-lib+cli만 나감).
    - ~~보드 ↔ 실제 DOM 양방향 인터랙션~~ — **완료(2026-07-18).** 정방향(노드 클릭→DOM 하이라이트)·역방향(Alt+클릭/픽 모드→보드 이동) 전부 구현. 구현 중 셸 충돌(전체화면→도킹 패널, ADR-0025)과 역방향 트리거 범위(모든 클릭→Alt+클릭/픽 모드로 축소) 두 가지 실측 결함을 발견해 그 자리에서 고쳤다. 세부 내용은 [ADR-0026](decisions/0026-bidirectional-interaction-implementation.md) 참고.
    - ~~검색 하이라이트+자동 이동, 다크모드+도메인 팔레트~~ — **완료(2026-07-18).** 구현 중 다른 세션의 병행 편집(rough.js 손그림 테두리)을 발견해 검색 강조/팔레트 표현 방식을 재설계했고, 역방향 인터랙션이 접힌 그룹 안 노드를 못 가리키던 gap도 함께 발견해 고쳤다. 세부 내용은 [ADR-0027](decisions/0027-search-and-theme-ux-round.md) 참고.
 3. (선택) 메모리 누수 격리 재실행, groupHint 해석 급락 원인 규명 등 "조사 필요" 항목은 위 2번과 병행하거나 뒤로 미룬다.
@@ -237,7 +240,7 @@ vision.md가 던진 성공 질문("완성 후에도 계속 붙잡을 동기가 �
 - 아키텍처·설계 원칙: [`architecture.md`](architecture.md)
 - 로드맵·판단 지점: [`roadmap.md`](roadmap.md)
 - UI 철학: [`ui-philosophy.md`](ui-philosophy.md)
-- 전체 의사결정 기록: [`decisions/`](decisions/) (ADR-0001~0033)
+- 전체 의사결정 기록: [`decisions/`](decisions/) (ADR-0001~0035)
 - 선행 프로젝트 조사: [`research/prior-art.md`](research/prior-art.md)(요약) · [`research/2026-07-17-prior-art-survey.md`](research/2026-07-17-prior-art-survey.md) · [`research/2026-07-17-prior-art-causes-and-legacy.md`](research/2026-07-17-prior-art-causes-and-legacy.md)
 - 기술 옵션 조사(훅킹·시각화 레이어 후보): [`research/technical-options.md`](research/technical-options.md)
 - React Flow UX 확장 가능 범위 조사(미구현): [`research/2026-07-17-react-flow-ux-capabilities.md`](research/2026-07-17-react-flow-ux-capabilities.md)

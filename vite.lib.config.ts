@@ -19,12 +19,26 @@ export default defineConfig({
     emptyOutDir: false,
     cssCodeSplit: false,
     lib: {
-      entry: 'src/index.ts',
+      // index = 라이브러리 공개 API(수동 배선용). inject = 번들러 플러그인이 주입하는
+      // 자기부팅 런타임 진입점(ADR-0034, react-render-board/inject).
+      entry: { index: 'src/index.ts', inject: 'src/inject.tsx' },
       formats: ['es'],
-      fileName: 'index',
+      // 다중 entry로 바꾸면 Vite가 단일 CSS 번들을 패키지명(react-render-board.css)으로
+      // 내보내, package.json exports의 "./style.css" → ./dist-lib/index.css 계약이 깨진다.
+      // cssFileName으로 기존 index.css 이름을 유지한다.
+      cssFileName: 'index',
     },
+      // 선언된 의존(package.json dependencies)은 번들에 넣지 않고 external로 둔다 — 라이브러리는
+      // 자기 deps를 소비자 번들러가 해석하게 맡기는 게 정석이고, 이렇게 해야 산출물이 다른
+      // 번들러(Turbopack)로 재번들 가능해진다. rolldown(Vite 8)이 CJS 의존(scheduler·bippy)을
+      // 번들하면 `typeof require !== 'u' ? require : Proxy` CJS interop 셰임을 심는데, 그 산출물을
+      // Turbopack이 재번들하면 requireStub이 던진다(ADR-0036 실측). deps를 external로 빼면 셰임 자체가
+      // 사라진다. react는 peerDependency, scheduler는 react-dom의 전이 의존이라 소비자에 이미 있다.
     rollupOptions: {
-      external: ['react', 'react-dom', 'react/jsx-runtime'],
+      external: [
+        'react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'scheduler',
+        'bippy', '@xyflow/react', 'roughjs',
+      ],
     },
   },
 });

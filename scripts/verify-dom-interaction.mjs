@@ -148,12 +148,20 @@ async function main() {
   // --- 4. "요소 선택" 토글 모드 — Alt 없이도 픽, 성공 후 자동으로 꺼짐 ---
   await page.getByRole('button', { name: 'render-board 닫기' }).click();
   await page.waitForTimeout(200);
-  await page.getByRole('button', { name: '🎯 요소 선택' }).click();
+  await page.getByRole('button', { name: '요소 선택', exact: true }).click();
   const pickModeButtonActive = await page
     .getByRole('button', { name: /요소 선택 중/ })
     .count()
     .then((n) => n > 0);
   console.log(`[verify-dom] 픽 모드: 토글 버튼이 켜진 상태로 바뀜: ${pickModeButtonActive}`);
+
+  // --- 4b. hover-follow 프리뷰(ADR-0038): 픽 모드에서 마우스를 앱 요소 위로 옮기면 실시간
+  // 프리뷰 박스가 뜬다("클릭하면 이게 선택된다"). ---
+  await page.getByRole('button', { name: '알림 패널 보이기' }).hover();
+  await page.waitForTimeout(150);
+  const hoverPreviewCount = await page.locator('.dom-highlight-overlay__hover').count();
+  console.log(`[verify-dom] hover-follow: 픽 모드에서 마우스 아래 요소에 프리뷰 박스 표시: ${hoverPreviewCount > 0}`);
+  await page.screenshot({ path: outPath('04-pick-hover-preview.png') });
 
   await page.getByRole('button', { name: '알림 패널 보이기' }).click(); // Alt 없이, 픽 모드로만
   const boardOpenedByPickMode = await page
@@ -163,10 +171,14 @@ async function main() {
   console.log(`[verify-dom] 픽 모드: Alt 없이도 클릭이 역방향으로 처리됨: ${boardOpenedByPickMode}`);
 
   const pickModeAutoOff = await page
-    .getByRole('button', { name: '🎯 요소 선택' })
+    .getByRole('button', { name: '요소 선택', exact: true })
     .count()
     .then((n) => n > 0);
   console.log(`[verify-dom] 픽 모드: 픽 성공 후 자동으로 꺼짐(1회성): ${pickModeAutoOff}`);
+
+  // 픽 모드가 꺼지면 hover 프리뷰도 사라져야 한다(ADR-0038).
+  const hoverClearedAfterPickOff = (await page.locator('.dom-highlight-overlay__hover').count()) === 0;
+  console.log(`[verify-dom] hover-follow: 픽 모드가 꺼진 뒤 프리뷰 박스가 사라짐: ${hoverClearedAfterPickOff}`);
 
   // --- 5. (ADR-0027) 지도 모드로 접힌 그룹 안 노드를 역방향으로 가리킬 수 있는가 ---
   await zoomToMapMode(page);

@@ -11,6 +11,13 @@ export interface InteractionSnapshot {
   /** 지금 하이라이트 중인 실제 DOM 요소들(빈 배열 = 없음). HIGHLIGHT_DURATION_MS 뒤 자동 소멸. */
   highlightedElements: Element[];
   /**
+   * 픽 모드에서 마우스가 지금 지나가고 있는 실제 DOM 요소(hover-follow, ADR-0038). 클릭
+   * 하이라이트(highlightedElements, 타이머로 자동 소멸)와 달리 타이머가 없다 — 마우스가
+   * 움직일 때마다 즉시 교체되고, 픽 모드를 끄거나 앱 밖으로 나가면 비워진다. "클릭하면
+   * 이게 선택된다"를 미리 보여주는 라이브 프리뷰라, 클릭 하이라이트와 시각적으로도 구분한다.
+   */
+  hoverElements: Element[];
+  /**
    * 역방향(DOM 클릭)이 보드에 남기는 "이 raw id로 이동해줘" 요청. bippy가 돌려주는 raw id라
    * host 노드일 수 있고, 지금 보드에 안 보일 수도 있다 — 실제로 보이는 id로 바꾸는 건
    * normalize.ts의 resolveVisibleId 몫이다. Canvas가 처리한 뒤 consumeNavigate()로 리셋한다.
@@ -39,6 +46,8 @@ export interface InteractionStore {
   setBoardOpen(open: boolean): void;
   /** 새 하이라이트 요청은 이전 것을 즉시 대체한다(타이머도 다시 시작). */
   highlight(elements: Element[]): void;
+  /** 픽 모드 hover-follow 프리뷰(ADR-0038). 같은 요소면 무시(재렌더 방지), 타이머 없음. */
+  setHoverElements(elements: Element[]): void;
   requestNavigate(rawId: number): void;
   consumeNavigate(): void;
   setPickMode(active: boolean): void;
@@ -50,6 +59,7 @@ export function createInteractionStore(): InteractionStore {
   let snapshot: InteractionSnapshot = {
     boardOpen: false,
     highlightedElements: [],
+    hoverElements: [],
     navigateToNodeId: null,
     navigateRequestId: 0,
     pickModeActive: false,
@@ -87,6 +97,13 @@ export function createInteractionStore(): InteractionStore {
         patch({ highlightedElements: [] });
       }, HIGHLIGHT_DURATION_MS);
     },
+    setHoverElements(elements) {
+      // 같은 요소 집합이면 알림을 보내지 않는다 — mousemove가 한 요소 위에서 수없이 발생해도
+      // 요소가 실제로 바뀔 때만 재렌더가 일어나게 한다.
+      const current = snapshot.hoverElements;
+      if (current.length === elements.length && current.every((el, i) => el === elements[i])) return;
+      patch({ hoverElements: elements });
+    },
     requestNavigate(rawId) {
       patch({ boardOpen: true, navigateToNodeId: rawId, navigateRequestId: snapshot.navigateRequestId + 1 });
     },
@@ -95,7 +112,9 @@ export function createInteractionStore(): InteractionStore {
       patch({ navigateToNodeId: null });
     },
     setPickMode(active) {
-      patch({ pickModeActive: active });
+      // 픽 모드를 끄면 hover 프리뷰도 즉시 비운다 — 모드가 꺼졌는데 마지막 hover 박스가
+      // 화면에 남아 있으면 안 된다.
+      patch(active ? { pickModeActive: true } : { pickModeActive: false, hoverElements: [] });
     },
   };
 }
