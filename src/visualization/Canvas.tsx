@@ -365,7 +365,7 @@ function BoardContent({
       if (group === highlightedGroup || matchedGroups.has(group) || trackedGroups.has(group)) return true;
       if (manuallyCollapsedGroups.has(group)) return false; // 그룹 접기/펼치기 (ADR-0029)
       // 지도 모드 = 영역만(wideDetail이면 예외, ADR-0049) — 단 작은 트리는 지도 모드라도 항상
-      // 디테일을 보여준다(ADR-0064). 원래 이 억제는 노드 수천/그룹 100개+에서만 의미 있는
+      // 디테일을 보여준다(ADR-0066). 원래 이 억제는 노드 수천/그룹 100개+에서만 의미 있는
       // 최적화(ADR-0018)였는데 노드 수와 무관하게 순수 줌 배율로만 걸려 있어, 수십 노드짜리
       // 작은 앱도 초기 fitView가 우연히 그 배율 밑이면 화면이 통째로 비어 보이는 실사용 버그가
       // 있었다(43노드 앱에서 실측).

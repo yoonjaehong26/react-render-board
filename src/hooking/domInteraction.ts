@@ -18,6 +18,7 @@
 //   그리는 가장 가까운 host(DOM) fiber들을 돌려준다.
 import { getFiberFromHostInstance, getFiberId, getNearestHostFibers, type Fiber } from 'bippy';
 import type { InteractionStore } from '../visualization/lib/interactionStore';
+import { isDevEnvironment } from './devEnvironment';
 
 /** 실제 DOM 요소 → 그 요소를 그린 fiber의 id(RenderNode.id와 같은 채번 체계). 못 찾으면 null. */
 export function findFiberIdForElement(el: Element): number | null {
@@ -54,7 +55,12 @@ export function resolveHostElements(fiber: Fiber): Element[] {
  * pickModeActive와 무관하게 항상 되고, 모드 상태를 건드리지 않는다.
  */
 export function startDomClickBridge(subjectContainer: Element, interactionStore: InteractionStore): () => void {
-  if (!import.meta.env.DEV) {
+  // ADR-0067 버그 수정: import.meta.env.DEV는 Vite 전용이고, 이 파일이 라이브러리로 빌드될 때
+  // (`npm run build:lib`, 순수 프로덕션 vite build) 정적으로 false가 되어 이 함수 전체가
+  // 죽은 코드로 트리셰이킹됐다 — Alt+클릭 역방향 인터랙션과 hover 프리뷰가 배포된 모든 버전에서
+  // 한 번도 동작한 적이 없었던 근본 원인(실사용 프로젝트에서 발견). isDevEnvironment()는
+  // import.meta를 참조하지 않는 __RRB_DEV__ 체크를 우선하므로 정적 치환에 안 걸린다.
+  if (!isDevEnvironment()) {
     return () => {};
   }
 

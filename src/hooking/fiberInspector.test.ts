@@ -2,11 +2,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { RenderStore } from '../data/store';
 
 vi.mock('bippy', () => ({ instrument: vi.fn() }));
+// isDevEnvironment을 모킹한다(ADR-0067, domInteraction.test.ts와 같은 이유) — vitest는 이미
+// 트랜스파일된 모듈을 거쳐 참조하는 import.meta.env.DEV/process.env.NODE_ENV를 vi.stubEnv로
+// 안정적으로 "false"로 못 만든다(devEnvironment.test.ts 참고).
+vi.mock('./devEnvironment', () => ({ isDevEnvironment: vi.fn(() => true) }));
 
 import { instrument } from 'bippy';
 import { startFiberInspector } from './fiberInspector';
+import { isDevEnvironment } from './devEnvironment';
 
 const mockedInstrument = vi.mocked(instrument);
+const mockedIsDevEnvironment = vi.mocked(isDevEnvironment);
 
 // The mocked `instrument` erases bippy's real InstrumentationOptions/FiberRoot types, so the
 // captured options/callback are read back through this narrow shape instead of fighting bippy's
@@ -94,8 +100,8 @@ describe('startFiberInspector', () => {
     expect(errorSpy).toHaveBeenCalled();
   });
 
-  it('does not call instrument() and returns a no-op unsubscribe when import.meta.env.DEV is false', () => {
-    vi.stubEnv('DEV', false);
+  it('does not call instrument() and returns a no-op unsubscribe when not in a dev environment', () => {
+    mockedIsDevEnvironment.mockReturnValueOnce(false);
     const store = fakeStore();
     const subjectContainer = document.createElement('div');
 

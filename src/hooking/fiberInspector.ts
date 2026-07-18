@@ -16,9 +16,14 @@
 // React 내부 구조상 항상 존재)로 "관찰 대상 root"만 골라낸다.
 import { instrument, type FiberRoot } from 'bippy';
 import type { RenderStore } from '../data/store';
+import { isDevEnvironment } from './devEnvironment';
 
 export function startFiberInspector(store: RenderStore, subjectContainer: Element): () => void {
-  if (!import.meta.env.DEV) {
+  // ADR-0067 버그 수정: import.meta.env.DEV는 이 파일이 라이브러리로 빌드될 때(`build:lib`,
+  // 순수 프로덕션 vite build) 정적으로 false가 되어 이 함수가 죽은 코드로 트리셰이킹된다 —
+  // 라이브러리 API로 startFiberInspector를 직접 쓰는 소비자(src/index.ts 문서화된 사용법)에게
+  // 영향. isDevEnvironment()는 import.meta를 참조하지 않는 __RRB_DEV__ 체크를 우선한다.
+  if (!isDevEnvironment()) {
     return () => {};
   }
 

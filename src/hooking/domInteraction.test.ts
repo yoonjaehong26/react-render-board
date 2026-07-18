@@ -7,13 +7,21 @@ vi.mock('bippy', () => ({
   getNearestHostFibers: vi.fn(),
 }));
 
+// isDevEnvironment을 모킹한다(ADR-0067) — vitest는 이미 트랜스파일된 모듈을 거쳐 참조하는
+// import.meta.env.DEV/process.env.NODE_ENV를 vi.stubEnv로 안정적으로 "false"로 못 만든다
+// (devEnvironment.test.ts 참고). startDomClickBridge가 isDevEnvironment()의 반환값을 그대로
+// 따르는지가 이 테스트들의 관심사이므로, 그 의존성 자체를 모킹해 결정적으로 만든다.
+vi.mock('./devEnvironment', () => ({ isDevEnvironment: vi.fn(() => true) }));
+
 import { getFiberFromHostInstance, getFiberId, getNearestHostFibers } from 'bippy';
 import { findFiberIdForElement, resolveHostElements, startDomClickBridge } from './domInteraction';
+import { isDevEnvironment } from './devEnvironment';
 import type { InteractionSnapshot, InteractionStore } from '../visualization/lib/interactionStore';
 
 const mockedGetFiberFromHostInstance = vi.mocked(getFiberFromHostInstance);
 const mockedGetFiberId = vi.mocked(getFiberId);
 const mockedGetNearestHostFibers = vi.mocked(getNearestHostFibers);
+const mockedIsDevEnvironment = vi.mocked(isDevEnvironment);
 
 // Stateful (not just vi.fn()-stubbed) so tests can assert setPickMode() actually flips what a
 // later getSnapshot() call sees — the auto-off-after-pick behavior depends on that round trip.
@@ -94,8 +102,8 @@ describe('resolveHostElements', () => {
 });
 
 describe('startDomClickBridge', () => {
-  it('does not attach a listener and returns a no-op unsubscribe when import.meta.env.DEV is false', () => {
-    vi.stubEnv('DEV', false);
+  it('does not attach a listener and returns a no-op unsubscribe when not in a dev environment', () => {
+    mockedIsDevEnvironment.mockReturnValueOnce(false);
     const container = document.createElement('div');
     const addSpy = vi.spyOn(container, 'addEventListener');
     const interactionStore = fakeInteractionStore();
