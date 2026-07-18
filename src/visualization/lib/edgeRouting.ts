@@ -232,6 +232,125 @@ export function routeOrthogonal(
   return simplifyCollinear([source, ...mid, target]);
 }
 
+// --- Phase 2: 명시적 버스 병합 (ADR-0054) ---
+// 같은 출발(부모)의 크로스-그룹 간선들을 하나의 트렁크(수직 공유) + 바(수평) + 타깃별 스텁(수직)
+// 으로 합친다("회로도풍"). 바는 소스 프레임 바로 아래 거터에 놓고, 소스별 레인 오프셋(Phase 1
+// 중앙 테이블)으로 다른 부모의 바와 분리한다 — 같은 출발은 한 줄기, 다른 출발은 다른 y로 안 겹침.
+//
+// 안전장치: 트렁크/바/스텁 세 선분 중 하나라도 (자기 소스·타깃 프레임을 뺀) 다른 프레임을 관통하면
+// 그 간선만 버스에서 빼 개별 A*(routeOrthogonal)로 폴백한다 — v2의 "프레임 관통 0"을 안 깬다.
+// 정밀 채널 회피(거터에 평행 트랙)는 Phase 3의 몫이다. 좌표의 순수 함수라 라이브 안정성 상속.
+
+/** 버스 배선용 간선 입력. 끝점은 절대 좌표(소스=바닥 중앙 핸들, 타깃=상단 중앙 핸들). */
+export interface BusEdgeInput {
+  id: string;
+  source: string;
+  sx: number;
+  sy: number;
+  tx: number;
+  ty: number;
+}
+
+// 바(수평 줄기)를 소스 프레임 바닥에서 이만큼 아래 거터에 놓는다. routeOrthogonal의 EXIT_GAP(8)+
+// collideMargin(10)과 같은 수준이라 바가 v2 탈출 거터와 같은 빈 띠에 앉는다.
+const BUS_GUTTER = 20;
+
+/**
+ * 크로스-그룹 간선들을 출발별로 묶어 버스(트렁크+바+스텁) 경로를, 병합이 프레임을 관통하는
+ * 간선은 개별 A*로 폴백한 경로를 낸다. 반환은 `edgeId → 점열` 맵(모든 입력 간선을 포함).
+ */
+export function routeCrossGroupBuses(
+  edges: BusEdgeInput[],
+  obstacles: RoutingRect[],
+  laneOf: (source: string) => number = () => 0,
+): Map<string, Pt[]> {
+  const out = new Map<string, Pt[]>();
+  const bySource = new Map<string, BusEdgeInput[]>();
+  for (const e of edges) {
+    const arr = bySource.get(e.source);
+    if (arr) arr.push(e);
+    else bySource.set(e.source, [e]);
+  }
+  for (const [, group] of bySource) {
+    const laneOffset = laneOf(group[0].source);
+    const fallback = (e: BusEdgeInput): void => {
+      out.set(e.id, routeOrthogonal({ x: e.sx, y: e.sy }, { x: e.tx, y: e.ty }, obstacles, { laneOffset }));
+    };
+    // 단일 타깃은 합칠 대상이 없으니 개별 배선(기존 v2와 동일).
+    if (group.length < 2) {
+      fallback(group[0]);
+      continue;
+    }
+    const s0 = group[0];
+    const sourceFrame = obstacles.find((r) => rectContains(r, { x: s0.sx, y: s0.sy }));
+    const trunkX = s0.sx; // 같은 출발이라 sx 공유 = 트렁크 x
+    const barY = (sourceFrame ? sourceFrame.y + sourceFrame.height : s0.sy) + BUS_GUTTER + laneOffset;
+    // 트렁크(공유): 소스 바닥 → barY. 자기 소스 프레임만 빼고 관통 검사(자기 프레임 탈출은 정상).
+    const trunkClear =
+      barY > s0.sy &&
+      !obstacles.some((r) => r !== sourceFrame && vSegHitsRect(trunkX, s0.sy, barY, r));
+    for (const e of group) {
+      const targetFrame = obstacles.find((r) => rectContains(r, { x: e.tx, y: e.ty }));
+      // 바(수평)·스텁(수직)은 자기 소스·타깃 프레임을 뺀 다른 프레임만 관통 검사한다.
+      const barClear = !obstacles.some(
+        (r) => r !== sourceFrame && r !== targetFrame && hSegHitsRect(barY, trunkX, e.tx, r),
+      );
+      const stubClear =
+        e.ty > barY &&
+        !obstacles.some((r) => r !== sourceFrame && r !== targetFrame && vSegHitsRect(e.tx, barY, e.ty, r));
+      if (trunkClear && barClear && stubClear) {
+        out.set(
+          e.id,
+          simplifyCollinear([
+            { x: trunkX, y: e.sy },
+            { x: trunkX, y: barY },
+            { x: e.tx, y: barY },
+            { x: e.tx, y: e.ty },
+          ]),
+        );
+      } else {
+        fallback(e); // 병합이 프레임을 뚫으면 이 간선만 개별 A*로.
+      }
+    }
+  }
+  return out;
+}
+
+// --- Phase 3: corridor-local sticky 트랙 배정 (ADR-0060) ---
+// 크로스-그룹 간선의 출발을 "소스 그룹 프레임의 y-층(gutter)"별로 묶고, 각 층 안에서 출발 x 순으로
+// 정렬해 트랙(barY 슬롯)을 실제 간격으로 스택한다. → 같은 층의 여러 버스 바가 한 barY에 겹치지
+// 않고 층층이 쌓이고, 좌→우 정렬로 교차를 줄인다(metro-line/VLSI left-edge 휴리스틱). 오프셋은
+// 아래(거터)로만 커져(0..MAX) 프레임 안으로 안 들어가고, 거터를 넘치면 버스가 A*로 폴백(관통 0).
+// 층 y·x는 레이아웃에서 안정 → 결정적(sticky, ADR-0008). 순수 함수(전역 상태 없음).
+
+export interface TrackSource {
+  /** 출발 노드/프레임 id */
+  id: string;
+  /** 소스 그룹 프레임 바닥 y(거터 위치). 같은 값 = 같은 거터를 공유하는 층. */
+  layer: number;
+  /** 출발 중심 x(트랙 순서 정렬 기준). */
+  x: number;
+}
+
+const TRACK_GAP = 11; // 트랙(바) 간 세로 간격 px
+const MAX_TRACK_OFFSET = 44; // 거터 넘침 방지 상한(넘으면 버스 폴백)
+
+/** 층별로 묶어 x-순 트랙 오프셋(0..MAX)을 배정한다. 같은 층은 겹치지 않게 스택, 다른 층은 독립. */
+export function assignGutterTracks(sources: TrackSource[]): Map<string, number> {
+  const byLayer = new Map<number, TrackSource[]>();
+  for (const s of sources) {
+    const arr = byLayer.get(s.layer);
+    if (arr) arr.push(s);
+    else byLayer.set(s.layer, [s]);
+  }
+  const out = new Map<string, number>();
+  for (const [, arr] of byLayer) {
+    arr.sort((a, b) => a.x - b.x || (a.id < b.id ? -1 : 1)); // 좌→우, 동률은 id로 결정적
+    arr.forEach((s, i) => out.set(s.id, Math.min(MAX_TRACK_OFFSET, i * TRACK_GAP)));
+  }
+  return out;
+}
+
 /** 소스(부모) 키에서 결정론적 레인 오프셋을 고른다 — 같은 부모는 같은 레인(공유=버스), 다른
  * 부모는 (대개) 다른 레인으로 분리된다(피드백 2). 좌표 순수성 유지(전역 상태 없음). */
 export function laneOffsetForKey(key: string): number {

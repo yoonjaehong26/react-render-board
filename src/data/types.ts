@@ -13,6 +13,12 @@ export interface RenderNode {
    * host 노드에는 애초에 의미가 없어 항상 null.
    */
   groupHint: string | null;
+  /**
+   * groupHint와 같은 "사용 위치" 파일의 전체 경로(폴더 포함) — 폴더 단위 그룹핑(ADR-0053)이 쓴다.
+   * React 19 파이버 `_debugStack`에서 파싱한다(sourceHints.ts). dev 전용, 못 얻으면 null.
+   * basename은 groupHint와 일치한다(둘 다 사용 위치).
+   */
+  groupPath?: string | null;
 }
 
 export interface RenderSnapshot {

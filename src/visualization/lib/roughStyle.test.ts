@@ -44,6 +44,37 @@ describe('roughStyle', () => {
     expect(nodeBorderImage('composite', 'light', false)).toBe(nodeBorderImage('composite', 'light', false));
   });
 
+  describe('도메인 색 테두리 (색 언어 통일, ADR-0055)', () => {
+    it('composite 테두리를 colorIndex별 도메인 색으로 그린다 — 각 팔레트가 서로 다르다', () => {
+      const b0 = nodeBorderImage('composite', 'light', false, 0);
+      const b1 = nodeBorderImage('composite', 'light', false, 1);
+      expect(isSvgDataUrl(b0)).toBe(true);
+      expect(b0).not.toBe(b1);
+    });
+
+    it('colorIndex를 주면 중립(pending) 테두리와 다르다', () => {
+      expect(nodeBorderImage('composite', 'light', false, 2)).not.toBe(
+        nodeBorderImage('composite', 'light', false),
+      );
+    });
+
+    it('route(6각형)도 도메인 색을 입고, 같은 색 사각형과는 다르다', () => {
+      const route = nodeBorderImage('composite', 'light', true, 3);
+      expect(isSvgDataUrl(route)).toBe(true);
+      expect(route).not.toBe(nodeBorderImage('composite', 'light', false, 3));
+    });
+
+    it('host는 colorIndex를 줘도 중립 대시 유지 (DOM 프리미티브는 도메인 색 안 씀)', () => {
+      expect(nodeBorderImage('host', 'light', false, 4)).toBe(nodeBorderImage('host', 'light', false));
+    });
+
+    it('colorIndex는 팔레트 크기로 순환한다 (8색 넘는 그룹도 안전)', () => {
+      expect(nodeBorderImage('composite', 'light', false, 8)).toBe(
+        nodeBorderImage('composite', 'light', false, 0),
+      );
+    });
+  });
+
   it('exposes matched (hachure) and highlighted (marker) emphasis fills as data URIs, and they differ', () => {
     expect(isSvgDataUrl(ROUGH_FILL_MATCHED)).toBe(true);
     expect(isSvgDataUrl(ROUGH_FILL_HIGHLIGHTED)).toBe(true);

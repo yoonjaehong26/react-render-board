@@ -50,8 +50,8 @@ const MIN_NOTIFY_INTERVAL_MS = 33;
 
 export function createRenderStore(): RenderStore {
   let snapshot: RenderSnapshot = { commitId: 0, nodes: [] };
-  // id -> 이미 resolve된 groupHint (dev 세션 동안 계속 누적, 페이지 새로고침 전까지 유지).
-  const hintCache = new Map<number, string | null>();
+  // id -> 이미 resolve된 groupHint + groupPath (dev 세션 동안 계속 누적, 페이지 새로고침 전까지 유지).
+  const hintCache = new Map<number, { groupHint: string | null; groupPath: string | null }>();
   // 최신 커밋의 id -> Fiber. RenderSnapshot과 달리 매 커밋 통째로 교체될 뿐 누적하지 않는다
   // (Fiber는 크고 변경 가능한 React 내부 객체라 여러 커밋치를 들고 있을 이유가 없다).
   let latestFibersById = new Map<number, Fiber>();
@@ -85,7 +85,7 @@ export function createRenderStore(): RenderStore {
   function applyCachedHints(nodes: RenderNode[]): RenderNode[] {
     return nodes.map((n) => {
       const cached = hintCache.get(n.id);
-      return cached !== undefined ? { ...n, groupHint: cached } : n;
+      return cached !== undefined ? { ...n, groupHint: cached.groupHint, groupPath: cached.groupPath } : n;
     });
   }
 
@@ -102,9 +102,11 @@ export function createRenderStore(): RenderStore {
 
     resolveGroupHints(pending)
       .then((results) => {
-        for (const r of results) hintCache.set(r.id, r.groupHint);
+        for (const r of results) hintCache.set(r.id, { groupHint: r.groupHint, groupPath: r.groupPath });
         const patched = applyCachedHints(snapshot.nodes);
-        const changed = patched.some((n, i) => n.groupHint !== snapshot.nodes[i]?.groupHint);
+        const changed = patched.some(
+          (n, i) => n.groupHint !== snapshot.nodes[i]?.groupHint || n.groupPath !== snapshot.nodes[i]?.groupPath,
+        );
         if (changed) {
           snapshot = { commitId: snapshot.commitId, nodes: patched };
           scheduleNotify();

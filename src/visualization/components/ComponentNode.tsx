@@ -54,7 +54,9 @@ export function ComponentNode({ id, data }: NodeProps) {
   // 매치=햇칭, 픽/역방향 착지=마커)는 테두리 아래에 채움 이미지를 겹쳐 "형광펜으로 짚은"
   // 느낌을 준다 — background-image는 앞에 오는 레이어가 위로 쌓이므로 [강조채움, 테두리] 순서로
   // 겹치면 테두리가 맨 위, 채움이 배경색 위에 온다.
-  const border = nodeBorderImage(kind, colorMode, isRouteEntry);
+  // 테두리 색 = 부모 도메인 팔레트(색 언어 통일, ADR-0055) — 간선·그룹 프레임과 같은 색으로
+  // "이 노드가 어느 도메인인가"를 맞춘다. pending(colorIndex undefined)이면 중립으로 폴백.
+  const border = nodeBorderImage(kind, colorMode, isRouteEntry, colorIndex);
   const emphasisFill = highlighted ? ROUGH_FILL_HIGHLIGHTED : matched ? ROUGH_FILL_MATCHED : null;
   const backgroundImage = emphasisFill ? `${border}, ${emphasisFill}` : border;
 

@@ -36,9 +36,10 @@ import { paletteHex } from './lib/groupColor';
 import { getStoredColorMode, setStoredColorMode } from './lib/colorModePreference';
 import { loadStickyNotes, saveStickyNotes, createStickyNoteId, type StickyNote } from './lib/stickyNotes';
 import { OrthoEdge } from './components/OrthoEdge';
-import { EdgeObstaclesContext } from './components/edgeObstaclesContext';
-import type { RoutingRect } from './lib/edgeRouting';
+import { EdgeObstaclesContext, EdgeLanesContext, EdgeBusPathsContext } from './components/edgeObstaclesContext';
+import { routeCrossGroupBuses, laneOffsetForKey, assignGutterTracks, type RoutingRect, type Pt, type BusEdgeInput } from './lib/edgeRouting';
 import { GroupNode } from './components/GroupNode';
+import { FolderNode } from './components/FolderNode';
 import { ComponentNode } from './components/ComponentNode';
 import { BoundaryFrame } from './components/BoundaryFrame';
 import { StickyNoteNode, type StickyNoteNodeData } from './components/StickyNoteNode';
@@ -62,7 +63,13 @@ import {
   type PropRow,
 } from './lib/propsFlow';
 
-const nodeTypes = { group: GroupNode, component: ComponentNode, boundary: BoundaryFrame, sticky: StickyNoteNode };
+const nodeTypes = {
+  group: GroupNode,
+  folder: FolderNode,
+  component: ComponentNode,
+  boundary: BoundaryFrame,
+  sticky: StickyNoteNode,
+};
 // 크로스-그룹 간선은 그룹 프레임을 피해 배선하는 커스텀 직교 간선(ADR-0029 §5). 같은-그룹은
 // smoothstep(이미 버스 정렬), 집계 엣지는 smoothstep 유지.
 const edgeTypes = { ortho: OrthoEdge };
@@ -237,6 +244,10 @@ function BoardContent({
   // 화면 밖 그룹은 여전히 안 그려 성능은 화면 안 개수에 묶인다. "줌아웃하면 보던 게 사라진다"는
   // 불편의 해소책. 세션 탐색 보조라 영속화하지 않는다.
   const [wideDetail, setWideDetail] = useState(false);
+  // 폴더 단위 2단 중첩(ADR-0053). 기본 off(파일 단위 평면). 켜면 파일 그룹을 상위 폴더 프레임으로
+  // 묶는다. 폴더 경로는 파이버 _debugStack에서 파싱(dev 전용)하고, 못 얻으면 파일 그룹핑으로 폴백.
+  // 세션 탐색 보조라 wideDetail과 같이 영속화하지 않는다.
+  const [nestFolders, setNestFolders] = useState(false);
   // 그룹 접기/펼치기(ADR-0029). 세션 안에서만 유지되는 탐색 보조 상태라 localStorage에
   // 영속화하지 않는다(다크모드처럼 "장기 선호"가 아니라 "지금 이 화면을 정리해서 보는" 용도).
   const [manuallyCollapsedGroups, setManuallyCollapsedGroups] = useState<Set<string>>(new Set());
@@ -363,6 +374,7 @@ function BoardContent({
       // 손그림 테두리 라이트/다크 변형 선택(ADR-0030) — 인라인 background-image는 CSS 다크
       // 스코프로 못 바꿔 data로 내려줘야 한다. colorMode를 useMemo 의존성에도 추가한다.
       colorMode,
+      nestFolders, // 폴더 단위 2단 중첩(ADR-0053) — useMemo 의존성에도 추가.
     });
     // 경계 프레임(도형 어휘, ADR-0028) — 포탈/Suspense/에러 바운더리를 이름표 붙은 박스로 두른다.
     // 렌더된 컴포넌트 노드의 바운딩 박스에서 프레임을 만들고, 각 그룹 프레임 바로 뒤에 끼워 넣어
@@ -396,6 +408,7 @@ function BoardContent({
     paneHeight,
     isMapMode,
     wideDetail,
+    nestFolders,
     highlightedNodeId,
     searchQuery,
     filterToMatches,
@@ -821,6 +834,107 @@ function BoardContent({
     return rects;
   }, [flowNodes]);
 
+  // v3 중앙 coordination Phase 3(ADR-0060): corridor-local sticky 트랙. 크로스-그룹 간선의 출발을
+  // "소스 그룹 프레임의 y-층(gutter)"별로 묶고, 각 층 안에서 출발 x 순으로 정렬해 트랙(barY 슬롯)을
+  // 실제 간격(TRACK_GAP)으로 스택한다. → 같은 층의 여러 버스 바가 한 barY에 겹치지 않고 층층이 쌓여
+  // (예: ProductSection.tsx의 ShopProductCard×5 버스), 좌→우 정렬로 교차를 줄인다. 워터풀(tidy-tree,
+  // ADR-0058)이 층을 깨끗한 가로 밴드로 만들어, "거터별 1D 트랙 순서" 문제로 쪼개진 덕이다. 층 y·
+  // 소스 x는 레이아웃에서 안정 → 결정적(sticky, ADR-0008 상속). 오프셋은 아래쪽(거터)으로만 키워
+  // 프레임 안으로 안 들어가고(항상 barY = frameBottom+GUTTER+offset > frameBottom), 거터를 넘치면
+  // 버스 폴백이 A*로 잡아 관통 0을 유지한다. 전역 pass라 flowNodes 불변 시 memoize.
+  const edgeLanes = useMemo<ReadonlyMap<string, number>>(() => {
+    const byId = new Map(flowNodes.map((n) => [n.id, n]));
+    const absCache = new Map<string, { x: number; y: number } | undefined>();
+    const absPos = (id: string): { x: number; y: number } | undefined => {
+      if (absCache.has(id)) return absCache.get(id);
+      const node = byId.get(id);
+      if (!node) {
+        absCache.set(id, undefined);
+        return undefined;
+      }
+      let x = node.position.x;
+      let y = node.position.y;
+      if (node.parentId) {
+        const p = absPos(node.parentId);
+        if (p) {
+          x += p.x;
+          y += p.y;
+        }
+      }
+      const r = { x, y };
+      absCache.set(id, r);
+      return r;
+    };
+    const sources = new Set<string>();
+    for (const e of flowEdges) {
+      if (typeof e.className === 'string' && e.className.includes('edge-cross-group')) sources.add(e.source);
+    }
+    // 각 출발의 층(소스 그룹 프레임 바닥 y = 거터 위치)과 중심 x를 구한다. 소스가 그룹 프레임(프레임
+    // 폴백)이면 자기 자신, 컴포넌트면 그 부모 그룹(parentId).
+    const info: Array<{ s: string; layer: number; x: number }> = [];
+    for (const s of sources) {
+      const sn = byId.get(s);
+      if (!sn) continue;
+      const frameId = sn.type === 'group' ? s : (sn.parentId ?? s);
+      const fn = byId.get(frameId);
+      const fp = absPos(frameId);
+      const fh = fn && typeof fn.style?.height === 'number' ? fn.style.height : 0;
+      const sp = absPos(s);
+      const sw = typeof sn.style?.width === 'number' ? sn.style.width : 0;
+      info.push({ s, layer: Math.round((fp?.y ?? 0) + fh), x: (sp?.x ?? 0) + sw / 2 });
+    }
+    return assignGutterTracks(info.map((it) => ({ id: it.s, layer: it.layer, x: it.x })));
+  }, [flowNodes, flowEdges]);
+
+  // v3 중앙 coordination Phase 2(ADR-0054): 크로스-그룹 간선을 출발별로 묶어 버스(트렁크+바+스텁)
+  // 경로를 한 번에 낸다. OrthoEdge가 간선별로 A*를 돌리는 대신 여기서 낸 `id→점열` 맵을 읽기만
+  // 한다(결정2 아키텍처 전환). 끝점은 노드의 절대 좌표에서 핸들 위치(소스=바닥 중앙, 타깃=상단
+  // 중앙)로 구한다 — parentId 체인을 걸어 폴더 2단 중첩(ADR-0053)까지 정확히 절대화한다. 레이아웃
+  // (flowNodes/장애물/레인)이 안 바뀌면 memoize돼 커밋마다 재배선하지 않는다(ADR-0017/0008).
+  const edgeBusPaths = useMemo<ReadonlyMap<string, Pt[]>>(() => {
+    const byId = new Map(flowNodes.map((n) => [n.id, n]));
+    const absCache = new Map<string, { x: number; y: number } | undefined>();
+    const absPos = (id: string): { x: number; y: number } | undefined => {
+      if (absCache.has(id)) return absCache.get(id);
+      const node = byId.get(id);
+      if (!node) {
+        absCache.set(id, undefined);
+        return undefined;
+      }
+      let x = node.position.x;
+      let y = node.position.y;
+      if (node.parentId) {
+        const p = absPos(node.parentId);
+        if (p) {
+          x += p.x;
+          y += p.y;
+        }
+      }
+      const r = { x, y };
+      absCache.set(id, r);
+      return r;
+    };
+    const sizeOf = (node: Node): { w: number; h: number } => ({
+      w: typeof node.style?.width === 'number' ? node.style.width : 0,
+      h: typeof node.style?.height === 'number' ? node.style.height : 0,
+    });
+    const inputs: BusEdgeInput[] = [];
+    for (const e of flowEdges) {
+      if (typeof e.className !== 'string' || !e.className.includes('edge-cross-group')) continue;
+      const sn = byId.get(e.source);
+      const tn = byId.get(e.target);
+      if (!sn || !tn) continue;
+      const sp = absPos(e.source);
+      const tp = absPos(e.target);
+      if (!sp || !tp) continue;
+      const ss = sizeOf(sn);
+      const ts = sizeOf(tn);
+      // 소스 = 바닥 중앙 핸들(Position.Bottom), 타깃 = 상단 중앙 핸들(Position.Top).
+      inputs.push({ id: e.id, source: e.source, sx: sp.x + ss.w / 2, sy: sp.y + ss.h, tx: tp.x + ts.w / 2, ty: tp.y });
+    }
+    return routeCrossGroupBuses(inputs, edgeObstacles, (s) => edgeLanes.get(s) ?? laneOffsetForKey(s));
+  }, [flowNodes, flowEdges, edgeObstacles, edgeLanes]);
+
   const afterglowVersion = useSyncExternalStore(afterglowStore.subscribe, afterglowStore.getVersion);
   const flowEdgesDecorated = useMemo(() => {
     const tracking = trackedIds.size > 0 && selectedNodeId !== null && trackedPropKey !== null;
@@ -885,6 +999,8 @@ function BoardContent({
         <LineageNodesContext.Provider value={lineageNodeIds}>
           <PageHoveredNodeContext.Provider value={pageHoveredVisibleId}>
           <EdgeObstaclesContext.Provider value={edgeObstacles}>
+          <EdgeLanesContext.Provider value={edgeLanes}>
+          <EdgeBusPathsContext.Provider value={edgeBusPaths}>
         <div className="board">
       <header className={`toolbar${compactToolbar ? ' toolbar--compact' : ''}`}>
         {(() => {
@@ -918,6 +1034,12 @@ function BoardContent({
               <label className="toolbar__checkbox">
                 <input type="checkbox" checked={wideDetail} onChange={(e) => setWideDetail(e.target.checked)} />
                 지도에서도 상세
+              </label>
+              {/* 폴더 단위 2단 중첩(ADR-0053) — 파일 그룹을 상위 폴더 프레임으로 묶는다. 폴더 경로는
+                  파이버 _debugStack에서 파싱(dev 전용), 못 얻으면 파일 그룹핑으로 폴백. */}
+              <label className="toolbar__checkbox">
+                <input type="checkbox" checked={nestFolders} onChange={(e) => setNestFolders(e.target.checked)} />
+                폴더로 묶기
               </label>
               <button
                 type="button"
@@ -1062,6 +1184,8 @@ function BoardContent({
       </div>
       <ContextMenu state={contextMenu} onClose={() => setContextMenu(null)} />
         </div>
+          </EdgeBusPathsContext.Provider>
+          </EdgeLanesContext.Provider>
           </EdgeObstaclesContext.Provider>
           </PageHoveredNodeContext.Provider>
         </LineageNodesContext.Provider>

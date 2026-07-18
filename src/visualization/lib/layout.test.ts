@@ -212,3 +212,176 @@ describe('createLayoutEngine / computeLayout', () => {
     expect(a.frame.width).toBe(expectedWidth);
   });
 });
+
+// ── 폴더 단위 2단 중첩(ADR-0053) ──
+function pnode(id: number, group: string, groupPath: string, parentId: number | null = null): VisibleNode {
+  return { id, displayName: `Node${id}`, kind: 'composite', parentId, group, groupPath, isAnonymous: false };
+}
+
+describe('computeLayout with nestFolders', () => {
+  it('returns folders: [] and byte-identical groups when nestFolders is off', () => {
+    const engine = createLayoutEngine();
+    const nodes = [
+      pnode(1, 'Panel.tsx', '/src/dataflow/Panel.tsx'),
+      pnode(2, 'Demo.tsx', '/src/dataflow/Demo.tsx'),
+    ];
+    const flat = engine.computeLayout(nodes);
+    expect(flat.folders).toEqual([]);
+    // 같은 엔진이 아닌 새 엔진으로도 동일해야 한다(순서 상태 격리).
+    const flat2 = createLayoutEngine().computeLayout(nodes);
+    expect(flat2.folders).toEqual([]);
+    expect(flat2.groups.map((g) => ({ group: g.group, frame: g.frame }))).toEqual(
+      flat.groups.map((g) => ({ group: g.group, frame: g.frame })),
+    );
+  });
+
+  it('wraps ≥2 file-groups sharing a folder into one folder frame, and tags them with parentFolder', () => {
+    const engine = createLayoutEngine();
+    const nodes = [
+      pnode(1, 'Panel.tsx', '/src/domains/dataflow/Panel.tsx'),
+      pnode(2, 'Demo.tsx', '/src/domains/dataflow/Demo.tsx'),
+    ];
+    const { groups, folders } = engine.computeLayout(nodes, { nestFolders: true });
+
+    expect(folders).toHaveLength(1);
+    const folder = folders[0];
+    expect(folder.folder).toBe('/src/domains/dataflow');
+    expect(folder.groupKeys.sort()).toEqual(['Demo.tsx', 'Panel.tsx']);
+
+    for (const g of groups) expect(g.parentFolder).toBe('/src/domains/dataflow');
+
+    // 파일 프레임은 폴더 프레임 안(월드 좌표)에 완전히 들어가야 한다.
+    for (const g of groups) {
+      expect(g.frame.x).toBeGreaterThanOrEqual(folder.frame.x);
+      expect(g.frame.y).toBeGreaterThanOrEqual(folder.frame.y);
+      expect(g.frame.x + g.frame.width).toBeLessThanOrEqual(folder.frame.x + folder.frame.width + 0.01);
+      expect(g.frame.y + g.frame.height).toBeLessThanOrEqual(folder.frame.y + folder.frame.height + 0.01);
+    }
+  });
+
+  it('does NOT create a folder frame for a folder with a single file-group', () => {
+    const engine = createLayoutEngine();
+    const nodes = [
+      pnode(1, 'Solo.tsx', '/src/solo/Solo.tsx'),
+      pnode(2, 'A.tsx', '/src/pair/A.tsx'),
+      pnode(3, 'B.tsx', '/src/pair/B.tsx'),
+    ];
+    const { groups, folders } = engine.computeLayout(nodes, { nestFolders: true });
+
+    expect(folders.map((f) => f.folder)).toEqual(['/src/pair']);
+    expect(groups.find((g) => g.group === 'Solo.tsx')!.parentFolder).toBeUndefined();
+    expect(groups.find((g) => g.group === 'A.tsx')!.parentFolder).toBe('/src/pair');
+  });
+
+  it('treats groups without a groupPath (and PENDING) as lone top-level units', () => {
+    const engine = createLayoutEngine();
+    const nodes = [
+      pnode(1, 'A.tsx', '/src/pair/A.tsx'),
+      pnode(2, 'B.tsx', '/src/pair/B.tsx'),
+      vnode(3, 'NoPath.tsx'), // groupPath 없음
+      vnode(4, PENDING_GROUP),
+    ];
+    const { groups, folders } = engine.computeLayout(nodes, { nestFolders: true });
+    expect(folders).toHaveLength(1);
+    expect(groups.find((g) => g.group === 'NoPath.tsx')!.parentFolder).toBeUndefined();
+    expect(groups.find((g) => g.group === PENDING_GROUP)!.parentFolder).toBeUndefined();
+  });
+
+  it('keeps a folder in place when a second file appears (folder inherits its earliest file slot)', () => {
+    const engine = createLayoutEngine();
+    // 처음엔 pair 폴더에 파일 1개 → 폴더 없음, 단독 그룹.
+    engine.computeLayout(
+      [pnode(1, 'A.tsx', '/src/pair/A.tsx'), pnode(2, 'Z.tsx', '/src/zzz/Z.tsx')],
+      { nestFolders: true },
+    );
+    // 두번째 파일 등장 → 폴더 생성. A가 먼저 등장했으므로 폴더는 A 자리(맨 앞)를 물려받아 Z보다 앞.
+    const { folders } = engine.computeLayout(
+      [
+        pnode(1, 'A.tsx', '/src/pair/A.tsx'),
+        pnode(3, 'B.tsx', '/src/pair/B.tsx'),
+        pnode(2, 'Z.tsx', '/src/zzz/Z.tsx'),
+      ],
+      { nestFolders: true },
+    );
+    expect(folders).toHaveLength(1);
+    expect(folders[0].folder).toBe('/src/pair');
+  });
+});
+
+// ── downfall 부모 앵커 배치(ADR-0058) ──
+describe('computeLayout parent-anchored placement', () => {
+  it('places children under their parents x (reduces crossings)', () => {
+    // P1(root), P2(root); C1은 P2가 렌더, C2는 P1이 렌더. 처음 등장 순서는 [P1,P2,C1,C2].
+    // barycenter 없으면 밴드1 = [C1,C2](C1이 왼쪽) → C1(부모 P2=오른쪽) 아래가 어긋나 교차.
+    // barycenter면 밴드1 = [C2,C1] → C2(부모 P1=왼쪽), C1(부모 P2=오른쪽)로 정렬돼 교차 감소.
+    const engine = createLayoutEngine();
+    const nodes = [
+      vnode(1, 'P1'),
+      vnode(2, 'P2'),
+      vnode(3, 'C1', 2), // P2 renders C1
+      vnode(4, 'C2', 1), // P1 renders C2
+    ];
+    const { groups } = engine.computeLayout(nodes);
+    const x = (g: string) => groups.find((gg) => gg.group === g)!.frame.x;
+    expect(x('P1')).toBeLessThan(x('P2')); // 최상위 밴드는 groupOrder 유지
+    expect(x('C2')).toBeLessThan(x('C1')); // 자식은 부모 아래로 재정렬(C2<C1)
+  });
+
+  it('keeps the top band in groupOrder (stable anchor) and is deterministic across commits', () => {
+    const engine = createLayoutEngine();
+    const nodes = [vnode(1, 'P1'), vnode(2, 'P2'), vnode(3, 'C1', 2), vnode(4, 'C2', 1)];
+    const first = engine.computeLayout(nodes).groups.map((g) => g.group);
+    const second = engine.computeLayout(nodes).groups.map((g) => g.group);
+    expect(second).toEqual(first); // 같은 트리 → 같은 순서(안정)
+    // 최상위 밴드(P1,P2)는 groupOrder 그대로.
+    const topBand = first.filter((g) => g === 'P1' || g === 'P2');
+    expect(topBand).toEqual(['P1', 'P2']);
+  });
+
+  it('does not reorder when a band has a single group or no cross-group parents', () => {
+    const engine = createLayoutEngine();
+    // 전부 루트(부모 관계 없음) → 재정렬 없이 groupOrder 유지.
+    const { groups } = engine.computeLayout([vnode(1, 'A'), vnode(2, 'B'), vnode(3, 'C')]);
+    expect(groups.map((g) => g.group)).toEqual(['A', 'B', 'C']);
+  });
+
+  it('places a shared group (multiple parents) centered under its primary (earliest) parent', () => {
+    const engine = createLayoutEngine();
+    // C는 P1과 P2 둘 다 렌더(공유 컴포넌트). tidy-tree는 대표 부모(먼저 등장한 P1) 하나로
+    // 스패닝 트리를 만들어 C를 P1 중앙 아래에 놓는다(P2 연결은 간선으로만, 공유 레인은 후속).
+    const nodes = [
+      vnode(1, 'P1'),
+      vnode(2, 'P2'),
+      vnode(3, 'C', 1), // P1 renders (a node in) C
+      vnode(4, 'C', 2), // P2 renders (another node in) C
+    ];
+    const { groups } = engine.computeLayout(nodes);
+    const center = (g: string) => {
+      const f = groups.find((gg) => gg.group === g)!.frame;
+      return f.x + f.width / 2;
+    };
+    // 대표 부모 P1이 자식 C 중앙 위 → 두 중심이 사실상 일치.
+    expect(center('P1')).toBeCloseTo(center('C'));
+  });
+
+  it('centers a parent over its children span (no rightward drift)', () => {
+    const engine = createLayoutEngine();
+    // P가 자식 3개(C1,C2,C3)를 렌더 → P는 C1..C3 스팬 중앙 위. P 중심이 가운데 자식(C2) 근처.
+    const nodes = [
+      vnode(1, 'P'),
+      vnode(2, 'C1', 1),
+      vnode(3, 'C2', 1),
+      vnode(4, 'C3', 1),
+    ];
+    const { groups } = engine.computeLayout(nodes);
+    const center = (g: string) => {
+      const f = groups.find((gg) => gg.group === g)!.frame;
+      return f.x + f.width / 2;
+    };
+    const cP = center('P');
+    // 부모 중심이 첫 자식과 끝 자식 사이(중앙) — 왼쪽 끝에 걸리지 않는다.
+    expect(cP).toBeGreaterThan(center('C1'));
+    expect(cP).toBeLessThan(center('C3'));
+    expect(cP).toBeCloseTo(center('C2'), 0); // 가운데 자식과 거의 정렬
+  });
+});

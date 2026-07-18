@@ -12,6 +12,7 @@
 // 레이어)이라 같은 정적-이미지 방식을 쓰되, 크기가 제각각이므로 background-size로 늘린다.
 import rough from 'roughjs';
 import { NODE_WIDTH, NODE_HEIGHT } from './layout';
+import { paletteHex, PALETTE_SIZE } from './groupColor';
 
 export type BorderMode = 'light' | 'dark';
 
@@ -117,6 +118,28 @@ const BORDERS: Record<BorderMode, { composite: string; host: string; route: stri
   },
 };
 
+// 도메인 색 손그림 테두리(색 언어 통일, ADR-0055) — 노드 테두리를 그룹(부모 도메인) 색으로
+// 그려 "이 노드가 어느 도메인 소속인가"를 간선·프레임과 같은 색으로 한눈에 맞춘다. composite/route만
+// 색을 입히고 host는 중립 대시로 남긴다 — host는 DOM 프리미티브라 역할색을 안 주고 kind 구분
+// 언어(대시=host)를 보존하며, 도메인 정체성은 이미 프레임·배경 tint·부모 composite가 전한다.
+// 정적-이미지 원칙(위 성능 원칙) 유지: 8색 × 2모드 × 2셰이프(사각/6각) = 유한 개만 모듈 로드 시
+// 계산하고 노드 수와 무관하게 공유한다. colorIndex 미배정(pending)이면 nodeBorderImage가 중립
+// BORDERS로 폴백한다.
+const PALETTE_BORDERS: Record<BorderMode, { composite: string; route: string }[]> = {
+  light: [],
+  dark: [],
+};
+for (let i = 0; i < PALETTE_SIZE; i++) {
+  PALETTE_BORDERS.light.push({
+    composite: buildRectBorder(paletteHex(i, 'light')),
+    route: buildHexBorder(paletteHex(i, 'light')),
+  });
+  PALETTE_BORDERS.dark.push({
+    composite: buildRectBorder(paletteHex(i, 'dark')),
+    route: buildHexBorder(paletteHex(i, 'dark')),
+  });
+}
+
 /** 검색 매치 강조 — 햇칭(형광펜) 채움. 모듈 로드 시 1회 계산. */
 export const ROUGH_FILL_MATCHED = buildFill('#16a34a', 'hachure');
 /** 픽/역방향 착지 강조 — 햇칭(형광펜) 채움(인디고). 사용자 요청으로 solid 마커 채움에서 햇칭으로
@@ -157,15 +180,27 @@ export const HIGHLIGHT_RING: Record<BorderMode, string> = {
 /**
  * 컴포넌트 노드가 background-image로 쓸 손그림 테두리를 고른다. 역할(route)이 kind(host/composite)
  * 보다 우선한다 — 라우트 진입점은 6각형(ADR-0028), 그 외에는 kind별 사각형.
+ *
+ * colorIndex(그룹 팔레트 인덱스)를 주면 composite/route 테두리를 그 도메인 색으로 그린다(색 언어
+ * 통일, ADR-0055). host는 색과 무관하게 중립 대시 유지. colorIndex가 undefined(pending 그룹)면
+ * 기존 중립 인디고 테두리로 폴백한다 — 기존 3인자 호출과 하위 호환.
  */
 export function nodeBorderImage(
   kind: 'host' | 'composite',
   mode: BorderMode,
   isRouteEntry: boolean,
+  colorIndex?: number,
 ): string {
-  const set = BORDERS[mode];
-  if (isRouteEntry) return set.route;
-  return kind === 'host' ? set.host : set.composite;
+  // host는 도메인 색을 안 입힌다(DOM 프리미티브 = 중립 대시). route는 host보다 우선(6각형)이라
+  // host 판정을 먼저 하되 route가 아닐 때만 적용한다.
+  if (kind === 'host' && !isRouteEntry) return BORDERS[mode].host;
+  // 색 미배정(pending) → 기존 중립 테두리.
+  if (colorIndex === undefined) {
+    const set = BORDERS[mode];
+    return isRouteEntry ? set.route : set.composite;
+  }
+  const pal = PALETTE_BORDERS[mode][colorIndex % PALETTE_SIZE];
+  return isRouteEntry ? pal.route : pal.composite;
 }
 
 // --- 크롬(버튼/툴바) 볼펜 세기 rough (ADR-0030 축2) ---

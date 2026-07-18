@@ -12,6 +12,9 @@ import { DataFlowPanel } from './domains/dataflow/DataFlowPanel';
 import { SlowFlowPanel, InternalStatePanel } from './domains/dataflow/StateFlowDemo';
 import { DeepTree } from './domains/deeptree/DeepTree';
 import { Button } from './domains/shared/Button';
+// 공유 "컨테이너" 재현 fixture — 같은 Dialog를 두 파일에서 써 Dialog.tsx 그룹을 다중 부모로 만든다
+// (공유 UI 레인 설계 검증, research/2026-07-18-stable-skeleton-shared-ui-lane.md).
+import { SharedDialogDemo } from './domains/shared/SharedDialogDemo';
 import { StressGrid } from './domains/stress/StressGrid';
 // 도형 어휘 라우트 6각형(ADR-0028/0035) 데모용 — page.tsx 그룹을 만들어 6각형이 실제로 보이게 한다.
 import { DashboardPage } from './domains/routes/app/dashboard/page';
@@ -87,6 +90,7 @@ export function DemoApp() {
       <DataFlowPanel />
       <SlowFlowPanel />
       <InternalStatePanel />
+      <SharedDialogDemo />
       <DeepTree />
       {stressCount > 0 && (
         <div className="stress-panel">

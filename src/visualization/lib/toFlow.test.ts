@@ -491,3 +491,54 @@ describe('toFlow', () => {
     expect(groupNode.zIndex).toBe(-1);
   });
 });
+
+// ── 폴더 단위 2단 중첩(ADR-0053) ──
+function pvnode(id: number, group: string, groupPath: string, parentId: number | null = null): VisibleNode {
+  return { id, displayName: `Node${id}`, kind: 'composite', parentId, group, groupPath, isAnonymous: false };
+}
+
+describe('toFlow with nestFolders', () => {
+  const nodes = [
+    pvnode(1, 'Panel.tsx', '/src/domains/dataflow/Panel.tsx'),
+    pvnode(2, 'Demo.tsx', '/src/domains/dataflow/Demo.tsx'),
+  ];
+
+  it('emits a folder frame node before its member group frames (parent-before-child)', () => {
+    const { flowNodes } = toFlow(nodes, createLayoutEngine(), {
+      shouldExpandGroup: () => true,
+      nestFolders: true,
+    });
+    const folder = flowNodes.find((n) => n.type === 'folder')!;
+    expect(folder.id).toBe('folder:/src/domains/dataflow');
+    expect((folder.data as { label: string }).label).toBe('dataflow');
+    expect((folder.data as { count: number }).count).toBe(2);
+    expect(folder.zIndex).toBe(-2);
+
+    const folderIdx = flowNodes.findIndex((n) => n.id === 'folder:/src/domains/dataflow');
+    const groupIdx = flowNodes.findIndex((n) => n.id === 'group:Panel.tsx');
+    expect(folderIdx).toBeLessThan(groupIdx); // 부모가 먼저
+  });
+
+  it('parents member group frames to the folder with folder-relative positions', () => {
+    const { flowNodes } = toFlow(nodes, createLayoutEngine(), {
+      shouldExpandGroup: () => true,
+      nestFolders: true,
+    });
+    const folder = flowNodes.find((n) => n.type === 'folder')!;
+    const group = flowNodes.find((n) => n.id === 'group:Panel.tsx')!;
+    expect(group.parentId).toBe('folder:/src/domains/dataflow');
+    expect(group.extent).toBe('parent');
+    // 폴더-상대 위치 + 폴더 월드 위치 = 그룹 월드 위치(레이아웃 frame과 일치).
+    const refFrame = createLayoutEngine()
+      .computeLayout(nodes, { nestFolders: true })
+      .groups.find((g) => g.group === 'Panel.tsx')!.frame;
+    expect(group.position.x + (folder.position.x as number)).toBeCloseTo(refFrame.x);
+    expect(group.position.y + (folder.position.y as number)).toBeCloseTo(refFrame.y);
+  });
+
+  it('emits no folder frames when nestFolders is off (flat, unchanged)', () => {
+    const { flowNodes } = toFlow(nodes, createLayoutEngine(), { shouldExpandGroup: () => true });
+    expect(flowNodes.some((n) => n.type === 'folder')).toBe(false);
+    expect(flowNodes.find((n) => n.id === 'group:Panel.tsx')!.parentId).toBeUndefined();
+  });
+});

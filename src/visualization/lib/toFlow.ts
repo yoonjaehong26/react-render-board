@@ -73,6 +73,20 @@ export interface GroupNodeData extends Record<string, unknown> {
   boundaryKinds?: RoleMarker[];
 }
 
+/** 폴더 프레임(폴더 단위 2단 중첩, ADR-0053) — 파일 그룹(GroupNode) 여러 개를 감싸는 바깥 프레임.
+ * GroupNodeData와 별도 타입/노드('folder')로 둔다 — 파일 프레임 고유 관심사(rough 테두리/경계 링/
+ * heat/팔레트)를 안 섞고, boundaryFrames.ts가 `type==='group'`으로 키잉해 폴더를 자동 무시하게. */
+export interface FolderNodeData extends Record<string, unknown> {
+  /** 폴더 표시명(경로 마지막 세그먼트). 전체 경로는 title로 따로 보여준다. */
+  label: string;
+  /** 전체 경로(툴팁/식별용). */
+  path: string;
+  /** 이 폴더 안 컴포넌트 노드 총수(멤버 파일 그룹들의 합). */
+  count: number;
+  width: number;
+  height: number;
+}
+
 export interface ToFlowOptions {
   /**
    * 이 그룹의 자식 컴포넌트 노드/엣지를 실제로 만들지 결정한다. false를 반환하면 그룹
@@ -99,6 +113,8 @@ export interface ToFlowOptions {
   onToggleGroupCollapse?: (group: string) => void;
   /** 손그림 테두리(roughStyle.ts)의 라이트/다크 변형 선택 (ADR-0030). 생략하면 'light'. */
   colorMode?: BorderMode;
+  /** 폴더 단위 2단 중첩(ADR-0053). true면 파일 그룹을 상위 폴더 프레임으로 묶는다. 기본 false. */
+  nestFolders?: boolean;
 }
 
 export function toFlow(
@@ -112,9 +128,10 @@ export function toFlow(
     manuallyCollapsedGroups,
     onToggleGroupCollapse,
     colorMode = 'light',
+    nestFolders = false,
   }: ToFlowOptions,
 ): { flowNodes: Node[]; flowEdges: Edge[] } {
-  const { groups, nodePositions } = engine.computeLayout(nodes);
+  const { groups, folders, nodePositions } = engine.computeLayout(nodes, { nestFolders });
   const byId = new Map(nodes.map((n) => [n.id, n]));
 
   // 그룹+개별 동시 필터(ADR-미정) — matchedIds가 실제로 뭔가를 담고 있을 때만 켠다. 검색어가
@@ -126,11 +143,50 @@ export function toFlow(
   const expandedIds = new Set<number>();
   const renderedGroups = new Set<string>();
 
+  // 폴더 프레임(ADR-0053) — 파일 그룹보다 먼저 push해야 React Flow의 부모-먼저 규칙을 만족한다
+  // (중첩 그룹의 parentId=folder:<path>가 이미 존재하도록). 폴더 그룹핑이 꺼져 있으면 folders는
+  // 빈 배열이라 이 루프는 아무 것도 안 만든다(= 기존 평면 동작).
+  const groupLayoutByKey = new Map(groups.map((g) => [g.group, g]));
+  const folderByKey = new Map(folders.map((f) => [f.folder, f]));
+  for (const f of folders) {
+    // 필터 중이면 매치 노드를 하나라도 가진 멤버 그룹이 있을 때만 폴더 프레임을 그린다.
+    if (
+      filtering &&
+      !f.groupKeys.some((gk) => groupLayoutByKey.get(gk)?.nodeIds.some((id) => matchedIds!.has(id)))
+    ) {
+      continue;
+    }
+    const count = f.groupKeys.reduce((sum, gk) => sum + (groupLayoutByKey.get(gk)?.nodeIds.length ?? 0), 0);
+    const slash = f.folder.lastIndexOf('/');
+    flowNodes.push({
+      id: `folder:${f.folder}`,
+      type: 'folder',
+      position: { x: f.frame.x, y: f.frame.y },
+      style: { width: f.frame.width, height: f.frame.height },
+      data: {
+        label: slash >= 0 ? f.folder.slice(slash + 1) : f.folder,
+        path: f.folder,
+        count,
+        width: f.frame.width,
+        height: f.frame.height,
+      } satisfies FolderNodeData,
+      selectable: false,
+      draggable: false,
+      zIndex: -2,
+    });
+  }
+
   for (const g of groups) {
     const pending = g.group === PENDING_GROUP;
     if (filtering && !g.nodeIds.some((id) => matchedIds!.has(id))) continue; // 매치가 하나도 없는 그룹은 프레임째로 뺀다
     renderedGroups.add(g.group);
     const expanded = shouldExpandGroup(g.frame, g.group);
+    // 중첩(ADR-0053): 폴더 안 파일 그룹은 folder:<path>의 자식이라 좌표를 폴더-상대로 변환한다.
+    // shouldExpandGroup에는 항상 월드 frame(g.frame)을 넘겨 컬링 계약이 안 변한다(위 expanded).
+    const parentFolderFrame = g.parentFolder ? folderByKey.get(g.parentFolder) : undefined;
+    const groupPosition = parentFolderFrame
+      ? { x: g.frame.x - parentFolderFrame.frame.x, y: g.frame.y - parentFolderFrame.frame.y }
+      : { x: g.frame.x, y: g.frame.y };
     // 도메인별 커스텀 팔레트: 그룹이 아직 해석 안 됐으면(pending) 중립 유지를 위해 색을 안
     // 매긴다 — expand 여부와 무관하게 계산해서, 접힌(뷰포트 밖/지도 모드) 그룹 프레임도
     // 지도 모드에서부터 도메인 색이 바로 보인다(ui-philosophy.md의 "지도" 은유와 직결).
@@ -138,7 +194,8 @@ export function toFlow(
     flowNodes.push({
       id: `group:${g.group}`,
       type: 'group',
-      position: { x: g.frame.x, y: g.frame.y },
+      ...(parentFolderFrame ? { parentId: `folder:${g.parentFolder}`, extent: 'parent' as const } : {}),
+      position: groupPosition,
       style: { width: g.frame.width, height: g.frame.height },
       data: {
         label: pending ? '(그룹 확인 중…)' : g.group,
@@ -237,7 +294,13 @@ export function toFlow(
       // 간선 색 = 부모(출발) 노드의 도메인 색(선 정체성, ADR-0044/0047). 세 채널을 직교로 쓴다:
       // opacity=깊이 감쇠, 색(hue)=부모 도메인, 선 스타일=그룹 내(실선)/경계(점선, edge-cross-group).
       // pending 그룹은 색 미배정(중립 유지).
-      const parentPalette = parent.group === PENDING_GROUP ? '' : ` edge-parent-palette-${colorIndexForGroup(parent.group)}`;
+      const srcColorIndex = parent.group === PENDING_GROUP ? undefined : colorIndexForGroup(parent.group);
+      const tgtColorIndex = n.group === PENDING_GROUP ? undefined : colorIndexForGroup(n.group);
+      const parentPalette = srcColorIndex === undefined ? '' : ` edge-parent-palette-${srcColorIndex}`;
+      // 크로스-그룹 간선에 실어주는 그라데이션 색 정보(ADR-0057). OrthoEdge가 출발→타깃 도메인 색
+      // 그라데이션을 그려 "이 선이 어느 도메인에서 어느 도메인으로 가는지"를 색으로 보인다 —
+      // 허브(한 도메인이 여럿을 렌더)에서 출발색이 전부 같아 구별이 안 되는 문제를 타깃색이 보완.
+      const crossData = { sourceColorIndex: srcColorIndex, targetColorIndex: tgtColorIndex, colorMode };
 
       if (!expandedIds.has(n.parentId!)) {
         // 부모 노드가 컬링됨 → 부모 그룹 프레임으로 잇는 폴백. 여기 도달하면 크로스-그룹뿐이고
@@ -253,13 +316,14 @@ export function toFlow(
             // 버스는 smoothstep으로 충분(이미 중점 채널 공유로 버스 정렬)이라 그대로 둔다.
             type: 'ortho',
             className: `edge-cross-group edge-cross-group-frame${parentPalette}`,
+            data: crossData,
             zIndex: 10,
           },
         ];
       }
 
       if (crossGroup) {
-        // 그룹 간 간선: 프레임 회피 직교 배선(ortho) + 점선(경계) + 부모 도메인 색.
+        // 그룹 간 간선: 프레임 회피 직교 배선(ortho) + 점선(경계) + 출발→타깃 도메인 색 그라데이션.
         return [
           {
             id: `${n.parentId}->${n.id}`,
@@ -267,6 +331,7 @@ export function toFlow(
             target: String(n.id),
             type: 'ortho',
             className: `edge-cross-group${parentPalette}`,
+            data: crossData,
             zIndex: 10,
           },
         ];

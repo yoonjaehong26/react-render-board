@@ -3,7 +3,7 @@
 // (ADR-0008) 여기서 다시 걸러내지 않는다 — 여기서 남은 "보일지 말지" 결정은 오직
 // host 노드 기본 숨김(사용자 토글) 뿐이다.
 import type { RenderNode } from '../../data/types';
-import { PENDING_GROUP, resolveEffectiveGroups } from './groups';
+import { PENDING_GROUP, isLibraryInternalHint, resolveEffectiveGroups } from './groups';
 
 export interface VisibleNode {
   id: number;
@@ -12,6 +12,9 @@ export interface VisibleNode {
   /** 숨겨진 host 조상을 건너뛰고 재연결된 parentId (exp2의 findVisibleAncestor와 동일한 기법). */
   parentId: number | null;
   group: string;
+  /** 이 노드가 속한 그룹(=사용 위치 파일)의 전체 경로(폴더 포함) — 폴더 단위 그룹핑(ADR-0053).
+   * 한 그룹의 모든 노드는 같은 사용 파일이라 같은 경로를 공유한다. 못 얻으면 undefined(폴더 폴백). */
+  groupPath?: string;
   isAnonymous: boolean;
   /** 리스트 접기(ADR-0046): 같은 부모 밑 같은 종류 형제 N개를 이 대표 노드 하나로 접었을 때 그 N.
    * undefined면 접지 않은 평범한 노드다. 대표 노드는 자기 서브트리를 그대로 유지하고, 나머지
@@ -29,6 +32,16 @@ export function normalizeForCanvas(nodes: RenderNode[], options: NormalizeOption
   const { includeHostNodes } = options;
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const effectiveGroup = resolveEffectiveGroups(nodes);
+
+  // 그룹(파일 basename) -> 전체 경로. "그룹을 정의한 노드"(자기 groupHint가 곧 그 그룹인 app-source
+  // composite)에서만 경로를 취한다 — 그 노드의 groupPath basename이 그룹명과 일치한다(사용 위치).
+  // 한 그룹의 모든 노드는 같은 사용 파일이므로 이 맵으로 전 노드에 같은 경로를 내려준다.
+  const groupToPath = new Map<string, string>();
+  for (const n of nodes) {
+    if (n.kind !== 'composite' || !n.groupHint || isLibraryInternalHint(n.groupHint)) continue;
+    if (effectiveGroup.get(n.id) !== n.groupHint) continue; // 자기 힌트가 곧 자기 그룹인 정의 노드만
+    if (n.groupPath && !groupToPath.has(n.groupHint)) groupToPath.set(n.groupHint, n.groupPath);
+  }
 
   function isVisible(n: RenderNode): boolean {
     return includeHostNodes || n.kind !== 'host';
@@ -48,12 +61,14 @@ export function normalizeForCanvas(nodes: RenderNode[], options: NormalizeOption
   const result: VisibleNode[] = [];
   for (const n of nodes) {
     if (!isVisible(n)) continue;
+    const group = effectiveGroup.get(n.id) ?? PENDING_GROUP;
     result.push({
       id: n.id,
       displayName: n.displayName,
       kind: n.kind,
       parentId: findVisibleAncestor(n.parentId),
-      group: effectiveGroup.get(n.id) ?? PENDING_GROUP,
+      group,
+      groupPath: groupToPath.get(group),
       isAnonymous: n.displayName === '(anonymous)',
     });
   }
