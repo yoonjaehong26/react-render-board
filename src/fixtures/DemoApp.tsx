@@ -17,6 +17,9 @@ import { StressGrid } from './domains/stress/StressGrid';
 import { DashboardPage } from './domains/routes/app/dashboard/page';
 // 도형 어휘 포탈 표식(ADR-0028) 실측/시연용 — createPortal로 body에 순간이동하는 모달.
 import { PortalModal } from './domains/portals/PortalModal';
+// 실제 URL 전환(/shop)에 반응하는 독립 페이지(사용자 요청) — 아래 useRoute 주석 참고.
+import { ShopPage } from './domains/routes/app/shop/page';
+import { useRoute } from './router';
 
 // 스트레스 테스트 전용, URL 쿼리로만 켠다(?stressCount=2000) — 기본 데모 흐름과 기존
 // ADR들의 기준선(노드 수 등)을 건드리지 않기 위해서다.
@@ -42,7 +45,12 @@ const stressCount = Number(new URLSearchParams(window.location.search).get('stre
 // Storefront(domains/shop)는 위 캡슐형 fixture들과 목적이 다르다 — 특정 React 패턴을
 // 검증하려는 게 아니라, 실제 서비스처럼 자연스러운 이름/깊이의 컴포넌트 트리(Storefront>
 // ProductGrid>ProductCard>ProductInfo)를 보드에서 보여주기 위한 사용자 요청 데모다.
+// ShopPage(domains/routes/app/shop)는 그 다음 요청 — Storefront는 항상 마운트된 패널 중
+// 하나일 뿐이라 "진짜 페이지 전환"을 못 보여준다. /shop으로 실제 URL이 바뀌면 기존 패널
+// 트리 전체가 언마운트되고 이 라우트가 그 자리를 대체한다 — 보드가 진짜 라우트 전환(ADR-0015가
+// 지금까지 외부 앱으로만 검증했던 것)에 어떻게 반응하는지 이 레포 안에서도 볼 수 있다.
 export function DemoApp() {
+  const { path, navigate } = useRoute();
   const [showNotifications, setShowNotifications] = useState(false);
   const [burstStatus, setBurstStatus] = useState<'대기' | '진행 중' | '완료'>('대기');
   const [, setBurstTick] = useState(0);
@@ -56,12 +64,17 @@ export function DemoApp() {
     setBurstStatus('완료');
   }
 
+  if (path.startsWith('/shop')) {
+    return <ShopPage onNavigateHome={() => navigate('/')} />;
+  }
+
   return (
     <div className="demo-app">
       <Button
         label={showNotifications ? '알림 패널 숨기기' : '알림 패널 보이기'}
         onClick={() => setShowNotifications((v) => !v)}
       />
+      <Button label="실제 쇼핑몰 사이트 보기 (/shop) →" onClick={() => navigate('/shop')} />
       <AppShell />
       <Storefront />
       <CheckoutPanel />
