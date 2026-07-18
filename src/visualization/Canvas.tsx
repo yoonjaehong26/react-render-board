@@ -836,7 +836,9 @@ function BoardContent({
   const sharedConnections = useMemo(() => {
     const usageToShared = new Map<string, string[]>(); // 노드 id → 공유 그룹 키들
     const sharedToUsages = new Map<string, string[]>(); // 공유 그룹 키 → 사용처 노드 id들
+    const sharedGroupIds = new Set<string>(); // 공유 컨테이너 그룹 노드 id(`group:...`)
     for (const n of flowNodes) {
+      if (n.type === 'group' && (n.data as GroupNodeData).shared) sharedGroupIds.add(n.id);
       if (n.type !== 'component') continue;
       const uses = (n.data as ComponentNodeData).sharedUses;
       if (!uses || uses.length === 0) continue;
@@ -847,7 +849,7 @@ function BoardContent({
         else sharedToUsages.set(key, [n.id]);
       }
     }
-    return { usageToShared, sharedToUsages };
+    return { usageToShared, sharedToUsages, sharedGroupIds };
   }, [flowNodes]);
 
   // 호버 시 on-demand 공유 연결선(직선). 사용처 노드 호버 → 그 노드가 쓰는 공유 그룹으로, 공유
@@ -1191,8 +1193,14 @@ function BoardContent({
             if (node.type === 'component') {
               setHoveredNodeId(Number(node.id));
               previewComponentNode(Number(node.id)); // 정방향 hover 프리뷰 → 실제 DOM 요소에 엣칭
+              // 공유 컨테이너 "전체" 호버(pillar ②): 레인 컨테이너 내부 노드(예: DialogHeader)를
+              // 호버해도 그 컨테이너의 사용처들로 on-demand 선이 뜬다 — 프레임 테두리뿐 아니라
+              // UI 노드 전체가 트리거. 부모 그룹이 공유면 그 그룹으로 hover 설정.
+              if (node.parentId && sharedConnections.sharedGroupIds.has(node.parentId)) {
+                setHoveredSharedGroup(node.parentId);
+              }
             } else if (node.type === 'group' && (node.data as GroupNodeData)?.shared) {
-              // 공유 레인 그룹 호버 → 사용처들로 on-demand 직선(pillar ②).
+              // 공유 레인 그룹(프레임) 호버 → 사용처들로 on-demand 직선(pillar ②).
               setHoveredSharedGroup(node.id);
             }
           }}

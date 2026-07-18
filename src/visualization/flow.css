@@ -397,6 +397,10 @@ body.rrb-dark-mode .component-node__shared-peek-item {
 .react-flow__edge.edge-shared-ondemand .react-flow__edge-path {
   stroke-dasharray: 6 3;
   filter: drop-shadow(0 0 2px rgba(15, 23, 42, 0.2));
+  /* 애니메이션 방향 반전(사용자 요청): 간선은 사용처(source)→공유 UI(target)로 잇지만, 흐름은
+     반대로 공유 UI에서 사용처로 흐르게 해 "UI를 끌어다 쓰는" 느낌을 준다. React Flow animated의
+     dashdraw(source→target)를 reverse로 뒤집는다. */
+  animation-direction: reverse;
 }
 
 /* 공유 레인 그룹 프레임 — 아래 별도 밴드에 있는 다중부모 컨테이너. 살짝 다른 배경으로 "이 띠는
