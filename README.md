@@ -73,13 +73,15 @@ npx react-render-board init
 
 ## 현재 상태
 
-🚦 **판단 지점 통과 (조건부 GO) → 정식 재구현 착수 직전.** 검증용 MVP 코드 있음.
+🚀 **npm 배포됨 (`0.2.0`, MIT).** 엔진(훅킹→데이터→시각화) 완성 + 3개 번들러(Vite/Turbopack/webpack) `install`→캔버스 실측 완료.
 
 - [x] 실험 1: 기술 검증 (Fiber 트리를 JSON으로 추출)
 - [x] 실험 2: UI 검증 (React Flow로 클러스터링 + 줌 프로토타입)
 - [x] 라이브 MVP (실험 1 + 2 통합)
 - [x] 판단 지점: 실제 제3자 앱 검증 (excalidraw / berry-admin / shadcn-admin)
-- [ ] 정식 재구현 (확인된 결함 5건 반영 + 생존 전략 결정 후)
+- [x] 확인된 결함 5건(P0~P4) 해소 + 테스트 커버리지(vitest 335개) + 패키지 배포 준비 (ADR-0016~0023)
+- [x] 배포 진입 경험: postinstall 자동 설정 + 3개 번들러 원커맨드 (ADR-0036/0042/0062)
+- [ ] 실사용/도그푸딩 + 생존 전략 결정 (vision.md 7-2 — MVP 배포로 트리거 도달)
 
 전체 현황은 [`docs/project-status.md`](docs/project-status.md), 로드맵은 [`docs/roadmap.md`](docs/roadmap.md) 참고.
 

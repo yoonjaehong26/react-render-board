@@ -90,7 +90,7 @@ describe('createRenderStore', () => {
         compositeFibers: new Map([[5, fiberA]]),
         fibersById: new Map([[5, fiberA]]),
       });
-      mockedResolveGroupHints.mockResolvedValueOnce([{ id: 5, groupHint: 'src/App.tsx' }]);
+      mockedResolveGroupHints.mockResolvedValueOnce([{ id: 5, groupHint: 'src/App.tsx', groupPath: null }]);
 
       const store = createRenderStore();
       store.handleCommit({} as Fiber);
@@ -113,7 +113,7 @@ describe('createRenderStore', () => {
     it('only calls resolveGroupHints for composite ids not already cached, across two commits', async () => {
       const fiberA = {} as Fiber;
       const fiberB = {} as Fiber;
-      mockedResolveGroupHints.mockResolvedValueOnce([{ id: 1, groupHint: 'a.tsx' }]);
+      mockedResolveGroupHints.mockResolvedValueOnce([{ id: 1, groupHint: 'a.tsx', groupPath: null }]);
       mockedSerializeFiberTree.mockReturnValueOnce({
         nodes: [node({ id: 1 })],
         compositeFibers: new Map([[1, fiberA]]),
@@ -126,7 +126,7 @@ describe('createRenderStore', () => {
 
       expect(mockedResolveGroupHints).toHaveBeenNthCalledWith(1, new Map([[1, fiberA]]));
 
-      mockedResolveGroupHints.mockResolvedValueOnce([{ id: 2, groupHint: 'b.tsx' }]);
+      mockedResolveGroupHints.mockResolvedValueOnce([{ id: 2, groupHint: 'b.tsx', groupPath: null }]);
       mockedSerializeFiberTree.mockReturnValueOnce({
         nodes: [node({ id: 1 }), node({ id: 2, displayName: 'Button' })],
         compositeFibers: new Map([
@@ -145,7 +145,7 @@ describe('createRenderStore', () => {
     });
 
     it('does not schedule a follow-up notify when the resolved groupHint matches what is already in the snapshot', async () => {
-      mockedResolveGroupHints.mockResolvedValueOnce([{ id: 1, groupHint: null }]); // same as node()'s default
+      mockedResolveGroupHints.mockResolvedValueOnce([{ id: 1, groupHint: null, groupPath: null }]); // same as node()'s default
       mockedSerializeFiberTree.mockReturnValueOnce({
         nodes: [node({ id: 1 })],
         compositeFibers: new Map([[1, {} as Fiber]]),

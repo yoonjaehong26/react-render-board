@@ -12,7 +12,10 @@
 
 - `npm run dev` — 라이브 MVP 실행 (좌: 계측 대상 데모 앱, 우: 실시간 보드)
 - `npm run build` — 타입체크 + 빌드
+- `npm run typecheck` — 타입체크만 (`tsc -b`, 빌드 산출물 없이 빠르게)
 - `npm run build:lib` — 라이브러리 빌드 (`src/index.ts` 공개 API, `dist-lib/` — 실제 npm publish는 별도, ADR-0023)
 - `npm run lint` — oxlint
 - `npm run test` — 레이어별 유닛 테스트 (vitest, `npm run test:watch`로 반복 실행)
 - `npm run verify` — 자체 fixture 회귀 검증 (Playwright)
+
+> **커밋 전 `npm run typecheck`를 1회 돌린다.** `npm run test`(vitest)는 타입을 스트립해 타입 오류를 못 잡고, `npm publish`는 `build:lib`(테스트 파일 제외)만 타므로, 테스트 파일의 타입 드리프트가 세 안전망을 전부 빠져나간 채 커밋이 쌓일 수 있다(실제로 발생 — ADR-0063). CI 없이 이 한 줄로 막는다.

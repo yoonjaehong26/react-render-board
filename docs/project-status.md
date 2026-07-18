@@ -4,7 +4,7 @@
 >
 > - 최종 갱신: 2026-07-18
 > - 현재 단계: **판단 지점 통과 + 백로그 5건(P0~P4) 해소 완료 + 정식 재구현 1라운드(테스트 커버리지·배포 준비·훅킹 라이브러리 확정) 완료 + 보드↔실제 DOM 양방향 인터랙션 구현 완료(ADR-0024/0025/0026) + UX 레이어 2라운드(검색+다크모드/팔레트, ADR-0027) + 3라운드(그룹 접기/펼치기+컨텍스트 메뉴+스티키노트, ADR-0031) + 그룹+개별 동시 필터(ADR-0033) 완료 → UX 레이어 원래 후보 표가 전부 구현됐다. 남은 건 코드접근(스키마 확장 선행)·JSDoc 툴팁(별도 리서치 필요)뿐**
-> - 엔진(훅킹→데이터→시각화)은 vitest 유닛 테스트 184개 + 기존 Playwright 통합 검증으로 뒷받침되고, `src/index.ts` 공개 API·라이브러리 빌드(`npm run build:lib`)까지 준비됐다(ADR-0023). 실행 경험(`npm run dev`)도 바뀌었다 — 계측 대상 데모 앱이 전체 화면을 쓰고, 화면 하단 도킹 패널(ADR-0025)로 보드를 열고 닫으며, 보드 노드 클릭↔실제 화면 요소 클릭이 서로 연결되고(ADR-0026), 검색+필터로 컴포넌트/도메인을 바로 찾고 다크모드+도메인별 색으로 구조를 구분하며(ADR-0027/0033), 그룹을 접고 펼치고 우클릭 메뉴로 빠른 액션을 쓰고 캔버스에 메모를 남길 수 있다(ADR-0031, 2절 참고). 코드접근/JSDoc 툴팁은 여전히 없다.
+> - 엔진(훅킹→데이터→시각화)은 vitest 유닛 테스트 335개(31파일) + 기존 Playwright 통합 검증으로 뒷받침되고, `src/index.ts` 공개 API·라이브러리 빌드(`npm run build:lib`)까지 준비됐다(ADR-0023). 실행 경험(`npm run dev`)도 바뀌었다 — 계측 대상 데모 앱이 전체 화면을 쓰고, 화면 하단 도킹 패널(ADR-0025)로 보드를 열고 닫으며, 보드 노드 클릭↔실제 화면 요소 클릭이 서로 연결되고(ADR-0026), 검색+필터로 컴포넌트/도메인을 바로 찾고 다크모드+도메인별 색으로 구조를 구분하며(ADR-0027/0033), 그룹을 접고 펼치고 우클릭 메뉴로 빠른 액션을 쓰고 캔버스에 메모를 남길 수 있다(ADR-0031, 2절 참고). 코드접근/JSDoc 툴팁은 여전히 없다.
 
 ---
 
@@ -190,6 +190,11 @@
 - **대형 라우트에서 groupHint 해석 급락** — dashboard(1716노드)가 login(288)보다 그룹이 훨씬 심하게 뭉침. `getSource` 동시성-해석 성공률 상관 조사 필요(ADR-0015).
 - **인터랙션 배율 = f(노드 수 × 커밋 횟수)** — 배율이 노드 수만의 함수가 아님. 정확한 관계식 미규명(ADR-0014).
 
+### ✅ 품질 게이트 누수 — 해소됨 (ADR-0063)
+- **증상이었던 것:** 커밋된 `main`이 `npm run build`(타입체크)에서 며칠간 실패(`store.test.ts` 4곳 `groupPath` 누락, ADR-0053이 필수화). vitest는 타입 스트립, publish는 `build:lib`(테스트 제외)만 타서 세 안전망이 전부 놓침 — **배포(0.2.0)는 정당했으나** 개발 타입체크가 방치됐다.
+- **수정:** `store.test.ts` 4곳 `groupPath: null` 채워 초록 복구 + `npm run typecheck`(`tsc -b`) 스크립트 + CLAUDE.md "커밋 전 1회" 규칙(무-도구, "과한 프로세스 금지" 원칙). 훅·CI는 재발 증거 쌓이면.
+- 근거: [ADR-0063](decisions/0063-typecheck-gate-before-commit.md)
+
 ---
 
 ## 6. 3-레이어별 건강 상태
@@ -197,10 +202,10 @@
 | 레이어 | 상태 | 요약 |
 |---|---|---|
 | **1. 훅킹/백엔드** | 🟢 견고 | 실제 앱 3개에서 크래시 0. 남은 결함 없음. **라이브러리 확정됨(bippy, ADR-0022)**. bippy API 드리프트만 주의(버전업 시 `.d.ts` 직접 확인 규칙 — ADR-0002). `domInteraction.ts`(DOM↔Fiber 매핑, ADR-0026) 추가. 유닛 테스트 17개(`fiberInspector`·`domInteraction`) |
-| **2. 데이터** | 🟢 견고 | 정합성·호환성 완벽. **P0 MAX_DEPTH 버그 해소됨**(ADR-0016). `fibersById` 보조 조회 추가(ADR-0026, `RenderNode` 스키마 자체는 불변). 유닛 테스트 25개(`serialize`·`sourceHints`·`store`) |
+| **2. 데이터** | 🟢 견고 | 정합성·호환성 완벽. **P0 MAX_DEPTH 버그 해소됨**(ADR-0016). `fibersById` 보조 조회 추가(ADR-0026, `RenderNode` 스키마 자체는 불변). 유닛 테스트 29개(`serialize` 10·`sourceHints` 8·`store` 11) |
 | **3. 시각화** | 🟢 견고, 대규모까지 검증됨 | 소~중 규모는 물론 대규모(9,000+ 노드, 74개 그룹)에서도 응답성·지도 모드·카메라 추적·그룹 품질 전부 확인. **P1~P4 결함 4건 해소됨**(ADR-0017~0019). 도킹 패널 셸(`BoardOverlay.tsx`, ADR-0025) + 양방향 인터랙션(`interactionStore.ts`/`DomHighlightOverlay.tsx`, ADR-0026) + 검색/다크모드/도메인 팔레트(`search.ts`/`groupColor.ts`/`colorModePreference.ts`, ADR-0027) + 그룹 접기/컨텍스트 메뉴/스티키노트(`stickyNotes.ts`, `ContextMenu.tsx`, `NodeToolbar`, ADR-0031) + 그룹+개별 필터(`toFlow.ts`의 `filterToMatches`, ADR-0033) + 그룹 간 waterfall 층 배치 + 지도 모드 그룹↔그룹 집계 엣지(`layout.ts`의 `computeGroupDepths`, `toFlow.ts`의 `edge-group-link`, ADR-0034) 추가. 유닛 테스트 125개 이상(`lib/*` + 컴포넌트) |
 
-레이어별 유닛 테스트(총 184개, vitest) + 기존 Playwright 통합 검증(`scripts/verify*.mjs`)의 역할 분리와 세부 내용은 [ADR-0023](decisions/0023-production-hardening-tests-and-package-prep.md)·[ADR-0026](decisions/0026-bidirectional-interaction-implementation.md)·[ADR-0027](decisions/0027-search-and-theme-ux-round.md)·[ADR-0031](decisions/0031-collapse-context-menu-sticky-notes.md)·[ADR-0033](decisions/0033-group-and-individual-filter.md) 참고. `npm run test`로 실행한다.
+레이어별 유닛 테스트(총 335개, 31파일, vitest) + 기존 Playwright 통합 검증(`scripts/verify*.mjs`)의 역할 분리와 세부 내용은 [ADR-0023](decisions/0023-production-hardening-tests-and-package-prep.md)·[ADR-0026](decisions/0026-bidirectional-interaction-implementation.md)·[ADR-0027](decisions/0027-search-and-theme-ux-round.md)·[ADR-0031](decisions/0031-collapse-context-menu-sticky-notes.md)·[ADR-0033](decisions/0033-group-and-individual-filter.md) 참고. `npm run test`로 실행한다.
 
 ---
 
@@ -215,8 +220,10 @@ roadmap.md의 "대규모 스케일은 처음부터 설계에 반영" 원칙이 �
 4. **카메라 정책 + `groupOrder` 생명주기** (P3, [ADR-0018](decisions/0018-map-mode-lod-and-camera-refit.md)) — ✅ 해소.
 5. **라이브러리 경로 판별의 화이트리스트 반전** (P4, [ADR-0019](decisions/0019-library-hint-whitelist-inversion.md)) — ✅ 해소.
 
-### 7-2. 생존 전략 — 의도적으로 보류 (2026-07-17 결정)
+### 7-2. 생존 전략 — 의도적으로 보류 (2026-07-17 결정, 2026-07-18 트리거 도달 후 재확인 — ADR-0064)
 vision.md가 던진 성공 질문("완성 후에도 계속 붙잡을 동기가 있는가")과 dogfooding/커뮤니티/포트폴리오의 갈림길은 **기능을 전부 완성한 뒤에 논의하기로 명시적으로 보류**했다. 근거: 완성 전에 이 질문을 붙들면 오히려 병목이 된다. 방향은 "일단 전부 만들고, 유지보수 단계에서 오픈소스화 검토" 쪽으로 잠정 기울어 있으나 **확정하지 않는다.**
+
+> **2026-07-18 재확인([ADR-0064](decisions/0064-survival-strategy-deferral-reaffirmed.md)):** MVP가 npm `0.2.0`(MIT)으로 배포되며 7-2가 정한 "완성 후 재개" 트리거에 사실상 도달했다. 그럼에도 소유자 판단으로 **전략 논의를 계속 보류**한다 — 트리거는 "결정해도 되는 시점"일 뿐 강제가 아니고, MIT/npm 배포 자체가 이미 오픈소스 경로에 반쯤 발을 디딘 것이라 능동적 확산(홍보·커뮤니티)만 미루는 것이므로 되돌릴 게 없다. 단, 2축 검토에서 **메모리 누수 확정(ADR-0013)** 만은 장시간 실사용 관점에서 우선순위가 오르는 유일한 엔진 항목으로 남겨 둔다(전략과 무관한 기술 과제).
 
 - 이 결정의 실무적 함의: 재구현 스코프를 **축소하지 않는다.** P0~P4를 전부 반영하는 것을 기본값으로 했고, 실제로 MVP 코드 단계에서 다섯 개 모두 완료했다(특정 전략에 맞춰 P3·P4를 생략하는 선택지는 열지 않았다).
 - 커뮤니티 확산 노력(오픈소스화 여부·홍보 등) 같은 "전략 종속" 작업은 여전히 완성 후 재논의 대상 — 지금 백로그에 넣지 않는다.
