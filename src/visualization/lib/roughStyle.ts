@@ -119,8 +119,10 @@ const BORDERS: Record<BorderMode, { composite: string; host: string; route: stri
 
 /** 검색 매치 강조 — 햇칭(형광펜) 채움. 모듈 로드 시 1회 계산. */
 export const ROUGH_FILL_MATCHED = buildFill('#16a34a', 'hachure');
-/** 픽/역방향 착지 강조 — 마커(solid) 채움. 모듈 로드 시 1회 계산. */
-export const ROUGH_FILL_HIGHLIGHTED = buildFill('#6366f180', 'solid');
+/** 픽/역방향 착지 강조 — 햇칭(형광펜) 채움(인디고). 사용자 요청으로 solid 마커 채움에서 햇칭으로
+ *  통일(ADR-0035의 "픽=마커/검색=햇칭" 구분을 기법이 아니라 색으로만 구분하도록 변경) — solid
+ *  채움이 노드 텍스트를 덮어 가독성을 해쳤다. 이제 검색=녹색 햇칭, 픽/역방향=인디고 햇칭. */
+export const ROUGH_FILL_HIGHLIGHTED = buildFill('#6366f1', 'hachure');
 
 // 역방향 착지 강조 링 — 네온 box-shadow 글로우(사용자가 "구리다"고 지적) 대신 "마커로 한 번
 // 둘러친" 손그림 표현. 노드보다 살짝 크게(inset 음수, flow.css) 얹혀 손으로 동그라미 친 느낌을

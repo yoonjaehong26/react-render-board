@@ -18,6 +18,12 @@ export interface InteractionSnapshot {
    */
   hoverElements: Element[];
   /**
+   * hoverElements가 가리키는 요소에 대응하는 노드 id(라이브 hover, ADR-0032 Q "Alt-held 동시
+   * 하이라이트"). 실제 요소를 hover하면 그 요소를 그린 컴포넌트 노드를 다이어그램에서도 동시에
+   * 햇칭으로 밝히기 위한 값 — hoverElements와 함께 갱신되고 함께 비워진다. 없으면 null.
+   */
+  hoverNodeId: number | null;
+  /**
    * 역방향(DOM 클릭)이 보드에 남기는 "이 raw id로 이동해줘" 요청. bippy가 돌려주는 raw id라
    * host 노드일 수 있고, 지금 보드에 안 보일 수도 있다 — 실제로 보이는 id로 바꾸는 건
    * normalize.ts의 resolveVisibleId 몫이다. Canvas가 처리한 뒤 consumeNavigate()로 리셋한다.
@@ -46,8 +52,9 @@ export interface InteractionStore {
   setBoardOpen(open: boolean): void;
   /** 새 하이라이트 요청은 이전 것을 즉시 대체한다(타이머도 다시 시작). */
   highlight(elements: Element[]): void;
-  /** 픽 모드 hover-follow 프리뷰(ADR-0038). 같은 요소면 무시(재렌더 방지), 타이머 없음. */
-  setHoverElements(elements: Element[]): void;
+  /** 픽/Alt-held hover-follow 프리뷰(ADR-0038 + 후속). 같은 (요소, 노드) 조합이면 무시(재렌더
+   * 방지), 타이머 없음. nodeId는 그 요소에 대응하는 노드 id(다이어그램 동시 하이라이트용). */
+  setHoverElements(elements: Element[], nodeId?: number | null): void;
   requestNavigate(rawId: number): void;
   consumeNavigate(): void;
   setPickMode(active: boolean): void;
@@ -60,6 +67,7 @@ export function createInteractionStore(): InteractionStore {
     boardOpen: false,
     highlightedElements: [],
     hoverElements: [],
+    hoverNodeId: null,
     navigateToNodeId: null,
     navigateRequestId: 0,
     pickModeActive: false,
@@ -97,12 +105,13 @@ export function createInteractionStore(): InteractionStore {
         patch({ highlightedElements: [] });
       }, HIGHLIGHT_DURATION_MS);
     },
-    setHoverElements(elements) {
-      // 같은 요소 집합이면 알림을 보내지 않는다 — mousemove가 한 요소 위에서 수없이 발생해도
-      // 요소가 실제로 바뀔 때만 재렌더가 일어나게 한다.
+    setHoverElements(elements, nodeId = null) {
+      // 같은 (요소 집합, 노드 id)이면 알림을 보내지 않는다 — mousemove가 한 요소 위에서 수없이
+      // 발생해도 실제로 바뀔 때만 재렌더가 일어나게 한다.
       const current = snapshot.hoverElements;
-      if (current.length === elements.length && current.every((el, i) => el === elements[i])) return;
-      patch({ hoverElements: elements });
+      const sameEls = current.length === elements.length && current.every((el, i) => el === elements[i]);
+      if (sameEls && snapshot.hoverNodeId === nodeId) return;
+      patch({ hoverElements: elements, hoverNodeId: nodeId });
     },
     requestNavigate(rawId) {
       patch({ boardOpen: true, navigateToNodeId: rawId, navigateRequestId: snapshot.navigateRequestId + 1 });
@@ -114,7 +123,7 @@ export function createInteractionStore(): InteractionStore {
     setPickMode(active) {
       // 픽 모드를 끄면 hover 프리뷰도 즉시 비운다 — 모드가 꺼졌는데 마지막 hover 박스가
       // 화면에 남아 있으면 안 된다.
-      patch(active ? { pickModeActive: true } : { pickModeActive: false, hoverElements: [] });
+      patch(active ? { pickModeActive: true } : { pickModeActive: false, hoverElements: [], hoverNodeId: null });
     },
   };
 }

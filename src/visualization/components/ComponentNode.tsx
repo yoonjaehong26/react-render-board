@@ -3,7 +3,7 @@ import type { ComponentNodeData } from '../lib/toFlow';
 import { nodeBorderImage, ROUGH_FILL_MATCHED, ROUGH_FILL_HIGHLIGHTED } from '../lib/roughStyle';
 // props 흐름/변경 잔상(ADR-0032) — heat와 tracked는 toFlow data가 아니라 context로 받는다
 // (AfterglowContext.tsx 상단 주석 참고: decay 틱마다 flowNodes를 다시 만들지 않기 위함).
-import { useAfterglowHeat, useIsTracked } from './AfterglowContext';
+import { useAfterglowHeat, useIsTracked, useLineageState, useIsPageHovered } from './AfterglowContext';
 
 export function ComponentNode({ id, data }: NodeProps) {
   const {
@@ -17,11 +17,19 @@ export function ComponentNode({ id, data }: NodeProps) {
     colorIndex,
     isRouteEntry,
     colorMode,
+    coalescedCount,
   } = data as ComponentNodeData;
   // ADR-0032: 이 노드의 변경 잔상 heat(0~1)와 참조 추적 강조 여부. 잔상 모드가 꺼져 있거나
   // 이 노드가 대상이 아니면 각각 0/false라 아무 것도 더 그리지 않는다.
   const heat = useAfterglowHeat(Number(id));
   const tracked = useIsTracked(Number(id));
+  // Alt(⌥)-held 라이브 hover(ADR-0032 후속): 실제 화면에서 커서 아래 요소에 대응하는 노드면
+  // 다이어그램에서도 동시에 햇칭으로 밝힌다(실제 요소 hover 햇칭과 짝).
+  const pageHovered = useIsPageHovered(Number(id));
+  // hover 혈통 점등(ADR-0044/0047 후속): 다른 노드에 hover 중이고 이 노드가 그 혈통(조상+자손)에
+  // 없으면 흐리게 죽여, 혈통 노드+간선이 하나의 경로로 도드라지게 한다. 간선(edge-lineage)과
+  // 짝을 이루는 노드 쪽 dimming이다.
+  const lineageState = useLineageState(Number(id));
   // 변경 잔상 색: heat가 낮을수록(가끔 바뀜) 차가운 파랑, 높을수록(지금 자주 리렌더) 뜨거운
   // 빨강 — React DevTools "Highlight updates"의 "빈도=색" 관례. 파랑→보라→마젠타→빨강 경로를
   // 써서(초록/청록을 피함) 검색 매치(초록 outline)·참조 추적(청록 링)과 색이 안 겹치게 한다.
@@ -33,9 +41,12 @@ export function ComponentNode({ id, data }: NodeProps) {
   if (crossGroup) classes.push('component-node--cross-group');
   if (pending) classes.push('component-node--pending');
   if (highlighted) classes.push('component-node--highlighted');
+  if (pageHovered) classes.push('component-node--page-hovered'); // Alt-held 라이브 hover 동시 햇칭
   if (matched) classes.push('component-node--matched');
   if (isRouteEntry) classes.push('component-node--route'); // 6각형 clip-path (ADR-0028)
   if (tracked) classes.push('component-node--tracked'); // prop 참조 추적 하이라이트(ADR-0032)
+  if (lineageState === 'off') classes.push('component-node--lineage-off'); // hover 혈통 밖 → 흐리게
+  else if (lineageState === 'on') classes.push('component-node--lineage-on'); // hover 혈통 안 → 강조
   if (colorIndex !== undefined) classes.push(`component-node--palette-${colorIndex}`);
 
   // Excalidraw풍 손그림 테두리(roughStyle.ts, ADR-0030) — 고정 크기라 미리 계산해 둔 정적
@@ -60,6 +71,8 @@ export function ComponentNode({ id, data }: NodeProps) {
       )}
       <Handle type="target" position={Position.Top} />
       <span className="component-node__name">{displayName}</span>
+      {/* 리스트 접기(ADR-0046): 같은 종류 형제 N개를 이 노드로 접었으면 "×N" 배지로 알린다. */}
+      {coalescedCount !== undefined && <span className="component-node__count-badge">×{coalescedCount}</span>}
       <Handle type="source" position={Position.Bottom} />
     </div>
   );

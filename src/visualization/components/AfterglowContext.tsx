@@ -31,6 +31,15 @@ const EMPTY_TRACKED: ReadonlySet<number> = new Set();
 /** prop 참조 추적(ADR-0032)이 지금 하이라이트하는 노드 id 집합. Provider 없으면 빈 집합. */
 export const TrackedNodesContext = createContext<ReadonlySet<number>>(EMPTY_TRACKED);
 
+/** hover 혈통 점등(ADR-0044/0047)이 지금 밝히는 노드 id 집합(조상 체인+자손 서브트리+hover 노드).
+ * 비어 있으면 hover가 없다는 뜻 — 아무 노드도 dim하지 않는다. tracked와 같은 이유로 toFlow data가
+ * 아니라 context로 나른다(hover마다 flowNodes 재생성 금지, ADR-0017). */
+export const LineageNodesContext = createContext<ReadonlySet<number>>(EMPTY_TRACKED);
+
+/** Alt(⌥)-held 라이브 hover(ADR-0032 후속)가 지금 실제 화면에서 가리키는 요소에 대응하는 노드
+ * id(해당 노드를 다이어그램에서 동시에 햇칭). 없으면 null. tracked/lineage와 같은 이유로 context로 나른다. */
+export const PageHoveredNodeContext = createContext<number | null>(null);
+
 /** 이 노드의 현재 heat(0~1)를 구독한다. heat가 안 바뀌면(대다수 노드는 0 고정) 리렌더되지 않는다. */
 export function useAfterglowHeat(id: number): number {
   const store = useContext(AfterglowContext);
@@ -44,6 +53,19 @@ export function useAfterglowHeat(id: number): number {
 /** 이 노드가 지금 참조 추적으로 강조 대상인지(ADR-0032 3층). */
 export function useIsTracked(id: number): boolean {
   return useContext(TrackedNodesContext).has(id);
+}
+
+/** 이 노드가 지금 Alt-held 라이브 hover로 실제 화면에서 가리켜진 요소에 대응하는지(다이어그램 동시 햇칭). */
+export function useIsPageHovered(id: number): boolean {
+  return useContext(PageHoveredNodeContext) === id;
+}
+
+/** hover 혈통 dimming 상태(ADR-0044/0047 후속): hover가 켜져 있고(집합 비어있지 않음) 이 노드가
+ * 그 혈통에 없으면 'off'(흐리게). 혈통에 있으면 'on'. hover 없으면 'none'(평소). */
+export function useLineageState(id: number): 'on' | 'off' | 'none' {
+  const lineage = useContext(LineageNodesContext);
+  if (lineage.size === 0) return 'none';
+  return lineage.has(id) ? 'on' : 'off';
 }
 
 /** 이 그룹(그룹 노드 id)의 집계 heat(0~1) — 지도 모드 그룹 단위 흐름(ADR-0032 Q2). */

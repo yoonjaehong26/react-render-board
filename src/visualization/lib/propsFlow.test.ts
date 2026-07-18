@@ -6,6 +6,7 @@ import {
   isTrackable,
   fiberPropsChanged,
   readFiberProps,
+  representativeChangedProp,
   trackReferenceInDescendants,
 } from './propsFlow';
 
@@ -102,6 +103,23 @@ describe('readFiberProps', () => {
 
   it('returns [] when there are no props', () => {
     expect(readFiberProps(fakeFiber(null))).toEqual([]);
+  });
+});
+
+describe('representativeChangedProp', () => {
+  it('returns undefined on first mount or when nothing changed', () => {
+    expect(representativeChangedProp(fakeFiber({ a: 1 }))).toBeUndefined();
+    const same = { x: 1 };
+    expect(representativeChangedProp(fakeFiber({ o: same }, { o: same }))).toBeUndefined();
+  });
+
+  it('prefers a changed trackable (object/callback) prop over a changed primitive', () => {
+    // both n (primitive) and obj (new ref) changed → obj wins
+    expect(representativeChangedProp(fakeFiber({ n: 2, obj: {} }, { n: 1, obj: {} }))).toBe('obj');
+  });
+
+  it('falls back to the first changed primitive when no trackable changed', () => {
+    expect(representativeChangedProp(fakeFiber({ a: 2, b: 3 }, { a: 1, b: 3 }))).toBe('a');
   });
 });
 

@@ -42,6 +42,9 @@ export interface ComponentNodeData extends Record<string, unknown> {
   /** 손그림 테두리(roughStyle.ts)의 라이트/다크 변형 선택용 (ADR-0030 다크 대응 4장).
    * 인라인 background-image가 CSS보다 우선하므로 CSS 다크 스코프로는 못 바꾼다 — data로 내려받는다. */
   colorMode: BorderMode;
+  /** 리스트 접기(ADR-0046): 같은 종류 형제 N개를 이 노드 하나로 접었으면 그 N. undefined면 안 접음.
+   * "×N" 배지로 표시한다. */
+  coalescedCount?: number;
 }
 
 export interface GroupNodeData extends Record<string, unknown> {
@@ -186,6 +189,7 @@ export function toFlow(
           colorIndex,
           isRouteEntry,
           colorMode,
+          coalescedCount: n.coalescedCount,
         } satisfies ComponentNodeData,
       });
       expandedIds.add(id);
@@ -219,28 +223,67 @@ export function toFlow(
     return d;
   }
 
+  // 자식(n)이 펼쳐진 간선만 만든다. 부모까지 둘 다 펼쳐졌으면 노드↔노드로 정확히 잇고, 부모
+  // 노드가 뷰포트 컬링(ADR-0017)으로 안 펼쳐졌으면(크로스-그룹에서만 발생 — 같은-그룹은 그룹
+  // 단위로 함께 펼쳐지므로) 간선을 버리지 않고 부모의 "그룹 프레임"(항상 렌더됨)으로 잇는다.
+  // → 확대해서 부모 도메인이 화면 밖으로 나가도 "저쪽 도메인에서 들어오는 연결"이 계속 보인다
+  //   (예전엔 이때 크로스-그룹 간선이 DOM에서 통째로 사라져, 지도 모드에서 보이던 연결이 확대하면
+  //   없어지는 버그가 있었다).
   const flowEdges: Edge[] = nodes
-    .filter((n) => n.parentId !== null && expandedIds.has(n.id) && expandedIds.has(n.parentId))
-    .map((n) => {
+    .filter((n) => n.parentId !== null && expandedIds.has(n.id))
+    .flatMap((n): Edge[] => {
       const parent = byId.get(n.parentId!)!;
       const crossGroup = parent.group !== n.group;
+      // 간선 색 = 부모(출발) 노드의 도메인 색(선 정체성, ADR-0044/0047). 세 채널을 직교로 쓴다:
+      // opacity=깊이 감쇠, 색(hue)=부모 도메인, 선 스타일=그룹 내(실선)/경계(점선, edge-cross-group).
+      // pending 그룹은 색 미배정(중립 유지).
+      const parentPalette = parent.group === PENDING_GROUP ? '' : ` edge-parent-palette-${colorIndexForGroup(parent.group)}`;
+
+      if (!expandedIds.has(n.parentId!)) {
+        // 부모 노드가 컬링됨 → 부모 그룹 프레임으로 잇는 폴백. 여기 도달하면 크로스-그룹뿐이고
+        // (같은-그룹은 자식이 펼쳐졌다면 부모도 펼쳐졌다), 부모 그룹 프레임이 실제로 렌더된
+        // 경우에만 만든다(pending·필터로 빠진 그룹 제외).
+        if (!crossGroup || parent.group === PENDING_GROUP || !renderedGroups.has(parent.group)) return [];
+        return [
+          {
+            id: `group:${parent.group}->${n.id}`,
+            source: `group:${parent.group}`,
+            target: String(n.id),
+            // 크로스-그룹은 그룹 프레임을 피해 배선하는 커스텀 직교 간선(ADR-0029 §5). 같은-그룹
+            // 버스는 smoothstep으로 충분(이미 중점 채널 공유로 버스 정렬)이라 그대로 둔다.
+            type: 'ortho',
+            className: `edge-cross-group edge-cross-group-frame${parentPalette}`,
+            zIndex: 10,
+          },
+        ];
+      }
+
+      if (crossGroup) {
+        // 그룹 간 간선: 프레임 회피 직교 배선(ortho) + 점선(경계) + 부모 도메인 색.
+        return [
+          {
+            id: `${n.parentId}->${n.id}`,
+            source: String(n.parentId),
+            target: String(n.id),
+            type: 'ortho',
+            className: `edge-cross-group${parentPalette}`,
+            zIndex: 10,
+          },
+        ];
+      }
       const base = {
         id: `${n.parentId}->${n.id}`,
         source: String(n.parentId),
         target: String(n.id),
         type: 'smoothstep',
       } as const;
-      if (crossGroup) {
-        // 그룹 간 간선: 위치로 예측 불가능해 정보 가치가 높다 — 현행 강도 유지, 감쇠 안 함.
-        return { ...base, className: 'edge-cross-group', zIndex: 10 } satisfies Edge;
-      }
       // 그룹 내 간선: 깊이 버킷(1..EDGE_DEPTH_MAX)으로 감쇠. STRUCTURAL_GROUP_DEPTH를 넘는 깊은
       // 간선은 edge-detail로 표시해 단계형 LOD(중간 줌)에서 숨긴다(flow.css .zoom-mid).
       const depth = groupDepthOf(n.id); // 같은 그룹 부모가 있으므로 항상 >= 1
       const bucket = Math.min(depth, EDGE_DEPTH_MAX);
       const detail = depth > STRUCTURAL_GROUP_DEPTH;
-      const className = `edge-same-group edge-depth-${bucket}${detail ? ' edge-detail' : ''}`;
-      return { ...base, className, zIndex: 1 } satisfies Edge;
+      const className = `edge-same-group edge-depth-${bucket}${detail ? ' edge-detail' : ''}${parentPalette}`;
+      return [{ ...base, className, zIndex: 1 }];
     });
 
   // 그룹↔그룹 집계 엣지(ADR-0034): 노드 레벨 엣지는 양쪽 노드가 둘 다 펼쳐졌을 때만 그려져
@@ -253,10 +296,10 @@ export function toFlow(
     const parent = byId.get(n.parentId);
     if (!parent || parent.group === n.group) continue;
     if (parent.group === PENDING_GROUP || n.group === PENDING_GROUP) continue;
-    groupPairs.add(`${parent.group} ${n.group}`);
+    groupPairs.add(`${parent.group}\n${n.group}`);
   }
   for (const pair of groupPairs) {
-    const [parentGroup, childGroup] = pair.split(' ');
+    const [parentGroup, childGroup] = pair.split('\n');
     if (!renderedGroups.has(parentGroup) || !renderedGroups.has(childGroup)) continue;
     flowEdges.push({
       id: `group:${parentGroup}->group:${childGroup}`,

@@ -226,15 +226,41 @@
   white-space: nowrap;
 }
 
+/* 리스트 접기(ADR-0046) "×N" 배지 — 대표 노드가 실은 같은 형제 N개를 접은 것임을 알린다.
+   노드 오른쪽 위 모서리에 작은 알약으로. */
+.component-node__count-badge {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: #6366f1;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+}
+body.rrb-dark-mode .component-node__count-badge {
+  background: #818cf8;
+  color: #0b1120;
+}
+
+/* 그룹 경계를 넘는 간선은 점선으로 표시한다(선 스타일 채널 = 그룹 내 실선 / 경계 점선).
+   색은 아래 edge-parent-palette-N이 "부모 도메인 색"으로 준다(주황 단색을 대체) — ADR-0044 후속. */
 .edge-cross-group {
-  stroke: #f59e0b !important;
   stroke-dasharray: 4 3;
 }
 
-/* --- 간선 클러터 감쇠: 시각적 감쇠(ADR-0029 결정 #4, 연구문서 7절 a) --- */
-/* 그룹 내 간선은 정보가 이미 위치에 함축돼 있으므로(자식 = 부모 바로 아래 행) hairline으로
-   죽여 잉크를 정보 가치에 비례시킨다. 그룹 간 간선(edge-cross-group)은 위치로 예측 불가능해
-   현행 강도를 유지한다(위 규칙, 감쇠 안 함). */
+/* --- 간선 3채널: opacity=깊이 감쇠 / hue=부모 도메인 / 선 스타일=그룹 내·경계 --- */
+/* (ADR-0029 결정 #4 감쇠 + ADR-0044 후속 부모색). 그룹 내 간선은 hairline으로 얇게 하되(잉크
+   절약), 색은 회색이 아니라 부모 도메인 색으로 통일한다 — 같은-그룹은 부모가 그 그룹 안이라
+   그룹당 단색이 돼 haze가 아니라 "이 도메인의 배선"으로 읽히고, opacity 감쇠는 그대로라
+   클러터도 안 는다(색과 감쇠는 독립 채널). 팔레트 미배정(pending)일 때의 폴백 회색. */
 .react-flow__edge.edge-same-group .react-flow__edge-path {
   stroke: #cbd5e1;
   stroke-width: 1;
@@ -242,17 +268,97 @@
 body.rrb-dark-mode .react-flow__edge.edge-same-group .react-flow__edge-path {
   stroke: #475569;
 }
+/* 부모(출발) 도메인 색 — toFlow가 모든 노드 간선에 edge-parent-palette-N을 상시로 붙인다.
+   node/group 팔레트와 같은 hex(groupColor PALETTE). !important 없이 둬서 hover 혈통(.lineage-active)
+   과 props 흐름 장식(edge-tracked/hot)의 !important 강조가 이 상시 색을 이긴다. */
+.react-flow__edge.edge-parent-palette-0 .react-flow__edge-path { stroke: #6366f1; }
+.react-flow__edge.edge-parent-palette-1 .react-flow__edge-path { stroke: #2563eb; }
+.react-flow__edge.edge-parent-palette-2 .react-flow__edge-path { stroke: #0e7490; }
+.react-flow__edge.edge-parent-palette-3 .react-flow__edge-path { stroke: #0f766e; }
+.react-flow__edge.edge-parent-palette-4 .react-flow__edge-path { stroke: #7c3aed; }
+.react-flow__edge.edge-parent-palette-5 .react-flow__edge-path { stroke: #a21caf; }
+.react-flow__edge.edge-parent-palette-6 .react-flow__edge-path { stroke: #db2777; }
+.react-flow__edge.edge-parent-palette-7 .react-flow__edge-path { stroke: #e11d48; }
+body.rrb-dark-mode .react-flow__edge.edge-parent-palette-0 .react-flow__edge-path { stroke: #818cf8; }
+body.rrb-dark-mode .react-flow__edge.edge-parent-palette-1 .react-flow__edge-path { stroke: #60a5fa; }
+body.rrb-dark-mode .react-flow__edge.edge-parent-palette-2 .react-flow__edge-path { stroke: #22d3ee; }
+body.rrb-dark-mode .react-flow__edge.edge-parent-palette-3 .react-flow__edge-path { stroke: #2dd4bf; }
+body.rrb-dark-mode .react-flow__edge.edge-parent-palette-4 .react-flow__edge-path { stroke: #a78bfa; }
+body.rrb-dark-mode .react-flow__edge.edge-parent-palette-5 .react-flow__edge-path { stroke: #e879f9; }
+body.rrb-dark-mode .react-flow__edge.edge-parent-palette-6 .react-flow__edge-path { stroke: #f472b6; }
+body.rrb-dark-mode .react-flow__edge.edge-parent-palette-7 .react-flow__edge-path { stroke: #fb7185; }
 /* 그룹 내 깊이가 깊을수록 더 옅게(toFlow가 붙이는 edge-depth-N, N=1..3, 3은 "3 이상"). 깊은
    간선일수록 트리 위치가 이미 관계를 말해주므로 잉크를 더 줄인다. */
-.react-flow__edge.edge-depth-1 { opacity: 0.7; }
-.react-flow__edge.edge-depth-2 { opacity: 0.5; }
-.react-flow__edge.edge-depth-3 { opacity: 0.35; }
+.react-flow__edge.edge-depth-1 { opacity: 0.78; }
+.react-flow__edge.edge-depth-2 { opacity: 0.62; }
+.react-flow__edge.edge-depth-3 { opacity: 0.48; }
 /* props 흐름 장식(ADR-0032)은 감쇠 대상이 아니다 — 추적/활동 간선은 클러터가 아니라 신호라
    깊이 opacity를 무시하고 또렷하게 유지한다. */
 .react-flow__edge.edge-tracked,
 .react-flow__edge.edge-hot {
   opacity: 1;
 }
+
+/* --- hover 혈통 점등(ADR-0041 후속, 연구문서 7절 c) --- */
+/* 컴포넌트 노드에 hover하면 canvas에 lineage-active가 붙는다(Canvas.tsx). 그 노드의 조상 체인+
+   자손 서브트리 간선(edge-lineage)만 남기고 나머지를 거의 지운다 — 상시 감쇠로 못 없앤 마지막
+   클러터를 인터랙션으로 해소("지금 관심 있는 혈통만 잉크"). 검색 dimming(.search-active)과 같은
+   메커니즘. 추적/활동 간선은 신호라 dim 예외. */
+/* 혈통 아닌 간선은 거의 지운다(hover 이상 강하게 대비시키려고 아주 낮게). 단 프레임-폴백 간선
+   (edge-cross-group-frame, source가 화면 밖 그룹 프레임이라 혈통 탐색에서 빠짐)은 dim 예외 —
+   안 그러면 호버할 때 "저 도메인에서 들어오는 연결"이 통째로 사라진다(피드백 2). */
+.canvas.lineage-active
+  .react-flow__edge:not(.edge-lineage):not(.edge-tracked):not(.edge-hot):not(.edge-cross-group-frame) {
+  opacity: 0.04;
+}
+/* 노드 쪽 짝(ComponentNode가 LineageNodesContext로 판정): 혈통 밖 노드는 흐리게 죽여, 혈통
+   노드+간선이 하나의 경로로 도드라지게 한다. 혈통 안 노드는 살짝 띄운다. 검색 dimming과 같은
+   느낌(값만 조금 더 강함)이라 검색과 겹쳐도 자연스럽다. */
+.component-node--lineage-off {
+  opacity: 0.18;
+  transition: opacity 120ms ease;
+}
+/* "지도에서도 상세"(ADR-0049)일 땐 hover 혈통 노드 dimming을 끈다 — 넓게 다 보려고 켠 모드인데
+   빽빽한 노드 위 아무 데나 마우스가 얹히면 그 혈통 외 전부가 흐려져 "다 페이드"로 보이기 때문
+   (wideDetail=다 보기 vs hover-dimming=하나만 강조가 상충). 간선 혈통 강조(edge-lineage)는 유지해
+   경로는 여전히 도드라진다. */
+.canvas.wide-detail .component-node--lineage-off {
+  opacity: 1;
+}
+.component-node--lineage-on {
+  filter: drop-shadow(0 0 4px rgba(99, 102, 241, 0.35));
+}
+/* 점등된 혈통 간선: 깊이 감쇠/LOD를 무시하고 굵고 또렷하게(width 3 + 은은한 글로우) 되살린다.
+   색은 아래 edge-parent-palette-N이 "부모(source) 노드의 도메인 색"으로 덮어써 "이 선이 어느
+   도메인에서 왔나"를 드러낸다(선 정체성). 그룹 간 간선의 주황 !important보다 셀렉터 특이도가
+   높아 팔레트 색이 이긴다. */
+.canvas.lineage-active .react-flow__edge.edge-lineage {
+  opacity: 1;
+}
+.canvas.lineage-active .react-flow__edge.edge-lineage .react-flow__edge-path {
+  stroke: #6366f1 !important; /* 팔레트 미배정(pending) 폴백 */
+  stroke-width: 3 !important;
+  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.25));
+}
+/* 부모 도메인 색(groupColor PALETTE, 인덱스별 light). node/group 팔레트 클래스와 같은 hex. */
+.canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-0 .react-flow__edge-path { stroke: #6366f1 !important; }
+.canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-1 .react-flow__edge-path { stroke: #2563eb !important; }
+.canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-2 .react-flow__edge-path { stroke: #0e7490 !important; }
+.canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-3 .react-flow__edge-path { stroke: #0f766e !important; }
+.canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-4 .react-flow__edge-path { stroke: #7c3aed !important; }
+.canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-5 .react-flow__edge-path { stroke: #a21caf !important; }
+.canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-6 .react-flow__edge-path { stroke: #db2777 !important; }
+.canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-7 .react-flow__edge-path { stroke: #e11d48 !important; }
+/* 다크 변형(PALETTE[i].dark) — 어두운 배경에서 채도/명도 확보. */
+body.rrb-dark-mode .canvas.lineage-active .react-flow__edge.edge-lineage .react-flow__edge-path { stroke: #818cf8 !important; }
+body.rrb-dark-mode .canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-0 .react-flow__edge-path { stroke: #818cf8 !important; }
+body.rrb-dark-mode .canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-1 .react-flow__edge-path { stroke: #60a5fa !important; }
+body.rrb-dark-mode .canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-2 .react-flow__edge-path { stroke: #22d3ee !important; }
+body.rrb-dark-mode .canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-3 .react-flow__edge-path { stroke: #2dd4bf !important; }
+body.rrb-dark-mode .canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-4 .react-flow__edge-path { stroke: #a78bfa !important; }
+body.rrb-dark-mode .canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-5 .react-flow__edge-path { stroke: #e879f9 !important; }
+body.rrb-dark-mode .canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-6 .react-flow__edge-path { stroke: #f472b6 !important; }
+body.rrb-dark-mode .canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-7 .react-flow__edge-path { stroke: #fb7185 !important; }
 
 /* 그룹↔그룹 집계 엣지(ADR-0034): GroupNode의 top/bottom 핸들에 붙는 앵커는 시각적으로 숨긴다
    (엣지 위치 계산에만 쓰이고, 연결 상호작용은 GroupNode에서 isConnectable={false}로 막았다). */
@@ -363,11 +469,24 @@ body.rrb-dark-mode .react-flow__edge.edge-same-group .react-flow__edge-path {
   opacity: 1;
 }
 
+/* "지도에서도 상세"(ADR-0049): 지도 모드여도 컴포넌트 노드/간선을 되살린다(위 .zoom-far 숨김
+   역전). 이 토글이 shouldExpandGroup으로 노드를 만들어도, .zoom-far가 opacity:0으로 숨기던 게
+   빠진 부분이었다. 그룹이 실제로 펼쳐지므로 집계 엣지(edge-group-link)는 대신 숨겨 노드 엣지와
+   중복을 피한다. */
+.zoom-far.wide-detail .component-node,
+.zoom-far.wide-detail .react-flow__edge {
+  opacity: 1;
+  pointer-events: auto;
+}
+.zoom-far.wide-detail .react-flow__edge.edge-group-link {
+  opacity: 0;
+}
+
 /* 간선 단계형 LOD: 중간 줌(ADR-0029 결정 #4, 연구문서 7절 b). 노드는 이미 보이지만 아직 덜
    줌인한 구간에선 구조 간선(그룹 횡단 + 그룹 내 얕은 깊이)만 남기고 깊은(edge-detail) 간선을
    숨긴다. 더 줌인하면(zoom-mid 해제) 위 edge-depth opacity로 페이드인한다. 추적/활동 간선은
    신호라 이 LOD도 무시하고 유지한다("검색은 언제나 이긴다"의 연장). */
-.zoom-mid .react-flow__edge.edge-detail:not(.edge-tracked):not(.edge-hot) {
+.zoom-mid .react-flow__edge.edge-detail:not(.edge-tracked):not(.edge-hot):not(.edge-lineage) {
   opacity: 0;
   pointer-events: none;
 }
@@ -689,30 +808,31 @@ body.rrb-pick-mode {
   pointer-events: none;
 }
 
-.dom-highlight-overlay__box {
-  position: fixed;
-  border: 2px solid #6366f1;
-  border-radius: 4px;
-  background: rgba(99, 102, 241, 0.08);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
-}
-
-/* 픽 모드 hover-follow 프리뷰(ADR-0038) — 클릭 하이라이트(위 실선 박스)와 구분해 옅은 대각선
-   헷칭으로 그린다. 헷칭은 CSS repeating-linear-gradient라 요소 크기와 무관하게 완벽히 늘어나고
-   JS 계산이 0이다(정적 rough 이미지를 늘렸더니 선 두께까지 뻥튀기돼 큰 요소에서 통짜로 칠해진
-   문제를 이 방식으로 대체 — 이 프리뷰는 커서 아래 요소 하나뿐이라 애초에 노드 수 비례 비용이
-   없다). 요소가 바뀔 때 위치/크기를 짧게 전환해 "손으로 짚어가는" 미끄러지는 느낌을 준다. */
+/* 클릭/더블클릭 하이라이트와 픽 모드 hover 프리뷰가 같은 표현을 공유한다(ADR-0043 후속): 손그림풍
+   대각선 헷칭. 옅은 파란 채움(예전 __box)은 눈에 잘 안 띈다는 피드백으로, ADR-0038이 hover용으로
+   도입한 헷칭을 클릭/이동 하이라이트도 함께 쓴다 — 일관성·가독성↑, 복잡도↓. 헷칭은 CSS
+   repeating-linear-gradient라 요소 크기와 무관하게 늘어나고 JS 계산이 0이다. */
+.dom-highlight-overlay__box,
 .dom-highlight-overlay__hover {
   position: fixed;
   border: 2px solid #6366f1;
   border-radius: 5px;
   background-image: repeating-linear-gradient(
     45deg,
-    rgba(99, 102, 241, 0.12),
-    rgba(99, 102, 241, 0.12) 2px,
+    rgba(99, 102, 241, 0.14),
+    rgba(99, 102, 241, 0.14) 2px,
     transparent 2px,
     transparent 7px
   );
+}
+
+/* 클릭/더블클릭(확정 선택) — hover 프리뷰보다 한 단계 강조되게 은은한 외곽 글로우를 더한다. */
+.dom-highlight-overlay__box {
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.22);
+}
+
+/* hover 프리뷰(ADR-0038) — 커서 아래 요소가 바뀔 때 위치/크기를 부드럽게 미끄러뜨린다. */
+.dom-highlight-overlay__hover {
   transition: top 90ms ease-out, left 90ms ease-out, width 90ms ease-out, height 90ms ease-out;
 }
 
@@ -1000,6 +1120,85 @@ body.rrb-dark-mode .board-panel .toolbar__search {
   background-image: var(--rrb-chrome-border-dark);
 }
 
+/* 도킹 컨트롤(ADR-0040)이 좌/우 도킹에서 툴바 첫·끝 아이템(host 체크박스 / 커밋 카운트)을 가리는
+   걸 막는다(사용자 리포트) — 컨트롤이 있는 쪽에 그 폭만큼 패딩을 줘 겹치지 않게 한다. 하단
+   도킹은 컨트롤이 툴바 위(디바이더)라 안 겹쳐 손대지 않는다. 버튼 텍스트는 nowrap으로 한 줄
+   유지해 손그림 테두리(background-size:100% 100%)와 어긋나지 않게 한다(스타일 깨짐 방지). */
+.board-panel--right .toolbar {
+  padding-left: 84px;
+}
+.board-panel--left .toolbar {
+  padding-right: 84px;
+}
+.board-panel .toolbar button {
+  white-space: nowrap;
+}
+
+/* 좁은 패널 오버플로 메뉴(사용자 리포트) — 좁으면 검색창 + "☰ 도구" 하나만 한 줄에 두고, 나머지
+   컨트롤은 드롭다운에 접는다. 검색창은 이 모드에서 남는 폭을 채우되 줄어들 수 있게(min-width:0)
+   해 절대 넘치지 않게 한다. 드롭다운은 툴바 기준 절대 배치라 세로 공간을 안 먹는다. */
+.toolbar--compact {
+  flex-wrap: nowrap;
+  position: relative;
+}
+.toolbar--compact .toolbar__search {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.toolbar__overflow {
+  position: relative;
+  flex: 0 0 auto;
+}
+.toolbar__menu-btn {
+  padding: 5px 10px;
+  border: 1px solid #d0d3da;
+  border-radius: 6px;
+  background: #fff;
+  color: #334155;
+  font-size: 12px;
+  cursor: pointer;
+}
+.toolbar__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  min-width: 190px;
+  background: #fff;
+  border: 1px solid #d0d3da;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.18);
+}
+.toolbar__menu button {
+  width: 100%;
+  text-align: left;
+}
+/* 드롭다운 안 버튼은 손그림 rough 크롬(.board-panel .toolbar button, 명시도 0,2,1)을 끈다 —
+   width:100%로 통짜 stretch되면 손그림 테두리가 늘어나 깨져 보였다(사용자 리포트). 그 규칙을
+   확실히 이기도록 같은 명시도(.board-panel .toolbar__menu button)로 두고 뒤에 선언한다. */
+.board-panel .toolbar__menu button {
+  background-image: none;
+  border: 1px solid #d0d3da;
+  border-radius: 6px;
+}
+body.rrb-dark-mode .board-panel .toolbar__menu button {
+  border-color: #374151;
+}
+body.rrb-dark-mode .toolbar__menu-btn {
+  background: #1f2937;
+  border-color: #374151;
+  color: #e5e7eb;
+}
+body.rrb-dark-mode .toolbar__menu {
+  background: #0b1120;
+  border-color: #1f2937;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    ADR-0032 — props 흐름 추적 + 변경 잔상(afterglow)
    이 파일은 다른 세션과 공유되므로, 이 기능의 스타일은 전부 이 구획 안에만 둔다.
@@ -1036,6 +1235,36 @@ body.rrb-dark-mode .board-panel .toolbar__search {
   padding: 8px 10px;
   border-bottom: 1px solid #e5e7eb;
   background: #f8fafc;
+}
+/* 헤더를 잡고 끌어 패널을 옮긴다(ADR-0051). touch-action:none으로 드래그 중 스크롤 간섭 차단. */
+.props-panel__header--draggable {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.props-panel__header--draggable:active {
+  cursor: grabbing;
+}
+.props-panel__grip {
+  color: #94a3b8;
+  font-size: 13px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+/* 좌하단 리사이즈 핸들(SW) — 우측 도킹 기본 위치에서 안쪽으로 넓히기 자연스럽게. */
+.props-panel__resize {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nesw-resize;
+  touch-action: none;
+  z-index: 1;
+  background: linear-gradient(45deg, transparent 0 6px, #cbd5e1 6px 7px, transparent 7px 9px, #cbd5e1 9px 10px, transparent 10px);
+}
+.props-panel__resize:hover {
+  background: linear-gradient(45deg, transparent 0 6px, #6366f1 6px 7px, transparent 7px 9px, #6366f1 9px 10px, transparent 10px);
 }
 
 .props-panel__title {
@@ -1168,6 +1397,24 @@ body.rrb-dark-mode .board-panel .toolbar__search {
   border-radius: 4px;
 }
 
+/* Alt(⌥)-held 라이브 hover 동시 햇칭(ADR-0032 후속) — 실제 화면에서 커서 아래 요소를 hover하면
+   대응 노드를 다이어그램에서도 인디고 햇칭으로 밝힌다(실제 요소 hover 햇칭과 짝). 대각선 줄무늬
+   오버레이(::after)라 손그림 테두리/배경을 안 덮고, 텍스트도 읽힌다. 인디고 점선 outline으로
+   위치를 또렷이(검색 매치=녹색, 추적=청록과 색 구분). 라이브 프리뷰라 sticky 착지(--highlighted
+   rough 햇칭)보다 가볍게 CSS로만 그린다. */
+.component-node--page-hovered {
+  outline: 2px dashed #6366f1;
+  outline-offset: 2px;
+}
+.component-node--page-hovered::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: repeating-linear-gradient(45deg, rgba(99, 102, 241, 0.26) 0 3px, transparent 3px 7px);
+}
+
 /* 참조가 실제로 지나간 경로 = 추적 서브체인의 기존 부모→자식 간선(ADR-0032). 청록 굵은 선 +
    흐르는 점선 애니메이션(animated)으로 "이 값이 여기로 흐른다"를 보여주고, 간선 라벨에 흐르는
    prop 이름을 얹는다. 그룹 횡단 간선(--cross-group) 위에 겹쳐도 이기도록 우선순위를 높인다. */
@@ -1257,6 +1504,15 @@ body.rrb-dark-mode .props-panel__footer {
 }
 body.rrb-dark-mode .props-panel__title {
   color: #e5e7eb;
+}
+body.rrb-dark-mode .props-panel__grip {
+  color: #475569;
+}
+body.rrb-dark-mode .props-panel__resize {
+  background: linear-gradient(45deg, transparent 0 6px, #334155 6px 7px, transparent 7px 9px, #334155 9px 10px, transparent 10px);
+}
+body.rrb-dark-mode .props-panel__resize:hover {
+  background: linear-gradient(45deg, transparent 0 6px, #818cf8 6px 7px, transparent 7px 9px, #818cf8 9px 10px, transparent 10px);
 }
 body.rrb-dark-mode .props-panel__close {
   color: #94a3b8;

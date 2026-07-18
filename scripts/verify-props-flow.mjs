@@ -89,9 +89,23 @@ async function main() {
   await page.waitForTimeout(200);
 
   // --- 4. 흐름 — 데이터가 부모→자식 간선을 타고 흐름(애니메이션) + 노드 표식 + 일시정지로 고정 ---
-  await page.getByRole('button', { name: '🌊 흐름' }).click();
-  const afterglowOn = (await page.getByRole('button', { name: /흐름 켜짐/ }).count()) > 0;
+  await page.getByRole('button', { name: 'props 흐름 보기' }).click();
+  const afterglowOn = (await page.getByRole('button', { name: /흐름 보는 중/ }).count()) > 0;
   console.log(`[verify-props] 4. 흐름 토글 켜짐: ${afterglowOn}`);
+
+  // 상세 모드로 줌인한다 — 노드 단위 흐름은 상세 모드에서만 보이는데, 'DataFlow' 검색 fitView
+  // 줌은 앱 전체 노드 수(동시 세션이 계속 늘림)에 따라 지도 모드로 떨어질 수 있어서다. 컨트롤의
+  // 줌인 버튼을 조금씩 눌러(중심 유지) 상세 모드까지만 올려 서브트리 간선이 프레임에 남게 한다.
+  {
+    const zoomIn = page.getByRole('button', { name: /zoom in/i });
+    for (let i = 0; i < 10; i++) {
+      const badge = await page.locator('.zoom-badge').textContent().catch(() => '');
+      if (badge?.includes('상세 모드')) break;
+      await zoomIn.click();
+      await page.waitForTimeout(220);
+    }
+    await page.waitForTimeout(300); // 뷰포트 안정(VIEWPORT_SETTLE_MS)
+  }
 
   await page.waitForTimeout(1800); // DataFlow가 한 번 이상 갱신돼 heat가 오를 시간
   const glowCount = await page.locator('.component-node__afterglow').count();
@@ -100,8 +114,8 @@ async function main() {
   console.log(`[verify-props] 4. 클릭 없이 데이터가 흐르는 간선(.edge-hot, 부모→자식 애니메이션) 수: ${hotEdges} (1 이상이어야 정상)`);
   await page.screenshot({ path: outPath('03-afterglow.png') });
 
-  await page.getByRole('button', { name: '⏸ 일시정지' }).click();
-  const pausedLabel = (await page.getByRole('button', { name: '▶ 재생' }).count()) > 0;
+  await page.getByRole('button', { name: '일시정지' }).click();
+  const pausedLabel = (await page.getByRole('button', { name: '재생' }).count()) > 0;
   await page.waitForTimeout(1000); // decay가 계속됐다면(=freeze 미동작) 이 사이 식었을 시간
   const glowAfterPause = await page.locator('.component-node__afterglow').count();
   console.log(`[verify-props] 4. 일시정지 버튼이 "▶ 재생"으로 바뀜: ${pausedLabel}`);
@@ -109,6 +123,25 @@ async function main() {
     `[verify-props] 4. 일시정지 중 발광 유지(식지 않음): ${glowAfterPause} (일시정지 전 ${glowCount}개와 비슷해야 정상)`,
   );
   await page.screenshot({ path: outPath('04-afterglow-paused.png') });
+
+  // --- 5. 지도 모드 그룹 흐름(ADR-0032 Q2 "활동 기상도") — 줌아웃해도 흐름이 그룹 단위로 읽힘 ---
+  await page.getByRole('button', { name: '재생' }).click(); // 일시정지 해제(스냅샷 다시 흐르게)
+  await page.waitForTimeout(200);
+  const zoomOut = page.getByRole('button', { name: /zoom out/i });
+  for (let i = 0; i < 24; i++) {
+    const badge = await page.locator('.zoom-badge').textContent().catch(() => '');
+    if (badge?.includes('지도 모드')) break;
+    await zoomOut.click();
+    await page.waitForTimeout(120);
+  }
+  const mapMode = (await page.locator('.zoom-badge').textContent().catch(() => ''))?.includes('지도 모드');
+  console.log(`[verify-props] 5. 지도 모드로 줌아웃: ${mapMode}`);
+  await page.waitForTimeout(2400); // DataFlow가 갱신돼 그룹 heat가 집계될 시간
+  const flowingGroups = await page.locator('.group-node--flowing').count();
+  const groupFlowEdges = await page.locator('.react-flow__edge.edge-hot').count();
+  console.log(`[verify-props] 5. 바쁜 도메인(그룹 프레임 발광) 수: ${flowingGroups} (1 이상이어야 정상)`);
+  console.log(`[verify-props] 5. 도메인 간 흐르는 간선(.edge-hot, 그룹↔그룹) 수: ${groupFlowEdges} (1 이상이어야 정상)`);
+  await page.screenshot({ path: outPath('05-map-mode-group-flow.png') });
 
   console.log(`[verify-props] 콘솔 에러 개수: ${consoleErrors.length}`);
   if (consoleErrors.length > 0) console.log('[verify-props] 콘솔 에러 내용:', consoleErrors);

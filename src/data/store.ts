@@ -7,14 +7,15 @@
 //    groupHint를 같은 id에 대해 이어붙인다 — 매 커밋마다 이미 아는 답을 다시 비동기로 묻지 않는다.
 // 3. 아직 모르는 composite id만 골라 resolveGroupHints를 비동기로 돌리고, 끝나면 patch로 다시 notify.
 //
-// 구독자 notify 디바운스 (ADR-0009 ③, ADR-0010): 시각화 레이어(Canvas)는 notify를 받을 때마다
-// normalizeForCanvas+toFlow를 전체 노드에 대해 재실행한다. 실제 앱에서 상호작용 한 번(예: 도형
-// 그리기)은 짧은 시간에 fiber 커밋을 여러 번 유발하는데, 이걸 매번 동기로 notify하면 그 재계산+
-// React Flow 재렌더가 호스트 앱의 상호작용과 같은 프레임/태스크에서 실행돼 응답성을 깎아먹는다
-// (실측 2.76배, ADR-0009). snapshot 자체는 handleCommit 안에서 항상 즉시(동기) 갱신해 데이터
-// 최신성을 유지하되, 구독자에게 알리는 notify()만 requestIdleCallback(폴백: setTimeout)으로
-// 커밋 프레임과 분리하고 짧은 시간 안의 연쇄 커밋을 하나의 notify로 묶는다 — 중간 스냅샷은
-// 버려지고 마지막 스냅샷만 반영되므로 상관없다.
+// 구독자 notify 스로틀 (ADR-0009 ③, ADR-0010, ADR-0050): 시각화 레이어(Canvas)는 notify를 받을
+// 때마다 normalizeForCanvas+toFlow를 전체 노드에 대해 재실행한다. 실제 앱의 상호작용 한 번(예:
+// 도형 그리기)이나 고빈도 렌더(LiveFeed 60~240Hz)는 짧은 시간에 fiber 커밋을 여러 번 유발하는데,
+// 이걸 매번 동기로 notify하면 재계산+React Flow 재렌더가 호스트 앱과 같은 프레임에서 실행돼
+// 응답성을 깎는다(실측 2.76배, ADR-0009). snapshot 자체는 handleCommit이 항상 즉시(동기) 갱신해
+// 데이터 최신성을 유지하되, notify()는 직전 notify로부터 최소 MIN_NOTIFY_INTERVAL_MS를 띄워
+// 상한 ~30Hz로 캡한다(중간 스냅샷은 버려지고 마지막만 반영). 이전 requestIdleCallback 방식은
+// "최대 지연"만 보장하고 "최소 간격"은 강제 못 해, 브라우저가 커밋 사이 한가하면 커밋률만큼
+// notify가 폭주해 시각화가 과도하게 재렌더됐다(ADR-0050에서 실측·교체).
 import type { Fiber } from 'bippy';
 import { serializeFiberTree } from './serialize';
 import { resolveGroupHints } from './sourceHints';
@@ -35,14 +36,17 @@ export interface RenderStore {
   getFiber(id: number): Fiber | undefined;
 }
 
-function scheduleIdle(cb: () => void, timeout: number): () => void {
-  if (typeof requestIdleCallback === 'function') {
-    const handle = requestIdleCallback(cb, { timeout });
-    return () => cancelIdleCallback(handle);
-  }
-  const handle = setTimeout(cb, 0);
-  return () => clearTimeout(handle);
+function now(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
 }
+
+// 구독자 notify의 최소 간격(ADR-0050). 이 아래로는 재렌더를 묶는다 — 고빈도 앱(예: 60~240Hz
+// LiveFeed)에서도 시각화 재렌더가 커밋률을 따라 폭주하지 않게 상한 ~30Hz로 캡한다. 이전
+// requestIdleCallback 방식은 "최대 지연"만 보장할 뿐 "최소 간격"을 강제하지 못해, 브라우저가
+// 커밋 사이에 한가하면 notify가 커밋률(수백 Hz)만큼 실행돼 시각화가 과도하게 재렌더됐다(실측
+// 240Hz 부하에서 BoardContent 174회/초). 데이터 최신성은 handleCommit이 snapshot을 즉시
+// 갱신하므로 유지되고, 중간 스냅샷은 어차피 버려도 되는 값이다.
+const MIN_NOTIFY_INTERVAL_MS = 33;
 
 export function createRenderStore(): RenderStore {
   let snapshot: RenderSnapshot = { commitId: 0, nodes: [] };
@@ -55,21 +59,27 @@ export function createRenderStore(): RenderStore {
 
   let notifyScheduled = false;
   let cancelScheduledNotify: (() => void) | null = null;
+  let lastNotifyAt = 0;
 
   function notify() {
     for (const listener of listeners) listener();
   }
 
-  // 연쇄 커밋을 하나의 idle 콜백으로 묶는다. timeout(100ms)은 메인 스레드가 계속 바쁠 때도
-  // notify가 무한정 밀리지 않고 최대 100ms 안에는 반영되도록 하는 상한이다.
+  // 연쇄 커밋을 하나의 notify로 묶되, 직전 notify로부터 최소 MIN_NOTIFY_INTERVAL_MS는 띄운다
+  // (ADR-0050). 한가할 때 커밋률만큼 폭주하던 문제를 상한 ~30Hz로 캡한다. 첫 커밋(오래 쉰 뒤)은
+  // sinceLast가 커 delay 0으로 즉시 반영되고, 짧은 시간 안의 연쇄 커밋만 묶여 늦춰진다.
   function scheduleNotify() {
     if (notifyScheduled) return;
     notifyScheduled = true;
-    cancelScheduledNotify = scheduleIdle(() => {
+    const sinceLast = now() - lastNotifyAt;
+    const delay = Math.max(0, MIN_NOTIFY_INTERVAL_MS - sinceLast);
+    const handle = setTimeout(() => {
       notifyScheduled = false;
       cancelScheduledNotify = null;
+      lastNotifyAt = now();
       notify();
-    }, 100);
+    }, delay);
+    cancelScheduledNotify = () => clearTimeout(handle);
   }
 
   function applyCachedHints(nodes: RenderNode[]): RenderNode[] {

@@ -5,7 +5,20 @@
 //
 // 추적 가능 행을 클릭하면 그 prop의 참조를 자손 트리에서 추적한다(ADR-0032 3층) — 새 간선
 // 없이 기존 트리의 서브체인을 하이라이트하는 것이므로, 클릭은 Canvas의 trackedIds 상태만 바꾼다.
+//
+// 위치·크기: 캔버스를 자유롭게 떠다니는 창이라 헤더 드래그로 옮기고 좌하단 핸들로 크기를 바꾼다
+// (ADR-0051). props가 많아지면 넓게/길게 늘려 볼 수 있어야 해서다. 좌표/크기는 컨테이너
+// (.canvas) 기준으로 계산하고 localStorage에 기억한다(propsPanelPreference.ts).
+import { useLayoutEffect, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { PropRow } from '../lib/propsFlow';
+import {
+  clampLayout,
+  defaultLayout,
+  getStoredPropsPanelLayout,
+  setStoredPropsPanelLayout,
+  type PropsPanelLayout,
+} from '../lib/propsPanelPreference';
 
 export interface PropsPanelProps {
   displayName: string;
@@ -17,10 +30,89 @@ export interface PropsPanelProps {
   onClose: () => void;
 }
 
+/** 드래그/리사이즈 시작 시점의 스냅샷(포인터 좌표 + 그 순간의 레이아웃). */
+interface DragState {
+  mode: 'move' | 'resize';
+  pointerX: number;
+  pointerY: number;
+  start: PropsPanelLayout;
+}
+
 export function PropsPanel({ displayName, rows, trackedKey, onTrackProp, onClose }: PropsPanelProps) {
+  const asideRef = useRef<HTMLElement>(null);
+  const dragRef = useRef<DragState | null>(null);
+  // 마운트 전엔 null → 기존 CSS 기본 위치(우측 세로 꽉 참)로 그려지고, useLayoutEffect가
+  // 컨테이너 크기를 재서 저장값(또는 기본값)을 clamp해 확정한다.
+  const [layout, setLayout] = useState<PropsPanelLayout | null>(null);
+
+  function container() {
+    return asideRef.current?.parentElement ?? null;
+  }
+
+  useLayoutEffect(() => {
+    const el = container();
+    if (!el) return;
+    const cw = el.clientWidth;
+    const ch = el.clientHeight;
+    const stored = getStoredPropsPanelLayout();
+    setLayout(clampLayout(stored ?? defaultLayout(cw, ch), cw, ch));
+  }, []);
+
+  function onPointerMove(e: PointerEvent) {
+    const drag = dragRef.current;
+    const el = container();
+    if (!drag || !el) return;
+    const cw = el.clientWidth;
+    const ch = el.clientHeight;
+    const dx = e.clientX - drag.pointerX;
+    const dy = e.clientY - drag.pointerY;
+    if (drag.mode === 'move') {
+      setLayout(clampLayout({ ...drag.start, x: drag.start.x + dx, y: drag.start.y + dy }, cw, ch));
+    } else {
+      // 좌하단(SW) 핸들: 오른쪽 변은 고정, 왼쪽 변이 이동(width는 왼쪽으로 커지고 x가 따라감),
+      // 아래 변이 이동(height). 우측 도킹 기본 위치에서 자연스럽게 안쪽으로 넓힌다.
+      const right = drag.start.x + drag.start.width;
+      const width = drag.start.width - dx;
+      const height = drag.start.height + dy;
+      setLayout(clampLayout({ x: right - width, y: drag.start.y, width, height }, cw, ch));
+    }
+  }
+
+  function endDrag() {
+    dragRef.current = null;
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', endDrag);
+    setLayout((current) => {
+      if (current) setStoredPropsPanelLayout(current);
+      return current;
+    });
+  }
+
+  function beginDrag(mode: DragState['mode'], e: ReactPointerEvent) {
+    if (e.button !== 0 || !layout) return;
+    e.preventDefault();
+    dragRef.current = { mode, pointerX: e.clientX, pointerY: e.clientY, start: layout };
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', endDrag);
+  }
+
+  function onHeaderPointerDown(e: ReactPointerEvent) {
+    // 닫기 버튼 클릭은 드래그로 삼키지 않는다.
+    if ((e.target as HTMLElement).closest('.props-panel__close')) return;
+    beginDrag('move', e);
+  }
+
+  const style =
+    layout === null
+      ? undefined
+      : { left: layout.x, top: layout.y, width: layout.width, height: layout.height, right: 'auto', bottom: 'auto' };
+
   return (
-    <aside className="props-panel" role="complementary" aria-label="props 패널">
-      <header className="props-panel__header">
+    <aside ref={asideRef} className="props-panel" role="complementary" aria-label="props 패널" style={style}>
+      <header className="props-panel__header props-panel__header--draggable" onPointerDown={onHeaderPointerDown}>
+        <span className="props-panel__grip" aria-hidden="true">
+          ⠿
+        </span>
         <span className="props-panel__title" title={displayName}>
           {displayName}
         </span>
@@ -65,6 +157,14 @@ export function PropsPanel({ displayName, rows, trackedKey, onTrackProp, onClose
           자손 트리에서 <code>{trackedKey}</code>와 같은 참조를 강조 중
         </footer>
       )}
+
+      <div
+        className="props-panel__resize"
+        onPointerDown={(e) => beginDrag('resize', e)}
+        role="presentation"
+        aria-hidden="true"
+        title="크기 조절"
+      />
     </aside>
   );
 }

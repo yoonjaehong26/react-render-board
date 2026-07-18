@@ -12,6 +12,7 @@ describe('createInteractionStore', () => {
       boardOpen: false,
       highlightedElements: [],
       hoverElements: [],
+      hoverNodeId: null,
       navigateToNodeId: null,
       navigateRequestId: 0,
       pickModeActive: false,

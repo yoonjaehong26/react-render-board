@@ -82,13 +82,15 @@ export function startDomClickBridge(subjectContainer: Element, interactionStore:
     }
   }
 
-  // hover-follow 프리뷰(ADR-0038): 픽 모드가 켜져 있는 동안만 마우스를 따라 커서 아래 요소를
-  // interactionStore.hoverElements에 실시간으로 올린다("클릭하면 이게 선택된다"를 미리 보여줌 —
-  // React DevTools/react-scan 엘리먼트 피커와 같은 프리뷰). mousemove는 매우 잦으므로
-  // requestAnimationFrame으로 프레임당 1회만 반영하고, 픽 모드가 꺼져 있을 때는 리스너 자체를
-  // 떼어 평소엔 mousemove 비용이 0이 되게 한다.
+  // hover-follow 프리뷰(ADR-0038 + Alt-held 후속): 픽 모드가 켜져 있거나 **Alt(⌥) 키를 누르고
+  // 있는 동안** 마우스를 따라 커서 아래 요소를 interactionStore.hoverElements에 실시간으로 올리고,
+  // 그 요소에 대응하는 노드 id도 함께 올려(setHoverElements의 nodeId) 다이어그램에서 그 노드를
+  // 동시에 햇칭으로 밝힌다("클릭하면 이게 선택된다"를 실제 요소 + 보드 양쪽에서). mousemove는
+  // 매우 잦으므로 requestAnimationFrame으로 프레임당 1회만 반영하고, 픽 모드가 꺼져 있고 Alt도
+  // 안 눌렸을 때는 리스너 자체를 떼어 평소엔 mousemove 비용이 0이 되게 한다.
   let rafId: number | null = null;
   let lastTarget: Element | null = null;
+  let altHeld = false;
 
   function handleMove(event: Event) {
     if (!(event instanceof MouseEvent)) return;
@@ -98,7 +100,15 @@ export function startDomClickBridge(subjectContainer: Element, interactionStore:
     if (rafId !== null) return;
     rafId = requestAnimationFrame(() => {
       rafId = null;
-      if (lastTarget) interactionStore.setHoverElements([lastTarget]);
+      if (!lastTarget) return;
+      // 커서 아래 요소 + 그 요소를 그린 노드 id를 함께 올린다(다이어그램 동시 하이라이트).
+      let id: number | null = null;
+      try {
+        id = findFiberIdForElement(lastTarget);
+      } catch {
+        id = null;
+      }
+      interactionStore.setHoverElements([lastTarget], id);
     });
   }
 
@@ -108,12 +118,13 @@ export function startDomClickBridge(subjectContainer: Element, interactionStore:
       rafId = null;
     }
     lastTarget = null;
-    interactionStore.setHoverElements([]);
+    interactionStore.setHoverElements([], null);
   }
 
   let hoverAttached = false;
   function syncHoverListeners() {
-    const active = interactionStore.getSnapshot().pickModeActive;
+    // 픽 모드 토글 OR Alt 키를 누르고 있는 동안 hover를 활성화한다.
+    const active = interactionStore.getSnapshot().pickModeActive || altHeld;
     if (active && !hoverAttached) {
       subjectContainer.addEventListener('mousemove', handleMove, true);
       subjectContainer.addEventListener('mouseleave', clearHover, true);
@@ -126,12 +137,39 @@ export function startDomClickBridge(subjectContainer: Element, interactionStore:
     }
   }
 
+  // Alt(⌥) 키를 누르고 있는 동안 hover를 켠다(키 반복 이벤트는 전이일 때만 반영). 창 포커스가
+  // 빠지면(blur) Alt keyup을 못 받을 수 있어 안전하게 해제한다.
+  function handleKeyDown(event: KeyboardEvent) {
+    if (event.key === 'Alt' && !altHeld) {
+      altHeld = true;
+      syncHoverListeners();
+    }
+  }
+  function handleKeyUp(event: KeyboardEvent) {
+    if (event.key === 'Alt' && altHeld) {
+      altHeld = false;
+      syncHoverListeners();
+    }
+  }
+  function handleBlur() {
+    if (altHeld) {
+      altHeld = false;
+      syncHoverListeners();
+    }
+  }
+
   subjectContainer.addEventListener('click', handleClick, true);
+  window.addEventListener('keydown', handleKeyDown, true);
+  window.addEventListener('keyup', handleKeyUp, true);
+  window.addEventListener('blur', handleBlur);
   const unsubscribe = interactionStore.subscribe(syncHoverListeners);
   syncHoverListeners();
   console.log('[hooking] react-render-board DOM click bridge started (dev-only)');
   return () => {
     subjectContainer.removeEventListener('click', handleClick, true);
+    window.removeEventListener('keydown', handleKeyDown, true);
+    window.removeEventListener('keyup', handleKeyUp, true);
+    window.removeEventListener('blur', handleBlur);
     unsubscribe();
     if (hoverAttached) {
       subjectContainer.removeEventListener('mousemove', handleMove, true);

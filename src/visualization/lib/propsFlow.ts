@@ -126,6 +126,24 @@ export function readFiberProps(fiber: Fiber): PropRow[] {
 }
 
 /**
+ * 이 fiber가 이번 커밋에 받은 "대표로 바뀐 prop 키"를 고른다(ADR-0032, 흐름 간선 라벨용).
+ * 추적 가능한(객체/콜백) 변경 prop을 우선하고(진짜 드릴링되는 건 그쪽), 없으면 첫 변경 prop.
+ * 바뀐 게 없거나(alternate 없음/동일) props가 없으면 undefined. 흐름 간선 하나당 O(props)로 싸다.
+ */
+export function representativeChangedProp(fiber: Fiber): string | undefined {
+  const current = propsRecord(fiber);
+  const alt = fiber.alternate ? propsRecord(fiber.alternate) : null;
+  if (!current || !alt) return undefined;
+  let firstChanged: string | undefined;
+  for (const key in current) {
+    if (Object.is(current[key], alt[key])) continue;
+    if (describeValue(current[key]).trackable) return key; // 추적 가능한 변경 prop 우선
+    firstChanged ??= key;
+  }
+  return firstChanged;
+}
+
+/**
  * prop 클릭 → 참조 동일성 흐름 추적(ADR-0032 3층). 클릭한 노드의 자손(기존 parentId 트리)을
  * 훑어 memoizedProps에 `ref`와 "같은 참조"(Object.is)를 top-level로 가진 노드 id를 모은다.
  * props는 렌더 트리를 따라 흐르므로 경로가 곧 기존 트리의 서브체인이다 — 새 간선도 배선도

@@ -7,6 +7,8 @@ import { ReportsPanel } from './domains/reports/ReportsPanel';
 import { LiveFeed } from './domains/livefeed/LiveFeed';
 // props 흐름/변경 잔상 데모(ADR-0032) — 같은 객체 참조를 여러 단계로 drilling + 주기적 갱신.
 import { DataFlowPanel } from './domains/dataflow/DataFlowPanel';
+// props 흐름 데모 2종(ADR-0032) — 느린(5s) 상속 + 내부 상태 변화.
+import { SlowFlowPanel, InternalStatePanel } from './domains/dataflow/StateFlowDemo';
 import { DeepTree } from './domains/deeptree/DeepTree';
 import { Button } from './domains/shared/Button';
 import { StressGrid } from './domains/stress/StressGrid';
@@ -65,6 +67,8 @@ export function DemoApp() {
       <ReportsPanel />
       <LiveFeed />
       <DataFlowPanel />
+      <SlowFlowPanel />
+      <InternalStatePanel />
       <DeepTree />
       {stressCount > 0 && (
         <div className="stress-panel">

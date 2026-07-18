@@ -177,43 +177,52 @@ describe('toFlow', () => {
     expect(flowEdges).toHaveLength(0);
   });
 
-  it('only creates a node-level edge when both the parent and the child ended up expanded', () => {
+  it('draws node→node when both endpoints expand, and falls back to the parent GROUP FRAME when the parent node is culled (cross-group connection stays visible on zoom-in)', () => {
     const nodes = [vnode(1, 'A'), vnode(2, 'B', 1)];
     // ADR-0034 adds an aggregated group->group edge regardless of expansion, so this test
     // filters to node-level edges (everything except edge-group-link).
     const nodeEdges = (r: ReturnType<typeof toFlow>) =>
-      r.flowEdges.filter((e) => e.className !== 'edge-group-link');
-    const engine = createLayoutEngine();
+      r.flowEdges.filter((e) => !(e.className ?? '').includes('edge-group-link'));
 
-    const onlyParentExpanded = toFlow(nodes, engine, { shouldExpandGroup: (_f, group) => group === 'A' });
-    expect(nodeEdges(onlyParentExpanded)).toHaveLength(0);
+    // 부모(A)만 펼침 → 자식(2)이 flowNodes에 없으니 어떤 노드 간선도 안 생긴다.
+    const onlyParent = toFlow(nodes, createLayoutEngine(), { shouldExpandGroup: (_f, group) => group === 'A' });
+    expect(nodeEdges(onlyParent)).toHaveLength(0);
 
-    const engine2 = createLayoutEngine();
-    const onlyChildExpanded = toFlow(nodes, engine2, { shouldExpandGroup: (_f, group) => group === 'B' });
-    expect(nodeEdges(onlyChildExpanded)).toHaveLength(0);
+    // 자식(B)만 펼침 → 부모 노드는 뷰포트 컬링됐지만, 크로스-그룹이라 연결을 버리지 않고 부모의
+    // 그룹 프레임(group:A)으로 폴백 간선을 만든다. 예전엔 여기서 0개라 확대 시 연결이 사라졌다.
+    const onlyChild = toFlow(nodes, createLayoutEngine(), { shouldExpandGroup: (_f, group) => group === 'B' });
+    const childEdges = nodeEdges(onlyChild);
+    expect(childEdges).toHaveLength(1);
+    expect(childEdges[0].source).toBe('group:A'); // 부모 그룹 프레임
+    expect(childEdges[0].target).toBe('2');
+    expect(childEdges[0].className).toContain('edge-cross-group-frame');
 
-    const engine3 = createLayoutEngine();
-    const bothExpanded = toFlow(nodes, engine3, { shouldExpandGroup: () => true });
-    const both = nodeEdges(bothExpanded);
+    // 둘 다 펼침 → 정확한 노드↔노드 간선(프레임 폴백 아님).
+    const both = nodeEdges(toFlow(nodes, createLayoutEngine(), { shouldExpandGroup: () => true }));
     expect(both).toHaveLength(1);
     expect(both[0].id).toBe('1->2');
     expect(both[0].source).toBe('1');
     expect(both[0].target).toBe('2');
+    expect(both[0].className).not.toContain('edge-cross-group-frame');
   });
 
   it('styles cross-group edges with edge-cross-group className and a higher zIndex than same-group edges', () => {
     const crossGroupNodes = [vnode(1, 'A'), vnode(2, 'B', 1)];
     const engine = createLayoutEngine();
     const { flowEdges: crossEdges } = toFlow(crossGroupNodes, engine, { shouldExpandGroup: () => true });
-    // 그룹 간 간선은 감쇠하지 않는다 — 현행 강도(주황 점선) 유지 (ADR-0029 결정 #4).
-    expect(crossEdges[0].className).toBe('edge-cross-group');
+    // 그룹 간 간선: 점선(edge-cross-group) + 부모 도메인 색(edge-parent-palette-N, ADR-0044 후속).
+    expect(crossEdges[0].className).toContain('edge-cross-group');
+    expect(crossEdges[0].className).toMatch(/edge-parent-palette-\d/);
     expect(crossEdges[0].zIndex).toBe(10);
 
     const sameGroupNodes = [vnode(1, 'A'), vnode(2, 'A', 1)];
     const engine2 = createLayoutEngine();
     const { flowEdges: sameEdges } = toFlow(sameGroupNodes, engine2, { shouldExpandGroup: () => true });
-    // 그룹 내 간선은 깊이 감쇠 클래스가 붙는다(시각적 감쇠, 7절 a). 깊이 1은 구조 간선이라 detail 아님.
-    expect(sameEdges[0].className).toBe('edge-same-group edge-depth-1');
+    // 그룹 내 간선: 깊이 감쇠 클래스(7절 a) + 부모 도메인 색. 깊이 1은 구조 간선이라 detail 아님.
+    expect(sameEdges[0].className).toContain('edge-same-group');
+    expect(sameEdges[0].className).toContain('edge-depth-1');
+    expect(sameEdges[0].className).not.toContain('edge-detail');
+    expect(sameEdges[0].className).toMatch(/edge-parent-palette-\d/);
     expect(sameEdges[0].zIndex).toBe(1);
   });
 
@@ -222,13 +231,17 @@ describe('toFlow', () => {
     const nodes = [vnode(1, 'A'), vnode(2, 'A', 1), vnode(3, 'A', 2), vnode(4, 'A', 3), vnode(5, 'A', 4)];
     const engine = createLayoutEngine();
     const { flowEdges } = toFlow(nodes, engine, { shouldExpandGroup: () => true });
-    const byId = new Map(flowEdges.map((e) => [e.id, e.className]));
+    const byId = new Map(flowEdges.map((e) => [e.id, e.className ?? '']));
 
     // 깊이 1·2는 구조 간선(detail 아님), 깊이 3부터 detail(중간 줌에서 숨김). 버킷은 3에서 포화.
-    expect(byId.get('1->2')).toBe('edge-same-group edge-depth-1');
-    expect(byId.get('2->3')).toBe('edge-same-group edge-depth-2');
-    expect(byId.get('3->4')).toBe('edge-same-group edge-depth-3 edge-detail');
-    expect(byId.get('4->5')).toBe('edge-same-group edge-depth-3 edge-detail');
+    expect(byId.get('1->2')).toContain('edge-depth-1');
+    expect(byId.get('1->2')).not.toContain('edge-detail');
+    expect(byId.get('2->3')).toContain('edge-depth-2');
+    expect(byId.get('2->3')).not.toContain('edge-detail');
+    expect(byId.get('3->4')).toContain('edge-depth-3');
+    expect(byId.get('3->4')).toContain('edge-detail');
+    expect(byId.get('4->5')).toContain('edge-depth-3');
+    expect(byId.get('4->5')).toContain('edge-detail');
   });
 
   it('resets group depth at group boundaries so a child entering a new group starts shallow', () => {
@@ -236,9 +249,10 @@ describe('toFlow', () => {
     const nodes = [vnode(1, 'A'), vnode(2, 'B', 1), vnode(3, 'B', 2)];
     const engine = createLayoutEngine();
     const { flowEdges } = toFlow(nodes, engine, { shouldExpandGroup: () => true });
-    const byId = new Map(flowEdges.map((e) => [e.id, e.className]));
-    expect(byId.get('1->2')).toBe('edge-cross-group'); // 그룹 경계
-    expect(byId.get('2->3')).toBe('edge-same-group edge-depth-1'); // 리셋 후 얕음
+    const byId = new Map(flowEdges.map((e) => [e.id, e.className ?? '']));
+    expect(byId.get('1->2')).toContain('edge-cross-group'); // 그룹 경계
+    expect(byId.get('2->3')).toContain('edge-same-group'); // 리셋 후 얕음
+    expect(byId.get('2->3')).toContain('edge-depth-1');
   });
 
   // ADR-0034: node-level edges only render when both endpoint nodes are expanded, so map

@@ -33,6 +33,7 @@ export {
   isTrackable,
   describeValue,
   fiberPropsChanged,
+  representativeChangedProp,
   trackReferenceInDescendants,
 } from './visualization/lib/propsFlow';
 export type { PropRow, PropValueKind } from './visualization/lib/propsFlow';

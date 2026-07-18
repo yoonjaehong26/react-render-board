@@ -9,6 +9,7 @@ import {
   useStore,
   useViewport,
   type Node,
+  type Edge,
   type NodeChange,
   type NodeMouseHandler,
   type OnNodesChange,
@@ -18,6 +19,7 @@ import './flow.css';
 import type { RenderStore } from '../data/store';
 import { resolveHostElements } from '../hooking/domInteraction';
 import { normalizeForCanvas, PENDING_GROUP, resolveVisibleId } from './lib/normalize';
+import { coalesceListSiblings } from './lib/coalesce';
 import { createLayoutEngine, type Rect } from './lib/layout';
 import { toFlow, type ComponentNodeData, type GroupNodeData } from './lib/toFlow';
 import { worldRectFromViewport, expandRect, rectsIntersect } from './lib/geometry';
@@ -33,6 +35,9 @@ import {
 import { paletteHex } from './lib/groupColor';
 import { getStoredColorMode, setStoredColorMode } from './lib/colorModePreference';
 import { loadStickyNotes, saveStickyNotes, createStickyNoteId, type StickyNote } from './lib/stickyNotes';
+import { OrthoEdge } from './components/OrthoEdge';
+import { EdgeObstaclesContext } from './components/edgeObstaclesContext';
+import type { RoutingRect } from './lib/edgeRouting';
 import { GroupNode } from './components/GroupNode';
 import { ComponentNode } from './components/ComponentNode';
 import { BoundaryFrame } from './components/BoundaryFrame';
@@ -41,21 +46,53 @@ import { ContextMenu, type ContextMenuState } from './components/ContextMenu';
 import { SemanticZoomController, MAP_MODE_THRESHOLD } from './components/SemanticZoomController';
 // props 흐름 추적 + 변경 잔상 (ADR-0032) — 아래 "ADR-0032" 주석이 붙은 코드 조각들이 이 기능이다.
 import { PropsPanel } from './components/PropsPanel';
-import { AfterglowContext, TrackedNodesContext } from './components/AfterglowContext';
+import {
+  AfterglowContext,
+  TrackedNodesContext,
+  LineageNodesContext,
+  PageHoveredNodeContext,
+} from './components/AfterglowContext';
 import { createAfterglowStore, type AfterglowStore } from './lib/afterglowStore';
 import {
   readFiberProps,
   isTrackable,
   fiberPropsChanged,
+  representativeChangedProp,
   trackReferenceInDescendants,
   type PropRow,
 } from './lib/propsFlow';
 
 const nodeTypes = { group: GroupNode, component: ComponentNode, boundary: BoundaryFrame, sticky: StickyNoteNode };
+// 크로스-그룹 간선은 그룹 프레임을 피해 배선하는 커스텀 직교 간선(ADR-0029 §5). 같은-그룹은
+// smoothstep(이미 버스 정렬), 집계 엣지는 smoothstep 유지.
+const edgeTypes = { ortho: OrthoEdge };
 
 // prop 참조 추적(ADR-0032)이 비어 있을 때 재사용하는 안정된 빈 집합 — 매번 새 Set을 만들어
 // useMemo/context가 불필요하게 갱신되지 않게 한다.
 const EMPTY_TRACKED_IDS: ReadonlySet<number> = new Set();
+
+// 안 바뀐 노드는 이전 커밋의 객체 참조를 재사용하기 위한 얕은 비교(ADR-0050). toFlow는 매 커밋
+// 노드 객체를 새로 만들어, 데이터가 그대로여도 React Flow가 그 노드를 재렌더한다 — 각 노드가
+// 손그림 테두리를 SVG data-URI 배경으로 다시 칠하며 sub-frame 흰 깜빡임과 jank를 낸다(실측:
+// 고빈도 앱에서 ComponentNode가 초당 수백 회 재렌더). 콜백(함수)은 동작이 안정적이라 비교에서
+// 제외해, onToggleCollapse 같은 매번 새로 만들어지는 핸들러 때문에 그룹 노드가 불필요히 갱신되지
+// 않게 한다.
+function nodesShallowEqual(a: Node, b: Node): boolean {
+  if (a.type !== b.type || a.parentId !== b.parentId) return false;
+  if (a.position.x !== b.position.x || a.position.y !== b.position.y) return false;
+  if (a.style?.width !== b.style?.width || a.style?.height !== b.style?.height) return false;
+  const ad = a.data as Record<string, unknown>;
+  const bd = b.data as Record<string, unknown>;
+  const keys = Object.keys(ad);
+  if (keys.length !== Object.keys(bd).length) return false;
+  for (const k of keys) {
+    const av = ad[k];
+    const bv = bd[k];
+    if (typeof av === 'function' && typeof bv === 'function') continue;
+    if (av !== bv) return false;
+  }
+  return true;
+}
 
 // 잔상 켰을 때 간선을 발광시킬 양끝 heat 임계값(ADR-0032 앰비언트 활동). 노드 발광(heat>0)보다
 // 높게 잡아, 갓 식어가는 잔열까지 간선으로 번지지 않고 "지금 확실히 바쁜" 경로만 잡는다.
@@ -178,7 +215,7 @@ function BoardContent({
   const paneHeight = useStore((s) => s.height);
   const isMapMode = viewport.zoom < MAP_MODE_THRESHOLD;
   const { fitView } = useReactFlow();
-  const { navigateToNodeId, navigateRequestId } = useSyncExternalStore(
+  const { navigateToNodeId, navigateRequestId, hoverNodeId } = useSyncExternalStore(
     interactionStore.subscribe,
     interactionStore.getSnapshot,
   );
@@ -195,6 +232,11 @@ function BoardContent({
   // 자체와 독립된 상태라 검색어를 지워도 필터 선택은 유지된다 — 재검색할 때 다시 체크할
   // 필요가 없다.
   const [filterToMatches, setFilterToMatches] = useState(false);
+  // 지도 모드(줌아웃)에서도 그룹 내부 컴포넌트를 보여줄지(ADR-0049). 기본은 off(지도=영역만).
+  // 켜면 지도 모드여도 화면에 걸치는 그룹은 내부를 펼친다 — 뷰포트 컬링은 그대로라(ADR-0017)
+  // 화면 밖 그룹은 여전히 안 그려 성능은 화면 안 개수에 묶인다. "줌아웃하면 보던 게 사라진다"는
+  // 불편의 해소책. 세션 탐색 보조라 영속화하지 않는다.
+  const [wideDetail, setWideDetail] = useState(false);
   // 그룹 접기/펼치기(ADR-0029). 세션 안에서만 유지되는 탐색 보조 상태라 localStorage에
   // 영속화하지 않는다(다크모드처럼 "장기 선호"가 아니라 "지금 이 화면을 정리해서 보는" 용도).
   const [manuallyCollapsedGroups, setManuallyCollapsedGroups] = useState<Set<string>>(new Set());
@@ -218,6 +260,14 @@ function BoardContent({
   // 추적 결과: 클릭한 노드의 자손 중 같은 참조를 가진 노드 id들(raw). ComponentNode가
   // TrackedNodesContext로 읽어 하이라이트한다 — 새 간선 없이 기존 트리 서브체인만 강조.
   const [trackedIds, setTrackedIds] = useState<ReadonlySet<number>>(EMPTY_TRACKED_IDS);
+
+  // hover 혈통 점등(ADR-0041 후속, 연구문서 7절 c). 컴포넌트 노드에 hover하면 그 노드의 조상
+  // 체인 + 자손 서브트리 "간선"만 남기고 나머지를 죽인다. 상시 감쇠(ADR-0041 a·b)로 못 없앤
+  // 마지막 클러터를 인터랙션으로 해소 — "지금 관심 있는 혈통만 잉크"라는 같은 원칙의 연장이다.
+  // 간선만 대상이라(프리스크립션 "조상 체인+직계 자손 간선") flowNodes를 재생성하지 않고,
+  // 기존 간선 장식 파이프라인(flowEdgesDecorated)에 클래스만 얹으며 dimming은 CSS가 맡는다
+  // (검색 dimming ADR-0027과 같은 메커니즘 재사용).
+  const [hoveredNodeId, setHoveredNodeId] = useState<number | null>(null);
 
   // 노드를 새로 선택하면, 그 노드의 대표 prop(방금 바뀐 추적 가능한 것 우선, 없으면 첫 추적
    // 가능한 것)을 자동으로 추적해 흐름(간선)을 한 번의 클릭으로 보여준다(ADR-0032 UX 후속).
@@ -253,7 +303,9 @@ function BoardContent({
 
   const { flowNodes, flowEdges, visibleCount, totalCount, groupNames, visibleIds, matchedIds, visibleNodes } =
     useMemo(() => {
-    const visible = normalizeForCanvas(snapshot.nodes, { includeHostNodes });
+    // 리스트 접기(ADR-0045): normalize가 만든 화면 노드 위에서 같은 종류 형제 N개(리스트)를
+    // 대표 하나 + "×N"으로 접는다. 데이터/인터랙션은 그대로(대표는 실제 fiber id 유지).
+    const visible = coalesceListSiblings(normalizeForCanvas(snapshot.nodes, { includeHostNodes }));
     // PENDING_GROUP은 groupHint가 아직 비동기로 안 채워졌을 뿐인 "임시" 상태라, 이 그룹의
     // 등장/소멸만으로 카메라를 다시 맞추면 안 된다 — 실제 그룹 집합 변화만 추적한다.
     const groupNames = new Set(visible.map((n) => n.group).filter((g) => g !== PENDING_GROUP));
@@ -282,8 +334,10 @@ function BoardContent({
     // 프레임(라벨+개수)만 만들고 자식 컴포넌트 노드/엣지는 만들지 않는다.
     // 지도 모드(줌아웃)에서는 애초에 개별 노드가 안 보이므로(semantic zoom, ui-philosophy.md)
     // 뷰포트와 무관하게 전부 접는다 — P2(LOD)와 같은 방향.
+    // wideDetail(ADR-0049)이 켜져 있으면 지도 모드에서도 뷰포트 컬링으로 화면 안 그룹만 펼치려고
+    // viewRect를 계산한다(지도 모드에선 원래 null이라 전부 접혔다).
     const viewRect =
-      !isMapMode && paneWidth > 0 && paneHeight > 0
+      (!isMapMode || wideDetail) && paneWidth > 0 && paneHeight > 0
         ? expandRect(worldRectFromViewport(viewport, paneWidth, paneHeight), VIEWPORT_EXPAND_MARGIN)
         : null;
 
@@ -294,7 +348,7 @@ function BoardContent({
       // "검색은 언제나 이긴다"는 ui-philosophy.md의 탈출구 원칙을 그룹 접기에도 그대로 적용한다.
       if (group === highlightedGroup || matchedGroups.has(group) || trackedGroups.has(group)) return true;
       if (manuallyCollapsedGroups.has(group)) return false; // 그룹 접기/펼치기 (ADR-0029)
-      if (isMapMode) return false;
+      if (isMapMode && !wideDetail) return false; // 지도 모드 = 영역만 (wideDetail이면 예외, ADR-0049)
       if (!viewRect) return true; // 아직 팬 크기를 모르는 첫 렌더는 안전하게 전부 펼친다.
       return rectsIntersect(frame, viewRect);
     };
@@ -341,6 +395,7 @@ function BoardContent({
     paneWidth,
     paneHeight,
     isMapMode,
+    wideDetail,
     highlightedNodeId,
     searchQuery,
     filterToMatches,
@@ -349,6 +404,25 @@ function BoardContent({
     boundaryMemberships, // ADR-0028: 경계 프레임
     trackedIds, // ADR-0032: 추적 대상 그룹 강제 확장 반영
   ]);
+
+  // 안 바뀐 노드는 이전 커밋의 객체 참조를 재사용한다(ADR-0050 흰 깜빡임 수정). React Flow는 노드
+  // 객체 참조가 그대로면 그 노드를 재렌더하지 않으므로(내부 memo), 데이터가 안 바뀐 노드는 매
+  // 커밋 재렌더+SVG 배경 재래스터를 건너뛴다 — 고빈도 앱에서 초당 수백 회 재렌더하던 걸 실제
+  // 변경분으로 좁힌다.
+  const stableNodesRef = useRef<Map<string, Node>>(new Map());
+  const stableFlowNodes = useMemo(() => {
+    const prev = stableNodesRef.current;
+    const next = new Map<string, Node>();
+    const out = flowNodes.map((n) => {
+      const key = String(n.id);
+      const previous = prev.get(key);
+      const reuse = previous && nodesShallowEqual(previous, n) ? previous : n;
+      next.set(key, reuse);
+      return reuse;
+    });
+    stableNodesRef.current = next;
+    return out;
+  }, [flowNodes]);
 
   useAutoRefit(groupNames);
 
@@ -434,28 +508,33 @@ function BoardContent({
   // flowNodes는 아직 이전 렌더의 것이라, 지금 막 resolve한 그룹이 뷰포트 밖/지도 모드로 접혀
   // 있었다면 그 안의 노드가 flowNodes에 없을 수 있다(ADR-0027이 발견한 gap). 아래 별도
   // 이펙트가 강제 확장이 실제로 반영된 뒤에 fitView한다.
+  // 역방향 착지 시 카메라를 옮겨야 하는 "대기 중 fitView 대상"(노드 id). navigateRequestId 카운터
+  // 가드 대신 "대상 자체"를 들고 있어, 더블클릭(#3)이 쓰는 fitView와 절대 섞이지 않는다(예전엔
+  // firedForRequestRef를 공유해, 더블클릭이 그 값을 건드리면 다음 역방향의 fitView가 막히는
+  // 취약점이 있었다 — 사용자 리포트: 하이라이트는 되는데 카메라 전환이 안 됨).
+  const pendingFitRef = useRef<number | null>(null);
   useEffect(() => {
     if (navigateToNodeId === null) return;
     const visibleId = resolveVisibleId(snapshot.nodes, visibleIds, navigateToNodeId);
-    if (visibleId !== null) setHighlightedNodeId(visibleId);
+    if (visibleId !== null) {
+      setHighlightedNodeId(visibleId);
+      pendingFitRef.current = visibleId; // 노드가 flowNodes에 나타나면 이 노드로 카메라를 옮긴다.
+    }
     interactionStore.consumeNavigate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigateRequestId]);
 
-  // 위 이펙트가 highlightedNodeId를 갱신하면 highlightedNodeId가 useMemo 의존성에 있어 다음
-  // 렌더에서 shouldExpandGroup이 그 그룹을 강제로 펼친 flowNodes를 만든다 — 이 이펙트는 그
-  // 노드가 실제로 flowNodes에 존재하는 걸 확인한 뒤에만 fitView한다. firedForRequestRef로
-  // navigateRequestId 하나당 정확히 한 번만 fitView하도록 가드한다(이미 펼쳐져 있던 그룹이면
-  // 첫 렌더에서 바로, 접혀 있었다면 강제 확장이 반영된 다음 렌더에서 발동한다).
-  const firedForRequestRef = useRef<number>(-1);
+  // 위 이펙트가 setHighlightedNodeId로 그 노드 그룹을 강제 확장시키면(shouldExpandGroup) 다음
+  // 렌더에서 노드가 flowNodes에 나타난다. 이 이펙트는 노드가 실제로 나타나는 순간(그때까지
+  // flowNodes/navigateRequestId 변화마다 재시도) 딱 한 번 fitView하고 pendingFitRef를 비운다.
+  // 더블클릭(#3)은 pendingFitRef를 안 건드리므로 이 이펙트가 그 fitView를 이중으로 부르지 않는다.
   useEffect(() => {
-    if (highlightedNodeId === null) return;
-    if (firedForRequestRef.current === navigateRequestId) return;
-    const present = flowNodes.some((n) => n.id === String(highlightedNodeId));
-    if (!present) return;
-    firedForRequestRef.current = navigateRequestId;
-    fitView({ nodes: [{ id: String(highlightedNodeId) }], duration: 400 });
-  }, [highlightedNodeId, flowNodes, navigateRequestId, fitView]);
+    const target = pendingFitRef.current;
+    if (target === null) return;
+    if (!flowNodes.some((n) => n.id === String(target))) return; // 아직 안 펼쳐짐 → 다음 렌더에 재시도
+    pendingFitRef.current = null;
+    fitView({ nodes: [{ id: String(target) }], duration: 400 });
+  }, [flowNodes, navigateRequestId, fitView]);
 
   // 검색 하이라이트 + 자동 이동(ADR-0027): 검색어가 바뀌고 이만큼 잠잠해지면 매치된 노드(들)로
   // 카메라를 옮긴다. matchedIds(매 렌더 새 Set)가 아니라 searchQuery(문자열)에만 의존한다 —
@@ -496,7 +575,11 @@ function BoardContent({
     if (!fiber) return;
     const elements = resolveHostElements(fiber);
     if (elements.length === 0) return;
-    elements[0].scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+    // instant(smooth 아님) 스크롤 — smooth는 비동기라 스크롤이 끝나기 전에 highlight가 요소
+    // 위치를 측정해(DomHighlightOverlay는 요청 시점 1회 측정, ADR-0026) 하이라이트 박스가 스크롤
+    // "전" 위치(화면 밖)에 그려지는 문제가 있었다(사용자 리포트: 스크롤 필요할 때 하이라이트 누락).
+    // instant면 이 호출 직후 요소가 이미 최종 위치라 측정이 정확하다.
+    elements[0].scrollIntoView({ block: 'center', inline: 'center' });
     interactionStore.highlight(elements);
   };
 
@@ -520,9 +603,15 @@ function BoardContent({
     const last = lastNodeClickRef.current;
     const now = performance.now();
     if (last && last.id === id && now - last.time < DOUBLE_CLICK_MS) {
-      // 더블클릭 = 스크롤 이동 + 하이라이트(단일 클릭의 하이라이트보다 강한 "여기로 데려가줘").
+      // 더블클릭 = 한 번에 세 가지(ADR-0043, 사용자 요청으로 통합). 예전엔 확대(React Flow 기본)/
+      // 스크롤/하이라이트가 더블클릭 횟수마다 따로 걸려 헷갈렸다 — 한 동작으로 합친다:
+      //   (1) 보드를 이 노드로 확대, (2) 대응 실제 요소를 화면으로 스크롤, (3) 실제 요소 + 다이어그램
+      //   노드를 햇칭 하이라이트.
       lastNodeClickRef.current = null;
-      revealComponentNode(id);
+      fitView({ nodes: [{ id: String(id) }], duration: 400 }); // (1) 확대(이 fitView가 유일 — 역방향
+      // pendingFitRef를 안 건드리므로 역방향 fitView 이펙트와 안 섞인다)
+      revealComponentNode(id); // (2) 스크롤 + (3a) 실제 요소 햇칭(DomHighlightOverlay)
+      setHighlightedNodeId(id); // (3b) 다이어그램 노드 햇칭(--highlighted)
       return;
     }
     lastNodeClickRef.current = { id, time: now };
@@ -623,6 +712,19 @@ function BoardContent({
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
   const searchActive = searchQuery.trim().length > 0;
+  // 좁은 패널(좌/우 도킹을 줄였을 때)에서 툴바 버튼들이 여러 줄로 접히며 세로 공간을 먹고 텍스트가
+  // 넘치는 걸 막는다(사용자 리포트) — 좁으면 검색창만 남기고 나머지 컨트롤을 "☰ 도구" 오버플로
+  // 메뉴로 접는다(한 줄 유지). paneWidth(React Flow 캔버스 폭)로 판별한다.
+  const compactToolbar = paneWidth > 0 && paneWidth < 460;
+  const [toolMenuOpen, setToolMenuOpen] = useState(false);
+
+  // Alt(⌥)-held 라이브 hover(ADR-0032 후속): 실제 요소 hover가 interactionStore에 남긴 raw 노드
+  // id(host일 수 있음)를 지금 보드에 보이는 노드 id로 해석한다(resolveVisibleId — 역방향 착지와
+  // 같은 기법). ComponentNode가 PageHoveredNodeContext로 받아 그 노드를 동시에 햇칭한다.
+  const pageHoveredVisibleId = useMemo(() => {
+    if (hoverNodeId === null) return null;
+    return resolveVisibleId(snapshot.nodes, visibleIds, hoverNodeId);
+  }, [hoverNodeId, snapshot.nodes, visibleIds]);
 
   // ── 간선 강조 (ADR-0032, 레퍼런스의 "props는 간선에" 관례) ───────────────────────────────
   // 두 가지를 후처리로 얹는다(toFlow.ts는 동시 세션 편집 중이라 안 건드리고 Canvas에서만):
@@ -637,38 +739,118 @@ function BoardContent({
   //      bump하므로 target이 뜨겁다 ⟺ 그 노드의 props가 바뀌었다 = 이 간선이 방금 날랐다). 클릭
   //      없이 "데이터가 트리를 타고 내려간다"를 보여주는 우리 어법의 주된 동적 표현이다. heat
   //      변화를 따라가려고 afterglowVersion을 의존성에 넣는다(흐름 켜졌을 때만 틱).
+  // 지금 hover된 노드의 조상 체인 + 자손 서브트리 — 그에 속한 "간선 id"(점등)와 "노드 id"(비혈통
+  // dimming)를 함께 낸다. flowEdges의 부모(source)→자식(target) 인접 리스트로 위(조상)·아래(자손)를
+  // 탐색한다. flowEdges/hover가 바뀔 때만 재계산되고, 간선은 flowEdgesDecorated가 클래스로,
+  // 노드는 LineageNodesContext가 ComponentNode로 나른다(flowNodes 재생성 없이, ADR-0017).
+  const lineage = useMemo(() => {
+    if (hoveredNodeId === null) return null;
+    const childrenOf = new Map<number, { id: string; child: number }[]>();
+    const parentOf = new Map<number, { id: string; parent: number }>();
+    for (const e of flowEdges) {
+      if (e.source.startsWith('group:') || e.target.startsWith('group:')) continue; // 집계 엣지 제외
+      const s = Number(e.source);
+      const t = Number(e.target);
+      (childrenOf.get(s) ?? childrenOf.set(s, []).get(s)!).push({ id: e.id, child: t });
+      parentOf.set(t, { id: e.id, parent: s });
+    }
+    const edgeIds = new Set<string>();
+    const nodeIds = new Set<number>([hoveredNodeId]);
+    // 조상 체인: 부모 간선을 타고 위로(순환 방어 seen).
+    let up = hoveredNodeId;
+    while (parentOf.has(up) && !nodeIds.has(parentOf.get(up)!.parent)) {
+      const { id, parent } = parentOf.get(up)!;
+      edgeIds.add(id);
+      nodeIds.add(parent);
+      up = parent;
+    }
+    // 자손 서브트리: 자식 간선을 타고 아래로(BFS).
+    const queue: number[] = [hoveredNodeId];
+    const seenDown = new Set<number>([hoveredNodeId]);
+    while (queue.length) {
+      const n = queue.shift()!;
+      for (const { id, child } of childrenOf.get(n) ?? []) {
+        edgeIds.add(id);
+        nodeIds.add(child);
+        if (!seenDown.has(child)) {
+          seenDown.add(child);
+          queue.push(child);
+        }
+      }
+    }
+    // 간선이 하나도 없으면(고립 노드) 점등할 게 없어 dimming도 안 켠다.
+    return edgeIds.size > 0 ? { edgeIds, nodeIds } : null;
+  }, [flowEdges, hoveredNodeId]);
+  const lineageEdgeIds = lineage?.edgeIds ?? null;
+  const lineageNodeIds = lineage?.nodeIds ?? EMPTY_TRACKED_IDS;
+  const lineageActive = lineage !== null;
+
+  // 크로스-그룹 직교 배선(OrthoEdge, ADR-0029 §5)이 회피할 장애물 = 펼쳐진 그룹 프레임 rect들.
+  // flowNodes에서 파생(그룹 프레임은 position+style로 크기를 안다). flowNodes가 바뀔 때만 재계산.
+  const edgeObstacles = useMemo<RoutingRect[]>(() => {
+    const rects: RoutingRect[] = [];
+    for (const n of flowNodes) {
+      if (n.type !== 'group') continue;
+      const w = typeof n.style?.width === 'number' ? n.style.width : 0;
+      const h = typeof n.style?.height === 'number' ? n.style.height : 0;
+      if (w > 0 && h > 0) rects.push({ x: n.position.x, y: n.position.y, width: w, height: h });
+    }
+    return rects;
+  }, [flowNodes]);
+
   const afterglowVersion = useSyncExternalStore(afterglowStore.subscribe, afterglowStore.getVersion);
   const flowEdgesDecorated = useMemo(() => {
     const tracking = trackedIds.size > 0 && selectedNodeId !== null && trackedPropKey !== null;
     const holders = tracking ? new Set<number>([...trackedIds, selectedNodeId]) : null;
-    if (!holders && !afterglowEnabled) return flowEdges;
+    if (!holders && !afterglowEnabled && !lineageActive) return flowEdges;
     // afterglowVersion은 heat 스냅샷을 갱신시키는 트리거로만 참조한다(값 자체는 안 씀).
     void afterglowVersion;
+    // 혈통 간선이면 어느 장식 위에도 edge-lineage를 덧붙인다(추적/흐름 간선도 혈통이면 함께 점등).
+    // 부모 도메인 색 클래스(edge-parent-palette-N)는 이미 toFlow가 모든 간선에 상시로 붙였으므로
+    // 여기서는 edge-lineage만 얹으면 된다 — hover 시 CSS(.lineage-active)가 그 색을 강조로 키운다.
+    const withLineage = (edge: Edge): Edge => {
+      if (!lineageEdgeIds?.has(edge.id)) return edge;
+      return { ...edge, className: `${edge.className ? `${edge.className} ` : ''}edge-lineage` };
+    };
     return flowEdges.map((e) => {
       // 자식(target)이 참조를 받았으면 이 간선이 그 참조를 나른 것 — origin 간선(부모→선택 노드)도 포함.
       if (holders && holders.has(Number(e.target))) {
-        return {
+        return withLineage({
           ...e,
           className: `${e.className ? `${e.className} ` : ''}edge-tracked`,
           label: trackedPropKey,
           animated: true,
           zIndex: 20,
-        };
+        });
       }
       // 흐름: 자식이 방금 바뀐 간선을 부모→자식으로 흐르게(animated=움직이는 점선, 방향 source→target).
       // 상세 모드는 노드 간선(target=노드 id), 지도 모드는 그룹↔그룹 집계 간선(target="group:...")이라
       // heat 채널을 target 종류로 나눠 조회한다(ADR-0032 Q2 "활동 기상도").
       if (afterglowEnabled) {
-        const targetHeat = e.target.startsWith('group:')
+        const isGroupEdge = e.target.startsWith('group:');
+        const targetHeat = isGroupEdge
           ? afterglowStore.getGroupHeat(e.target)
           : afterglowStore.getHeat(Number(e.target));
         if (targetHeat > AFTERGLOW_EDGE_HOT) {
-          return { ...e, className: `${e.className ? `${e.className} ` : ''}edge-hot`, animated: true, zIndex: 15 };
+          // 흐름 간선에 "지금 흐르는 대표 prop" 이름을 라벨로 얹는다(사용자 요청) — 노드 간선만.
+          // 그룹 집계 간선(지도 모드)은 여러 노드가 섞여 대표 prop이 모호하므로 라벨 없음.
+          let label: string | undefined;
+          if (!isGroupEdge) {
+            const fiber = store.getFiber(Number(e.target));
+            label = fiber ? representativeChangedProp(fiber) : undefined;
+          }
+          return withLineage({
+            ...e,
+            className: `${e.className ? `${e.className} ` : ''}edge-hot`,
+            label,
+            animated: true,
+            zIndex: 15,
+          });
         }
       }
-      return e;
+      return withLineage(e);
     });
-  }, [flowEdges, trackedIds, selectedNodeId, trackedPropKey, afterglowEnabled, afterglowStore, afterglowVersion]);
+  }, [flowEdges, trackedIds, selectedNodeId, trackedPropKey, afterglowEnabled, afterglowStore, afterglowVersion, lineageEdgeIds, lineageActive, store]);
   // ───────────────────────────────────────────────────────────────────────────
 
   return (
@@ -677,81 +859,139 @@ function BoardContent({
     // 다시 만들지 않기 위함).
     <AfterglowContext.Provider value={afterglowStore}>
       <TrackedNodesContext.Provider value={trackedIds}>
+        <LineageNodesContext.Provider value={lineageNodeIds}>
+          <PageHoveredNodeContext.Provider value={pageHoveredVisibleId}>
+          <EdgeObstaclesContext.Provider value={edgeObstacles}>
         <div className="board">
-      <header className="toolbar">
-        <label className="toolbar__checkbox">
-          <input
-            type="checkbox"
-            checked={includeHostNodes}
-            onChange={(e) => onIncludeHostNodesChange(e.target.checked)}
-          />
-          host 노드(div/span 등) 표시
-        </label>
-        <input
-          type="search"
-          className="toolbar__search"
-          placeholder="컴포넌트/도메인 검색…"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-        <label className="toolbar__checkbox">
-          <input
-            type="checkbox"
-            checked={filterToMatches}
-            onChange={(e) => setFilterToMatches(e.target.checked)}
-          />
-          매치만 표시
-        </label>
-        {searchActive && <span className="toolbar__search-count">{matchedIds.size}건 일치</span>}
-        <button
-          type="button"
-          className="toolbar__theme-toggle"
-          onClick={() => onColorModeChange(colorMode === 'dark' ? 'light' : 'dark')}
-        >
-          {colorMode === 'dark' ? '☀️ 라이트' : '🌙 다크'}
-        </button>
-        <button type="button" className="toolbar__sticky-add" onClick={addStickyNote}>
-          🗒️ 메모 추가
-        </button>
-        {/* 흐름 토글 (ADR-0032) — props가 바뀌면 데이터가 부모→자식 간선을 타고 흐르는 걸 애니메이션
-            으로 보여준다(우리 어법의 주 동적 표현). always-on이 아니라 opt-in 토글이고(ADR-0017
-            일관), 켜져 있을 때만 일시정지가 의미 있어 조건부로 보여준다. */}
-        <button
-          type="button"
-          className={`toolbar__afterglow${afterglowEnabled ? ' toolbar__afterglow--on' : ''}`}
-          onClick={() => onAfterglowEnabledChange(!afterglowEnabled)}
-          title="props가 바뀌면 그 데이터가 간선을 타고 흐르는 걸 애니메이션으로 표시(ADR-0032)"
-        >
-          {afterglowEnabled ? '🌊 흐름 켜짐' : '🌊 흐름'}
-        </button>
-        {afterglowEnabled && (
-          <button
-            type="button"
-            className={`toolbar__afterglow-pause${afterglowPaused ? ' toolbar__afterglow-pause--on' : ''}`}
-            onClick={() => onAfterglowPausedChange(!afterglowPaused)}
-            title="보드 갱신을 멈추고 마지막 흐름 상태를 검사한다"
-          >
-            {afterglowPaused ? '▶ 재생' : '⏸ 일시정지'}
-          </button>
-        )}
-        <span className="toolbar__count">
-          커밋 #{snapshot.commitId} · {visibleCount} / {totalCount} 노드 표시 중
-        </span>
+      <header className={`toolbar${compactToolbar ? ' toolbar--compact' : ''}`}>
+        {(() => {
+          // 컨트롤들을 한 번만 정의해, 넓으면 인라인 / 좁으면 오버플로 메뉴 안에 같은 것을 넣는다
+          // (중복 없음). 검색창과 카운트는 항상 툴바에 직접 둔다.
+          const searchInput = (
+            <input
+              type="search"
+              className="toolbar__search"
+              placeholder="검색"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          );
+          const controls = (
+            <>
+              <label className="toolbar__checkbox">
+                <input
+                  type="checkbox"
+                  checked={includeHostNodes}
+                  onChange={(e) => onIncludeHostNodesChange(e.target.checked)}
+                />
+                host 노드(div/span 등) 표시
+              </label>
+              <label className="toolbar__checkbox">
+                <input type="checkbox" checked={filterToMatches} onChange={(e) => setFilterToMatches(e.target.checked)} />
+                매치만 표시
+              </label>
+              {/* 지도 모드에서도 상세(ADR-0049) — 줌아웃해도 화면 안 그룹은 내부 컴포넌트를 보여준다.
+                  뷰포트 컬링은 그대로라 화면 밖은 여전히 안 그림. "줌아웃하면 보던 게 사라진다" 해소책. */}
+              <label className="toolbar__checkbox">
+                <input type="checkbox" checked={wideDetail} onChange={(e) => setWideDetail(e.target.checked)} />
+                지도에서도 상세
+              </label>
+              <button
+                type="button"
+                className="toolbar__theme-toggle"
+                onClick={() => onColorModeChange(colorMode === 'dark' ? 'light' : 'dark')}
+              >
+                {colorMode === 'dark' ? '라이트' : '다크'}
+              </button>
+              <button type="button" className="toolbar__sticky-add" onClick={addStickyNote}>
+                메모 추가
+              </button>
+              {/* 흐름 토글 (ADR-0032) — props가 바뀌면 데이터가 부모→자식 간선을 타고 흐르는 걸
+                  애니메이션으로 보여준다(주 동적 표현). 켜져 있을 때만 일시정지가 의미 있어 조건부. */}
+              <button
+                type="button"
+                className={`toolbar__afterglow${afterglowEnabled ? ' toolbar__afterglow--on' : ''}`}
+                onClick={() => onAfterglowEnabledChange(!afterglowEnabled)}
+                title="props가 바뀌면 그 데이터가 간선을 타고 흐르는 걸 애니메이션으로 표시(ADR-0032)"
+              >
+                {afterglowEnabled ? 'props 흐름 보는 중' : 'props 흐름 보기'}
+              </button>
+              {afterglowEnabled && (
+                <button
+                  type="button"
+                  className={`toolbar__afterglow-pause${afterglowPaused ? ' toolbar__afterglow-pause--on' : ''}`}
+                  onClick={() => onAfterglowPausedChange(!afterglowPaused)}
+                  title="보드 갱신을 멈추고 마지막 흐름 상태를 검사한다"
+                >
+                  {afterglowPaused ? '재생' : '일시정지'}
+                </button>
+              )}
+            </>
+          );
+          if (compactToolbar) {
+            return (
+              <>
+                {searchInput}
+                <div className="toolbar__overflow">
+                  <button
+                    type="button"
+                    className="toolbar__menu-btn"
+                    aria-expanded={toolMenuOpen}
+                    aria-label="도구 메뉴"
+                    onClick={() => setToolMenuOpen((o) => !o)}
+                  >
+                    도구
+                  </button>
+                  {toolMenuOpen && (
+                    <div className="toolbar__menu" role="menu" onClick={() => setToolMenuOpen(false)}>
+                      {controls}
+                    </div>
+                  )}
+                </div>
+              </>
+            );
+          }
+          return (
+            <>
+              {searchInput}
+              {controls}
+              {searchActive && <span className="toolbar__search-count">{matchedIds.size}건 일치</span>}
+              <span className="toolbar__count">
+                커밋 #{snapshot.commitId} · {visibleCount} / {totalCount} 노드 표시 중
+              </span>
+            </>
+          );
+        })()}
       </header>
 
-      <div className={`canvas${searchActive ? ' search-active' : ''}`} ref={canvasRef}>
+      <div
+        className={`canvas${searchActive ? ' search-active' : ''}${lineageActive ? ' lineage-active' : ''}${wideDetail ? ' wide-detail' : ''}`}
+        ref={canvasRef}
+      >
         {/* onlyRenderVisibleElements: 화면 밖 그룹/노드는 DOM에 렌더하지 않는다 (ADR-0009 ③,
             ADR-0010) — 위 뷰포트 기반 부분 재계산과는 다른 레이어의 방어다. 이건 "React Flow에
             얼마나 큰 nodes 배열을 넘기는가"를 줄이고, onlyRenderVisibleElements는 "그중 화면
             안쪽만 실제로 DOM에 그리는가"를 맡는다. */}
         <ReactFlow
-          nodes={[...flowNodes, ...stickyFlowNodes]}
+          nodes={[...stableFlowNodes, ...stickyFlowNodes]}
           edges={flowEdgesDecorated}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           onNodeClick={handleNodeClick}
           onNodeContextMenu={handleNodeContextMenu}
+          // 더블클릭은 우리가 직접 "확대+스크롤+하이라이트"로 통합 처리하므로(handleNodeClick,
+          // ADR-0043) React Flow 기본 더블클릭 줌은 끈다 — 안 그러면 커서 방향 줌과 fitView가 충돌한다.
+          zoomOnDoubleClick={false}
+          // hover 혈통 점등(연구문서 7절 c) — 컴포넌트 노드에만 반응(그룹/스티키는 무시).
+          onNodeMouseEnter={(_, node) => {
+            if (node.type === 'component') setHoveredNodeId(Number(node.id));
+          }}
+          onNodeMouseLeave={() => setHoveredNodeId(null)}
           onNodesChange={handleNodesChange}
-          onPaneClick={() => setContextMenu(null)}
+          onPaneClick={() => {
+            setContextMenu(null);
+            setToolMenuOpen(false);
+          }}
           onMoveStart={() => setContextMenu(null)}
           colorMode={colorMode}
           fitView
@@ -793,6 +1033,9 @@ function BoardContent({
       </div>
       <ContextMenu state={contextMenu} onClose={() => setContextMenu(null)} />
         </div>
+          </EdgeObstaclesContext.Provider>
+          </PageHoveredNodeContext.Provider>
+        </LineageNodesContext.Provider>
       </TrackedNodesContext.Provider>
     </AfterglowContext.Provider>
   );

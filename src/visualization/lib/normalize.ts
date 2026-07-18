@@ -13,6 +13,10 @@ export interface VisibleNode {
   parentId: number | null;
   group: string;
   isAnonymous: boolean;
+  /** 리스트 접기(ADR-0046): 같은 부모 밑 같은 종류 형제 N개를 이 대표 노드 하나로 접었을 때 그 N.
+   * undefined면 접지 않은 평범한 노드다. 대표 노드는 자기 서브트리를 그대로 유지하고, 나머지
+   * 형제와 그 서브트리는 VisibleNode 목록에서 빠진다. */
+  coalescedCount?: number;
 }
 
 export interface NormalizeOptions {
