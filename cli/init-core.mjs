@@ -156,7 +156,16 @@ function initNext(cwd, mode) {
   const headResult = patchNextLayout(src);
 
   if (!headResult.changed && headResult.reason === 'already-patched') {
-    ok('layout은 이미 react-render-board가 설정돼 있습니다. 변경 없음.');
+    ok('layout은 이미 react-render-board 최신 스크립트가 설정돼 있습니다. 변경 없음.');
+    return;
+  }
+
+  // 구버전 조기 스크립트 갱신(ADR-0070): 패키지 업데이트로 스크립트가 바뀌면 postinstall이
+  // 이 경로로 layout의 rrb 블록만 최신으로 덮어쓴다 — 사용자는 재설치만으로 훅 wrap 등 수정을 받는다.
+  if (headResult.changed && headResult.reason === 'refreshed-script') {
+    writeFileSync(layoutPath, headResult.source);
+    ok(`${layoutPath.replace(cwd + '/', '')}의 구버전 조기 스크립트를 최신으로 갱신했습니다.`);
+    log(`  ${C.dim}(내용이 바뀐 rrb <script> 블록만 교체 — RenderBoardClient/앱 코드는 안 건드림)${C.reset}`);
     return;
   }
   if (!headResult.changed) {

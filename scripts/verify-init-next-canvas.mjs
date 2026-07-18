@@ -82,7 +82,7 @@ async function main() {
     // 3. 실제 CLI로 원커맨드 init. ADR-0062(0.2.0)부터는 2번의 `npm install`이 postinstall로
     // init을 먼저 수행하므로, 여기서는 "이미 설정돼 있음"(멱등 확인)도 정상 경로다.
     const initOut = await sh('node', [cliBin, 'init'], scaffold);
-    const alreadyWired = /이미 react-render-board가 설정/.test(initOut);
+    const alreadyWired = /이미 react-render-board.*설정/.test(initOut);
     if ((/wired-canvas/.test(initOut) || alreadyWired) && existsSync(clientPath)) {
       pass(`\`init\`이 layout 패치 + RenderBoardClient.tsx 생성${alreadyWired ? ' (postinstall 선수행 + 멱등 확인, ADR-0062)' : ''}.`);
     } else { fail('init이 캔버스 배선을 못 함.'); console.log(initOut); }
@@ -121,6 +121,39 @@ async function main() {
     const realErrors = errors.filter((e) => !/Download the React DevTools|Warning:/.test(e));
     if (realErrors.length === 0) pass('치명적 콘솔 에러 0.');
     else { realErrors.slice(0, 5).forEach((e) => console.log('   ', e.slice(0, 200))); fail(`콘솔 에러 ${realErrors.length}건.`); }
+
+    // ── ADR-0070: 브라우저 DevTools/React Scan 확장이 훅을 선점한 시나리오 ──
+    // addInitScript는 document_start 콘텐츠 스크립트처럼 페이지의 어떤 스크립트(우리 <head>
+    // 인라인 포함)보다도 먼저 실행된다 — 확장이 __REACT_DEVTOOLS_GLOBAL_HOOK__를 미리 심은 상황을
+    // 정확히 모사한다. 수정 전엔 조기 스크립트가 `if(!hook)`에 막혀 버퍼링을 못 해 보드가 0/0이었다.
+    const extPage = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await extPage.addInitScript(() => {
+      // 확장이 먼저 심는 최소 훅. onCommitFiberRoot 호출 횟수를 기록해 "우리 wrap이 원본을 이어
+      // 호출하는지"(= 확장 Components 패널이 계속 동작하는지)까지 검증한다.
+      const renderers = new Map();
+      window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+        isDisabled: false, supportsFiber: true, renderers,
+        inject(r) { const id = renderers.size + 1; renderers.set(id, r); return id; },
+        onCommitFiberRoot() { window.__FAKE_EXT_COMMITS__ = (window.__FAKE_EXT_COMMITS__ || 0) + 1; },
+        onCommitFiberUnmount() {}, onPostCommitFiberRoot() {},
+      };
+    });
+    await extPage.goto(`http://localhost:${PORT}`, { waitUntil: 'networkidle' });
+    await extPage.waitForTimeout(2500);
+    const extToggle = extPage.getByRole('button', { name: 'render-board 열기' });
+    await extToggle.waitFor({ state: 'visible', timeout: 15000 });
+    await extToggle.click();
+    let extNodes = 0;
+    try { await extPage.waitForSelector('.react-flow__node', { timeout: 12000 }); extNodes = await extPage.locator('.react-flow__node').count(); } catch {}
+    const patched = await extPage.evaluate(() => window.__REACT_DEVTOOLS_GLOBAL_HOOK__?.__rrbPatched__ === true);
+    const extCommits = await extPage.evaluate(() => window.__FAKE_EXT_COMMITS__ || 0);
+    if (extNodes > 0) pass(`확장이 훅 선점해도 보드가 앱 트리를 그림(노드 ${extNodes}개) — ADR-0070 수정.`);
+    else fail('확장 훅 선점 시 캔버스 0 — 조기 스크립트가 기존 훅을 wrap 못 함.');
+    if (patched) pass('기존 훅을 __rrbPatched__로 한 번만 wrap.');
+    else fail('__rrbPatched__ 미설정 — wrap 분기 안 탐.');
+    if (extCommits > 0) pass(`확장 원본 onCommitFiberRoot도 체이닝돼 호출됨(${extCommits}회) — DevTools 패널 공존.`);
+    else fail('확장 원본 콜백이 안 불림 — wrap이 원본을 이어 호출 안 함.');
+    await extPage.close();
   } catch (e) {
     fail(String(e && e.message ? e.message : e));
   } finally {

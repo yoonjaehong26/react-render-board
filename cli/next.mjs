@@ -14,10 +14,18 @@
 // 번들엔 스크립트가 아예 안 들어간다("빌드에 안 들어감"). 런타임(react-render-board/inject)도
 // import.meta.env 가드를 겹으로 가진다.
 
+import { createHash } from 'node:crypto';
 import { EARLY_HOOK_SCRIPT_BODY } from './early-hook-script.cjs';
 
 // 삽입 여부/멱등성 판별용 마커.
 export const RRB_NEXT_MARKER = 'data-rrb-inject';
+
+// 조기 스크립트 본문의 내용 해시(마커 값). layout.tsx에 스크립트 전문이 박제되므로, 패키지가
+// 업데이트돼 스크립트가 바뀌어도 마커 존재 여부만 보면 "이미 설정됨"으로 스킵돼 구버전이 영구히
+// 남는다(ADR-0070에서 실사용 stale 스크립트로 확인 — 훅 wrap 수정이 layout에 안 흘러들어감).
+// 마커 값에 이 해시를 박아, 스크립트가 바뀌면 마커도 달라지므로 init(및 postinstall 자동 실행)이
+// 구버전을 감지해 갱신한다. 내용이 안 바뀐 버전업에선 해시가 같아 불필요한 재작성을 안 한다.
+export const SCRIPT_HASH = createHash('sha256').update(EARLY_HOOK_SCRIPT_BODY).digest('hex').slice(0, 8);
 
 const DEFAULT_ENTRY = 'react-render-board/inject';
 
@@ -36,17 +44,34 @@ function buildInlineScript() {
   return EARLY_HOOK_SCRIPT_BODY;
 }
 
-// layout.tsx 소스 문자열에 조기 스크립트를 삽입한 새 문자열을 돌려준다(순수 함수, 멱등).
-// 반환: { changed, source, reason }.
+// 우리가 심는 가드+스크립트 블록. 마커 값에 SCRIPT_HASH를 박아 버전 드리프트를 감지 가능하게 한다.
+const scriptJsx =
+  `{process.env.NODE_ENV !== 'production' && (\n` +
+  `        <script ${RRB_NEXT_MARKER}="${SCRIPT_HASH}" dangerouslySetInnerHTML={{ __html: \`${buildInlineScript()}\` }} />\n` +
+  `      )}`;
+
+// 기존에 심긴(구버전 포함) rrb 스크립트 블록을 찾는 정규식. 우리 가드(`&& (` 뒤 `<script
+// data-rrb-inject`)에만 매칭되고 RenderBoardClient 렌더(`&& <RenderBoardClient />`)엔 안 걸린다.
+// 스크립트 본문엔 `/>`가 없어 비탐욕 매칭이 스크립트의 자기닫힘에서 정확히 끝난다. 마커 값
+// (해시/빈값) 무관하게 매칭돼 구형 `data-rrb-inject=""`도 잡는다.
+const STALE_BLOCK_RE =
+  /\{process\.env\.NODE_ENV !== 'production' && \(\s*<script data-rrb-inject[\s\S]*?\/>\s*\)\}/;
+
+// layout.tsx 소스 문자열에 조기 스크립트를 삽입(또는 구버전이면 갱신)한 새 문자열을 돌려준다
+// (순수 함수, 멱등). 반환: { changed, source, reason }.
 export function patchNextLayout(source) {
-  if (source.includes(RRB_NEXT_MARKER)) {
+  // 최신 마커(현재 해시)가 이미 있으면 최신 상태 — 아무것도 안 한다.
+  if (source.includes(`${RRB_NEXT_MARKER}="${SCRIPT_HASH}"`)) {
     return { changed: false, source, reason: 'already-patched' };
   }
-
-  const scriptJsx =
-    `{process.env.NODE_ENV !== 'production' && (\n` +
-    `        <script ${RRB_NEXT_MARKER}="" dangerouslySetInnerHTML={{ __html: \`${buildInlineScript()}\` }} />\n` +
-    `      )}`;
+  // 마커는 있는데 해시가 다르면(또는 구형 빈 마커면) 구버전 — 그 블록만 최신으로 교체한다.
+  if (STALE_BLOCK_RE.test(source)) {
+    return {
+      changed: true,
+      reason: 'refreshed-script',
+      source: source.replace(STALE_BLOCK_RE, scriptJsx),
+    };
+  }
 
   // 1) <head>가 있으면 여는 태그 바로 뒤에 삽입(가장 이른 실행 위치).
   if (/<head\s*>/.test(source)) {
