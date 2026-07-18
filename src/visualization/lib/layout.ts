@@ -357,25 +357,27 @@ export function createLayoutEngine() {
         nonPending.filter((g) => (groupParents.get(g)?.size ?? 0) >= SHARED_LANE_MIN_PARENTS),
       );
 
-      // 대표 부모 스패닝 트리: 각 그룹의 부모 중 깊이=자기-1인 것(반드시 존재, 최장경로) 가운데
-      // groupOrder 최소를 고른다. 대표 부모의 자식 목록은 렌더 순서로 정렬. 공유 그룹은 트리 밖.
+      // 대표 부모 스패닝 트리(전체): 각 그룹의 depth-1 부모 중 groupOrder 최소를 primary로. 공유
+      // 그룹도 자기 primary 부모(사용처)와 자식을 유지한다 — 공유 컨테이너의 서브트리를 통째로
+      // 레인으로 옮기기 위함(증분2). 자식은 렌더 순서로 정렬.
+      const primaryOf = new Map<string, string | null>();
       const primaryChildren = new Map<string, string[]>();
       for (const g of nonPending) primaryChildren.set(g, []);
       const roots: string[] = [];
       for (const g of nonPending) {
-        if (sharedGroups.has(g)) continue; // 공유 그룹은 트리가 아니라 레인에 배치
         const d = groupDepthOf(g);
         if (d === 0) {
           roots.push(g);
+          primaryOf.set(g, null);
           continue;
         }
         let primary: string | null = null;
         for (const p of groupParents.get(g) ?? []) {
-          if (sharedGroups.has(p)) continue; // 공유 부모 밑엔 트리 자식을 안 놓는다(순수성 유지)
           if (groupDepthOf(p) !== d - 1) continue;
           if (primary === null || (orderIndex.get(p) ?? 0) < (orderIndex.get(primary) ?? 0)) primary = p;
         }
-        if (primary === null) roots.push(g); // depth>0이나 트리 부모가 전부 공유 → 루트로(레인 자식은 후속)
+        primaryOf.set(g, primary);
+        if (primary === null) roots.push(g);
         else primaryChildren.get(primary)!.push(g);
       }
       for (const kids of primaryChildren.values()) {
@@ -383,52 +385,64 @@ export function createLayoutEngine() {
       }
       roots.sort((a, b) => (orderIndex.get(a) ?? 0) - (orderIndex.get(b) ?? 0));
 
-      // tidy-tree x 배정: post-order로 자식을 먼저 놓고 부모를 자식 스팬 중앙에 놓는다. 부모가
-      // 같은 깊이 왼쪽 형제와 겹치면 오른쪽으로 밀되, 그 서브트리 전체를 같은 만큼 밀어 부모가
-      // 자식 위 중앙을 유지하게 한다(Walker의 subtree shift). cursor는 깊이별 다음 빈 왼쪽 x.
-      const xOf = new Map<string, number>();
-      const cursor = new Map<number, number>();
-      const shiftSubtree = (node: string, delta: number, depth: number) => {
-        for (const k of primaryChildren.get(node) ?? []) {
-          xOf.set(k, xOf.get(k)! + delta);
-          const kd = depth + 1;
-          cursor.set(kd, Math.max(cursor.get(kd) ?? 0, xOf.get(k)! + widthOf(k) + GROUP_H_GAP));
-          shiftSubtree(k, delta, kd);
-        }
+      // 레인 소속(증분2): 공유 그룹이거나 primary 부모가 레인이면 레인 = 공유 컨테이너의 서브트리 전체.
+      const lanedCache = new Map<string, boolean>();
+      const isLaned = (g: string): boolean => {
+        const cached = lanedCache.get(g);
+        if (cached !== undefined) return cached;
+        const p = primaryOf.get(g);
+        const res = sharedGroups.has(g) || (p != null && isLaned(p));
+        lanedCache.set(g, res);
+        return res;
       };
-      const place = (node: string, depth: number) => {
-        const kids = primaryChildren.get(node) ?? [];
-        const w = widthOf(node);
-        if (kids.length === 0) {
-          xOf.set(node, cursor.get(depth) ?? 0);
-        } else {
-          for (const k of kids) place(k, depth + 1);
-          const first = kids[0];
-          const last = kids[kids.length - 1];
-          const spanCenter = (xOf.get(first)! + widthOf(first) / 2 + xOf.get(last)! + widthOf(last) / 2) / 2;
-          const desiredLeft = spanCenter - w / 2;
-          const minLeft = cursor.get(depth);
-          const left = minLeft === undefined ? desiredLeft : Math.max(minLeft, desiredLeft);
-          xOf.set(node, left);
-          const delta = left - desiredLeft;
-          if (delta > 0) shiftSubtree(node, delta, depth);
-        }
-        cursor.set(depth, xOf.get(node)! + w + GROUP_H_GAP);
+
+      // tidy-tree x 배정(재사용 함수): post-order로 자식 먼저 놓고 부모를 자식 스팬 중앙에. 겹치면
+      // 서브트리째 오른쪽으로 민다(Walker subtree shift). depth별 cur로 왼→오 패킹. 메인 트리와
+      // 레인 포레스트 양쪽에 쓴다.
+      const layoutForest = (rootList: string[], childrenFor: (g: string) => string[]): Map<string, number> => {
+        const x = new Map<string, number>();
+        const cur = new Map<number, number>();
+        const shift = (node: string, delta: number, depth: number): void => {
+          for (const k of childrenFor(node)) {
+            x.set(k, x.get(k)! + delta);
+            const kd = depth + 1;
+            cur.set(kd, Math.max(cur.get(kd) ?? 0, x.get(k)! + widthOf(k) + GROUP_H_GAP));
+            shift(k, delta, kd);
+          }
+        };
+        const place = (node: string, depth: number): void => {
+          const kids = childrenFor(node);
+          const w = widthOf(node);
+          if (kids.length === 0) {
+            x.set(node, cur.get(depth) ?? 0);
+          } else {
+            for (const k of kids) place(k, depth + 1);
+            const first = kids[0];
+            const last = kids[kids.length - 1];
+            const spanCenter = (x.get(first)! + widthOf(first) / 2 + x.get(last)! + widthOf(last) / 2) / 2;
+            const desiredLeft = spanCenter - w / 2;
+            const minLeft = cur.get(depth);
+            const left = minLeft === undefined ? desiredLeft : Math.max(minLeft, desiredLeft);
+            x.set(node, left);
+            const delta = left - desiredLeft;
+            if (delta > 0) shift(node, delta, depth);
+          }
+          cur.set(depth, x.get(node)! + w + GROUP_H_GAP);
+        };
+        for (const r of rootList) place(r, 0);
+        return x;
       };
-      for (const r of roots) place(r, 0);
 
-      // PENDING 버킷은 스패닝 트리 밖 — 항상 맨 아래 밴드에 좌→우로 순차 배치.
-      for (const g of orderedGroups) {
-        if (g !== PENDING_GROUP) continue;
-        const left = cursor.get(pendingBand) ?? 0;
-        xOf.set(g, left);
-        cursor.set(pendingBand, left + widthOf(g) + GROUP_H_GAP);
-      }
+      // 메인 트리 = 레인 아닌 그룹. 레인 자식은 배치에서 건너뛴다(레인으로 감).
+      const xOf = layoutForest(
+        roots.filter((g) => !isLaned(g)),
+        (g) => (primaryChildren.get(g) ?? []).filter((c) => !isLaned(c)),
+      );
 
-      // 밴드별 y = 깊이별 최대 높이를 위→아래로 누적. 공유 그룹은 깊이 밴드가 아니라 아래 레인.
+      // 밴드별 y(메인) = 깊이별 최대 높이 누적. 레인 그룹은 제외(아래 레인 밴드). PENDING은 pendingBand.
       const bandGroups = new Map<number, string[]>();
       for (const g of orderedGroups) {
-        if (sharedGroups.has(g)) continue;
+        if (isLaned(g)) continue;
         const d = groupDepthOf(g);
         const arr = bandGroups.get(d);
         if (arr) arr.push(g);
@@ -443,39 +457,93 @@ export function createLayoutEngine() {
         runningY += maxH + GROUP_V_GAP;
       }
 
-      // 공유 레인 밴드: 각 공유 그룹을 부모들의 x 중심(centroid) 아래에 둔다 — 부모가 뭉쳐 있으면
-      // 사용선/호버선이 짧은 수직 낙하가 된다(x=0에 몰아 두면 화면을 가로지르는 긴 선이 생김).
-      // centroid 순으로 좌→우 배치하며 겹치면 오른쪽으로 민다(우선순위법). x<0은 뒤 정규화가 흡수.
+      // PENDING 버킷 — 맨 아래(pendingBand) 밴드에 좌→우 순차.
+      let pendingCursor = 0;
+      for (const g of orderedGroups) {
+        if (g !== PENDING_GROUP) continue;
+        xOf.set(g, pendingCursor);
+        pendingCursor += widthOf(g) + GROUP_H_GAP;
+      }
+
+      // ── 공유 레인(증분2): 공유 컨테이너 + 서브트리를 통째로 아래 레인에 미니 tidy-tree로. 레인
+      //    루트 = primary 부모가 레인 아닌 공유 그룹(레인 서브트리의 최상단). 각 루트 서브트리를
+      //    tidy-tree로 배치한 뒤, 루트를 부모 centroid 아래로 옮기고(서브트리째 shift) 좌→우 겹침 해소. ──
+      const laneChildrenFor = (g: string) => (primaryChildren.get(g) ?? []).filter((c) => isLaned(c));
+      const laneRoots = [...sharedGroups]
+        .filter((s) => {
+          const p = primaryOf.get(s);
+          return p == null || !isLaned(p);
+        })
+        .sort((a, b) => (orderIndex.get(a) ?? 0) - (orderIndex.get(b) ?? 0));
+      const laneLocalX = layoutForest(laneRoots, laneChildrenFor);
+      // 레인 로컬 깊이(y 밴드용): 레인 루트=0.
+      const laneDepth = new Map<string, number>();
+      const walkDepth = (g: string, d: number): void => {
+        laneDepth.set(g, d);
+        for (const c of laneChildrenFor(g)) walkDepth(c, d + 1);
+      };
+      for (const r of laneRoots) walkDepth(r, 0);
+      // 레인 y 밴드 = laneY부터 로컬 깊이별 최대 높이 누적.
       const laneY = runningY + GROUP_V_GAP;
-      const laneTargets = [...sharedGroups].map((g) => {
-        const ps = [...(groupParents.get(g) ?? [])].filter((p) => !sharedGroups.has(p) && xOf.has(p));
+      const laneBandY = new Map<number, number>();
+      {
+        const byDepth = new Map<number, string[]>();
+        for (const [g, d] of laneDepth) {
+          const arr = byDepth.get(d);
+          if (arr) arr.push(g);
+          else byDepth.set(d, [g]);
+        }
+        let y = laneY;
+        for (const d of [...byDepth.keys()].sort((a, b) => a - b)) {
+          laneBandY.set(d, y);
+          let maxH = 0;
+          for (const g of byDepth.get(d)!) maxH = Math.max(maxH, frameDims.get(g)!.height);
+          y += maxH + GROUP_V_GAP;
+        }
+      }
+      // 각 레인 루트 서브트리를 부모 centroid 아래로 shift + 좌→우 겹침 해소.
+      const rootTargets = laneRoots.map((r) => {
+        const ps = [...(groupParents.get(r) ?? [])].filter((p) => !isLaned(p) && xOf.has(p));
         const centroid = ps.length
           ? ps.reduce((s, p) => s + (xOf.get(p)! + widthOf(p) / 2), 0) / ps.length
-          : 0;
-        return { g, centroid };
+          : laneLocalX.get(r)! + widthOf(r) / 2;
+        return { r, centroid };
       });
-      laneTargets.sort((a, b) => a.centroid - b.centroid || (orderIndex.get(a.g) ?? 0) - (orderIndex.get(b.g) ?? 0));
+      rootTargets.sort((a, b) => a.centroid - b.centroid || (orderIndex.get(a.r) ?? 0) - (orderIndex.get(b.r) ?? 0));
       let laneRight = Number.NEGATIVE_INFINITY;
-      for (const { g, centroid } of laneTargets) {
-        const w = widthOf(g);
-        const left = Math.max(laneRight, centroid - w / 2);
-        xOf.set(g, left);
-        laneRight = left + w + GROUP_H_GAP;
+      for (const { r, centroid } of rootTargets) {
+        const sub: string[] = [];
+        const collect = (g: string): void => {
+          sub.push(g);
+          for (const c of laneChildrenFor(g)) collect(c);
+        };
+        collect(r);
+        const newRootLeft = Math.max(laneRight, centroid - widthOf(r) / 2);
+        const delta = newRootLeft - laneLocalX.get(r)!;
+        let subRight = Number.NEGATIVE_INFINITY;
+        for (const g of sub) {
+          const nx = laneLocalX.get(g)! + delta;
+          xOf.set(g, nx);
+          subRight = Math.max(subRight, nx + widthOf(g));
+        }
+        laneRight = subRight + GROUP_H_GAP;
       }
 
       for (const g of orderedGroups) {
         const dim = frameDims.get(g)!;
-        const shared = sharedGroups.has(g);
+        const laned = isLaned(g);
         groups.push({
           group: g,
           frame: {
             x: xOf.get(g) ?? 0,
-            y: shared ? laneY : bandY.get(groupDepthOf(g)) ?? 0,
+            y: laned ? laneBandY.get(laneDepth.get(g) ?? 0) ?? laneY : bandY.get(groupDepthOf(g)) ?? 0,
             width: dim.width,
             height: dim.height,
           },
           nodeIds: dim.ids,
-          ...(shared ? { shared: true, parentCount: groupParents.get(g)?.size } : {}),
+          // shared 플래그(레인 배지·해치)는 실제 공유 컨테이너(다중부모)에만. 레인 자식은 컨테이너의
+          // 내용물이라 일반 프레임으로 레인에 놓인다.
+          ...(sharedGroups.has(g) ? { shared: true, parentCount: groupParents.get(g)?.size } : {}),
         });
       }
 

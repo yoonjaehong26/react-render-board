@@ -16,6 +16,7 @@ import { Button } from './domains/shared/Button';
 // (공유 UI 레인 설계 검증, research/2026-07-18-stable-skeleton-shared-ui-lane.md).
 import { SharedDialogDemo } from './domains/shared/SharedDialogDemo';
 import { FarDialogDemo } from './domains/shared/FarDialogDemo';
+import { NestedSharedDemo } from './domains/nested-shared/NestedSharedDemo';
 import { StressGrid } from './domains/stress/StressGrid';
 // 도형 어휘 라우트 6각형(ADR-0028/0035) 데모용 — page.tsx 그룹을 만들어 6각형이 실제로 보이게 한다.
 import { DashboardPage } from './domains/routes/app/dashboard/page';
@@ -93,6 +94,7 @@ export function DemoApp() {
       <SlowFlowPanel />
       <InternalStatePanel />
       <SharedDialogDemo />
+      <NestedSharedDemo />
       <DeepTree />
       {stressCount > 0 && (
         <div className="stress-panel">

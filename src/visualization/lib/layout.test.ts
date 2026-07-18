@@ -372,6 +372,31 @@ describe('computeLayout parent-anchored placement', () => {
     expect(cx(c)).toBeCloseTo((cx(p1) + cx(p2)) / 2, 0);
   });
 
+  it('자식 있는 공유 컨테이너(증분2): 컨테이너+서브트리를 통째로 레인에 미니 트리로', () => {
+    const engine = createLayoutEngine();
+    // S = 공유 컨테이너(P1·P2 둘 다 렌더 = 다중 부모), C = S가 렌더하는 자식 그룹.
+    // 증분2: S를 레인으로 빼면서 C(서브트리)도 레인에 S 아래로 함께 옮긴다(고아 방지).
+    const { groups } = engine.computeLayout([
+      vnode(1, 'P1'),
+      vnode(2, 'P2'),
+      vnode(3, 'S', 1), // P1 renders S
+      vnode(4, 'S', 2), // P2 renders S → S 다중 부모
+      vnode(5, 'C', 3), // S renders C → C의 부모 그룹 = S
+    ]);
+    const s = groups.find((g) => g.group === 'S')!;
+    const c = groups.find((g) => g.group === 'C')!;
+    const p1 = groups.find((g) => g.group === 'P1')!;
+    // S는 공유(배지 대상), C는 레인 자식(공유 아님 — 컨테이너 내용물).
+    expect(s.shared).toBe(true);
+    expect(c.shared).toBeFalsy();
+    // 둘 다 레인(부모 밴드보다 아래), C는 S보다 한 밴드 더 아래(미니 트리 깊이 1).
+    expect(s.frame.y).toBeGreaterThan(p1.frame.y);
+    expect(c.frame.y).toBeGreaterThan(s.frame.y);
+    // C는 S 아래에 대략 정렬(고아로 흩어지지 않음).
+    const cx = (g: (typeof groups)[number]) => g.frame.x + g.frame.width / 2;
+    expect(cx(c)).toBeCloseTo(cx(s), 0);
+  });
+
   it('centers a parent over its children span (no rightward drift)', () => {
     const engine = createLayoutEngine();
     // P가 자식 3개(C1,C2,C3)를 렌더 → P는 C1..C3 스팬 중앙 위. P 중심이 가운데 자식(C2) 근처.
