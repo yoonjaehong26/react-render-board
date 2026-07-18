@@ -345,10 +345,10 @@ describe('computeLayout parent-anchored placement', () => {
     expect(groups.map((g) => g.group)).toEqual(['A', 'B', 'C']);
   });
 
-  it('places a shared group (multiple parents) centered under its primary (earliest) parent', () => {
+  it('moves a shared (multi-parent) group to the shared lane below the tree (pillar ②)', () => {
     const engine = createLayoutEngine();
-    // C는 P1과 P2 둘 다 렌더(공유 컴포넌트). tidy-tree는 대표 부모(먼저 등장한 P1) 하나로
-    // 스패닝 트리를 만들어 C를 P1 중앙 아래에 놓는다(P2 연결은 간선으로만, 공유 레인은 후속).
+    // C는 P1과 P2 둘 다 렌더(공유 컴포넌트) → 다중 부모. 공유 UI 레인(pillar ②)은 이걸 트리에서
+    // 빼 아래 별도 레인 밴드에 둔다(남은 트리 순수화). shared 플래그 + 사용처 수(parentCount).
     const nodes = [
       vnode(1, 'P1'),
       vnode(2, 'P2'),
@@ -356,12 +356,20 @@ describe('computeLayout parent-anchored placement', () => {
       vnode(4, 'C', 2), // P2 renders (another node in) C
     ];
     const { groups } = engine.computeLayout(nodes);
-    const center = (g: string) => {
-      const f = groups.find((gg) => gg.group === g)!.frame;
-      return f.x + f.width / 2;
-    };
-    // 대표 부모 P1이 자식 C 중앙 위 → 두 중심이 사실상 일치.
-    expect(center('P1')).toBeCloseTo(center('C'));
+    const c = groups.find((g) => g.group === 'C')!;
+    const p1 = groups.find((g) => g.group === 'P1')!;
+    const p2 = groups.find((g) => g.group === 'P2')!;
+    // C는 공유로 표시되고 사용처 2곳.
+    expect(c.shared).toBe(true);
+    expect(c.parentCount).toBe(2);
+    // 레인은 트리 맨 아래 밴드보다 더 아래 → C.y가 부모(루트 밴드)보다 아래.
+    expect(c.frame.y).toBeGreaterThan(p1.frame.y);
+    // 부모들은 트리(공유 아님)라 순수 트리로 남는다.
+    expect(p1.shared).toBeFalsy();
+    expect(p2.shared).toBeFalsy();
+    // 레인 배치는 부모들의 x 중심(centroid) 아래 → 사용선이 화면을 안 가로지르고 부모 근처에 온다.
+    const cx = (g: (typeof groups)[number]) => g.frame.x + g.frame.width / 2;
+    expect(cx(c)).toBeCloseTo((cx(p1) + cx(p2)) / 2, 0);
   });
 
   it('centers a parent over its children span (no rightward drift)', () => {

@@ -45,6 +45,11 @@ export interface ComponentNodeData extends Record<string, unknown> {
   /** 리스트 접기(ADR-0046): 같은 종류 형제 N개를 이 노드 하나로 접었으면 그 N. undefined면 안 접음.
    * "×N" 배지로 표시한다. */
   coalescedCount?: number;
+  /** 공유 UI 레인(pillar ②): 이 노드가 렌더하는 공유 컨테이너 그룹 키들. 있으면 "↗X" 인라인
+   * 칩으로 표시(상시 긴 선 대신 로컬 표식). 전체 연결은 노드 호버 시 점등. */
+  sharedUses?: string[];
+  /** 칩 클릭 시 인라인 peek이 보여줄, 각 공유 컨테이너의 멤버 컴포넌트 이름들(그룹 키 → 이름 배열). */
+  sharedMembers?: Record<string, string[]>;
 }
 
 export interface GroupNodeData extends Record<string, unknown> {
@@ -71,6 +76,10 @@ export interface GroupNodeData extends Record<string, unknown> {
    * 프레임이 안 보이므로, 그룹 프레임 바깥에 경계 색 동심 링을 덧대 "이 도메인에 포탈/Suspense/
    * 에러 바운더리가 있다"를 모든 줌에서 알린다. Canvas가 fibersById 파생으로 채운다(스키마 무관). */
   boundaryKinds?: RoleMarker[];
+  /** 공유 UI 레인(pillar ②): 다중 부모라 아래 공유 밴드에 놓인 그룹인지. 레인 스타일 적용. */
+  shared?: boolean;
+  /** 공유 그룹의 사용처(부모) 수 — "×N 사용" 배지. */
+  usageCount?: number;
 }
 
 /** 폴더 프레임(폴더 단위 2단 중첩, ADR-0053) — 파일 그룹(GroupNode) 여러 개를 감싸는 바깥 프레임.
@@ -133,6 +142,29 @@ export function toFlow(
 ): { flowNodes: Node[]; flowEdges: Edge[] } {
   const { groups, folders, nodePositions } = engine.computeLayout(nodes, { nestFolders });
   const byId = new Map(nodes.map((n) => [n.id, n]));
+  // 공유 UI 레인(pillar ②): 다중 부모라 아래 레인으로 빠진 그룹들.
+  const sharedGroupSet = new Set(groups.filter((g) => g.shared).map((g) => g.group));
+  // 사용처 인라인 칩(pillar ②): 상시 긴 선 대신, 공유 컨테이너를 렌더하는 부모 노드에 "→X 공유"
+  // 칩을 로컬로 붙인다(사용처→아래 레인까지 선을 안 그림 — 화면 가로지르는 긴 선 회피). 전체
+  // 연결은 호버 시에만 점등(후속). 부모 노드 id → 렌더하는 공유 그룹 키들.
+  const sharedUsesByParent = new Map<number, Set<string>>();
+  for (const n of nodes) {
+    if (n.parentId === null || !sharedGroupSet.has(n.group)) continue;
+    const parent = byId.get(n.parentId);
+    if (!parent || parent.group === n.group) continue;
+    let set = sharedUsesByParent.get(n.parentId);
+    if (!set) sharedUsesByParent.set(n.parentId, (set = new Set()));
+    set.add(n.group);
+  }
+  // 공유 컨테이너별 멤버 컴포넌트 이름(중복 제거, 상한) — 칩 클릭 시 인라인 peek이 "접힌 실제
+  // 인스턴스 내용"을 로컬에서 펼쳐 보여줄 재료. 컬링과 무관하게 전체 nodes에서 모은다.
+  const sharedGroupMembers = new Map<string, string[]>();
+  for (const n of nodes) {
+    if (!sharedGroupSet.has(n.group)) continue;
+    const arr = sharedGroupMembers.get(n.group) ?? [];
+    if (arr.length < 10 && !arr.includes(n.displayName)) arr.push(n.displayName);
+    sharedGroupMembers.set(n.group, arr);
+  }
 
   // 그룹+개별 동시 필터(ADR-미정) — matchedIds가 실제로 뭔가를 담고 있을 때만 켠다. 검색어가
   // 비어 있으면(matchedIds.size === 0) filterToMatches가 true여도 무시해 화면이 통째로
@@ -208,6 +240,8 @@ export function toFlow(
         width: g.frame.width,
         height: g.frame.height,
         colorMode,
+        shared: g.shared,
+        usageCount: g.parentCount,
       } satisfies GroupNodeData,
       selectable: false,
       draggable: false,
@@ -247,6 +281,10 @@ export function toFlow(
           isRouteEntry,
           colorMode,
           coalescedCount: n.coalescedCount,
+          sharedUses: sharedUsesByParent.has(n.id) ? [...sharedUsesByParent.get(n.id)!] : undefined,
+          sharedMembers: sharedUsesByParent.has(n.id)
+            ? Object.fromEntries([...sharedUsesByParent.get(n.id)!].map((g) => [g, sharedGroupMembers.get(g) ?? []]))
+            : undefined,
         } satisfies ComponentNodeData,
       });
       expandedIds.add(id);
@@ -301,6 +339,12 @@ export function toFlow(
       // 그라데이션을 그려 "이 선이 어느 도메인에서 어느 도메인으로 가는지"를 색으로 보인다 —
       // 허브(한 도메인이 여럿을 렌더)에서 출발색이 전부 같아 구별이 안 되는 문제를 타깃색이 보완.
       const crossData = { sourceColorIndex: srcColorIndex, targetColorIndex: tgtColorIndex, colorMode };
+
+      // 공유 UI 레인(pillar ②): 타깃 그룹이 공유(다중 부모)면 상시 선을 안 그린다 — 사용처→아래
+      // 레인까지의 선은 화면을 가로지르는 긴 선이 되기 쉽다(설계 트레이드오프). 대신 사용처 부모에
+      // 인라인 칩(sharedUsesByParent → ComponentNode)으로 로컬 표식만 하고, 전체 연결은 호버 시에만
+      // 점등한다(후속). 여기서는 간선을 만들지 않는다.
+      if (crossGroup && sharedGroupSet.has(n.group)) return [];
 
       if (!expandedIds.has(n.parentId!)) {
         // 부모 노드가 컬링됨 → 부모 그룹 프레임으로 잇는 폴백. 여기 도달하면 크로스-그룹뿐이고

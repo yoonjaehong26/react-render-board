@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { ComponentNodeData } from '../lib/toFlow';
 import { nodeBorderImage, ROUGH_FILL_MATCHED, ROUGH_FILL_HIGHLIGHTED } from '../lib/roughStyle';
+import { colorIndexForGroup, paletteHex } from '../lib/groupColor';
 // props 흐름/변경 잔상(ADR-0032) — heat와 tracked는 toFlow data가 아니라 context로 받는다
 // (AfterglowContext.tsx 상단 주석 참고: decay 틱마다 flowNodes를 다시 만들지 않기 위함).
 import { useAfterglowHeat, useIsTracked, useLineageState, useIsPageHovered } from './AfterglowContext';
@@ -18,7 +20,11 @@ export function ComponentNode({ id, data }: NodeProps) {
     isRouteEntry,
     colorMode,
     coalescedCount,
+    sharedUses,
+    sharedMembers,
   } = data as ComponentNodeData;
+  // 공유 UI 칩 클릭 시 인라인 peek(접힌 실제 인스턴스 펼쳐보기) 토글. 어느 공유 그룹의 peek을 열었는지.
+  const [openPeek, setOpenPeek] = useState<string | null>(null);
   // ADR-0032: 이 노드의 변경 잔상 heat(0~1)와 참조 추적 강조 여부. 잔상 모드가 꺼져 있거나
   // 이 노드가 대상이 아니면 각각 0/false라 아무 것도 더 그리지 않는다.
   const heat = useAfterglowHeat(Number(id));
@@ -75,6 +81,52 @@ export function ComponentNode({ id, data }: NodeProps) {
       <span className="component-node__name">{displayName}</span>
       {/* 리스트 접기(ADR-0046): 같은 종류 형제 N개를 이 노드로 접었으면 "×N" 배지로 알린다. */}
       {coalescedCount !== undefined && <span className="component-node__count-badge">×{coalescedCount}</span>}
+      {/* 공유 UI 사용 칩(pillar ②): 이 노드가 렌더하는 공유 컨테이너를 칩으로 로컬 표식. 색은 그
+          공유 컨테이너의 팔레트 색으로 통일해(멀리서 봐도 칩↔아래 레인 그룹이 같은 색으로 묶여
+          보임) 솔리드 pill로 또렷하게. 상시 긴 선 대신 사용처에서 바로 읽힌다(전체 연결은 호버 점등, 후속). */}
+      {sharedUses && sharedUses.length > 0 && (
+        <span className="component-node__shared-uses nodrag">
+          {sharedUses.map((g) => {
+            const hex = paletteHex(colorIndexForGroup(g), colorMode);
+            const name = g.split('/').pop()?.replace(/\.(tsx?|jsx?)$/, '') ?? g;
+            const members = sharedMembers?.[g] ?? [];
+            const open = openPeek === g;
+            return (
+              <button
+                key={g}
+                type="button"
+                className={`component-node__shared-chip${open ? ' component-node__shared-chip--open' : ''}`}
+                style={{ background: hex, color: colorMode === 'dark' ? '#0f172a' : '#fff' }}
+                title={`공유 컨테이너 ${name} — 클릭하면 내용 펼치기 / 노드 호버하면 연결선`}
+                aria-expanded={open}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpenPeek(open ? null : g);
+                }}
+              >
+                <span className="component-node__shared-chip-glyph" aria-hidden>
+                  ↗
+                </span>
+                {name}
+                {/* 인라인 peek(pillar ②): 접힌 실제 인스턴스 내용을 로컬에서 펼쳐 본다("미리보기"). */}
+                {open && (
+                  <span className="component-node__shared-peek" style={{ borderColor: hex }}>
+                    <span className="component-node__shared-peek-title" style={{ color: hex }}>
+                      {name} · 미리보기
+                    </span>
+                    {members.map((m) => (
+                      <span key={m} className="component-node__shared-peek-item">
+                        {m}
+                      </span>
+                    ))}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </span>
+      )}
       <Handle type="source" position={Position.Bottom} />
     </div>
   );

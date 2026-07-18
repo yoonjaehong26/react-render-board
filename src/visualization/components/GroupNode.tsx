@@ -41,6 +41,8 @@ export function GroupNode({ id, data }: NodeProps) {
     height,
     colorMode,
     boundaryKinds,
+    shared,
+    usageCount,
   } = data as GroupNodeData;
   const { zoom } = useViewport();
   // 지도 모드 그룹 흐름(ADR-0032 Q2 "활동 기상도") — 이 그룹 안 노드들이 바뀌면 프레임이 heat
@@ -53,6 +55,7 @@ export function GroupNode({ id, data }: NodeProps) {
   if (pending) classes.push('group-node--pending');
   if (collapsed) classes.push('group-node--collapsed');
   if (heatColor) classes.push('group-node--flowing');
+  if (shared) classes.push('group-node--shared'); // 공유 UI 레인(pillar ②)
   if (colorIndex !== undefined) classes.push(`group-node--palette-${colorIndex}`);
 
   // 손그림 프레임 테두리(ADR-0030 축3) — 펼쳐진(상세) 그룹에만. 접힌/지도 모드/pending 그룹은
@@ -133,6 +136,12 @@ export function GroupNode({ id, data }: NodeProps) {
         <span className="group-node__count" style={labelStyle}>
           {count}
         </span>
+        {/* 공유 UI 레인(pillar ②): 다중 부모라 "×N 사용" 배지로 사용처 수를 알린다(리스트 접기와 같은 언어). */}
+        {shared && usageCount !== undefined && (
+          <span className="group-node__usage" style={labelStyle} title={`${usageCount}곳에서 사용하는 공유 컨테이너`}>
+            ×{usageCount} 사용
+          </span>
+        )}
       </div>
     </div>
   );

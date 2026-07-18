@@ -48,6 +48,11 @@ export interface GroupLayout {
   nodeIds: number[];
   /** 폴더 단위 중첩(ADR-0053)에서 이 파일 그룹이 담긴 폴더 키. 없으면 최상위. frame은 항상 월드 좌표. */
   parentFolder?: string;
+  /** 공유 UI 레인(pillar ②): 다중 부모(groupParents≥2) 그룹이라 트리에서 빼 아래 공유 밴드에
+   * 배치했는지. true면 프레임이 레인에 있고, 사용처→이 그룹 간선은 곡선으로 그린다(toFlow). */
+  shared?: boolean;
+  /** 공유 그룹일 때 부모(사용처) 그룹 수 = "×N 사용" 배지용. */
+  parentCount?: number;
 }
 
 /** 폴더 프레임(ADR-0053) — 파일 그룹 ≥2개를 감싸는 바깥 프레임. 파일 그룹이 1개인 폴더는 만들지 않는다. */
@@ -343,12 +348,22 @@ export function createLayoutEngine() {
       const nonPending = orderedGroups.filter((g) => g !== PENDING_GROUP);
       const widthOf = (g: string) => frameDims.get(g)!.width;
 
+      // 공유 UI 레인(pillar ②, stable-skeleton 설계): 다중 부모(groupParents≥2) 그룹은 트리를
+      // DAG로 만드는 유일한 원인이다. 트리에서 빼 아래 별도 "공유 레인" 밴드에 두면 남은 트리는
+      // 순수 트리(모든 노드 단일 부모)가 돼 교차 0·자발적 요동 0이 된다. 공유 그룹은 스패닝 트리의
+      // 부모 후보에서도 빠져(그 밑에 트리 자식을 안 놓음) 트리 순수성을 보장한다.
+      const SHARED_LANE_MIN_PARENTS = 2;
+      const sharedGroups = new Set<string>(
+        nonPending.filter((g) => (groupParents.get(g)?.size ?? 0) >= SHARED_LANE_MIN_PARENTS),
+      );
+
       // 대표 부모 스패닝 트리: 각 그룹의 부모 중 깊이=자기-1인 것(반드시 존재, 최장경로) 가운데
-      // groupOrder 최소를 고른다. 대표 부모의 자식 목록은 렌더 순서로 정렬.
+      // groupOrder 최소를 고른다. 대표 부모의 자식 목록은 렌더 순서로 정렬. 공유 그룹은 트리 밖.
       const primaryChildren = new Map<string, string[]>();
       for (const g of nonPending) primaryChildren.set(g, []);
       const roots: string[] = [];
       for (const g of nonPending) {
+        if (sharedGroups.has(g)) continue; // 공유 그룹은 트리가 아니라 레인에 배치
         const d = groupDepthOf(g);
         if (d === 0) {
           roots.push(g);
@@ -356,10 +371,11 @@ export function createLayoutEngine() {
         }
         let primary: string | null = null;
         for (const p of groupParents.get(g) ?? []) {
+          if (sharedGroups.has(p)) continue; // 공유 부모 밑엔 트리 자식을 안 놓는다(순수성 유지)
           if (groupDepthOf(p) !== d - 1) continue;
           if (primary === null || (orderIndex.get(p) ?? 0) < (orderIndex.get(primary) ?? 0)) primary = p;
         }
-        if (primary === null) roots.push(g); // 방어적(이론상 depth>0이면 깊이-1 부모가 있다)
+        if (primary === null) roots.push(g); // depth>0이나 트리 부모가 전부 공유 → 루트로(레인 자식은 후속)
         else primaryChildren.get(primary)!.push(g);
       }
       for (const kids of primaryChildren.values()) {
@@ -409,9 +425,10 @@ export function createLayoutEngine() {
         cursor.set(pendingBand, left + widthOf(g) + GROUP_H_GAP);
       }
 
-      // 밴드별 y = 깊이별 최대 높이를 위→아래로 누적.
+      // 밴드별 y = 깊이별 최대 높이를 위→아래로 누적. 공유 그룹은 깊이 밴드가 아니라 아래 레인.
       const bandGroups = new Map<number, string[]>();
       for (const g of orderedGroups) {
+        if (sharedGroups.has(g)) continue;
         const d = groupDepthOf(g);
         const arr = bandGroups.get(d);
         if (arr) arr.push(g);
@@ -426,12 +443,39 @@ export function createLayoutEngine() {
         runningY += maxH + GROUP_V_GAP;
       }
 
+      // 공유 레인 밴드: 각 공유 그룹을 부모들의 x 중심(centroid) 아래에 둔다 — 부모가 뭉쳐 있으면
+      // 사용선/호버선이 짧은 수직 낙하가 된다(x=0에 몰아 두면 화면을 가로지르는 긴 선이 생김).
+      // centroid 순으로 좌→우 배치하며 겹치면 오른쪽으로 민다(우선순위법). x<0은 뒤 정규화가 흡수.
+      const laneY = runningY + GROUP_V_GAP;
+      const laneTargets = [...sharedGroups].map((g) => {
+        const ps = [...(groupParents.get(g) ?? [])].filter((p) => !sharedGroups.has(p) && xOf.has(p));
+        const centroid = ps.length
+          ? ps.reduce((s, p) => s + (xOf.get(p)! + widthOf(p) / 2), 0) / ps.length
+          : 0;
+        return { g, centroid };
+      });
+      laneTargets.sort((a, b) => a.centroid - b.centroid || (orderIndex.get(a.g) ?? 0) - (orderIndex.get(b.g) ?? 0));
+      let laneRight = Number.NEGATIVE_INFINITY;
+      for (const { g, centroid } of laneTargets) {
+        const w = widthOf(g);
+        const left = Math.max(laneRight, centroid - w / 2);
+        xOf.set(g, left);
+        laneRight = left + w + GROUP_H_GAP;
+      }
+
       for (const g of orderedGroups) {
         const dim = frameDims.get(g)!;
+        const shared = sharedGroups.has(g);
         groups.push({
           group: g,
-          frame: { x: xOf.get(g) ?? 0, y: bandY.get(groupDepthOf(g)) ?? 0, width: dim.width, height: dim.height },
+          frame: {
+            x: xOf.get(g) ?? 0,
+            y: shared ? laneY : bandY.get(groupDepthOf(g)) ?? 0,
+            width: dim.width,
+            height: dim.height,
+          },
           nodeIds: dim.ids,
+          ...(shared ? { shared: true, parentCount: groupParents.get(g)?.size } : {}),
         });
       }
 

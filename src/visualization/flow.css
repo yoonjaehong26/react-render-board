@@ -302,6 +302,125 @@ body.rrb-dark-mode .folder-node__label {
   stroke-width: 1.75;
 }
 
+/* 공유 UI 사용 칩(pillar ②, ADR-0061): 사용처 노드에 붙는 "↘X 공유" 인라인 칩. 상시 긴 선을
+   폐지하고 로컬 표식으로 대체 — 화면 가로지르는 선 없이 "여기 공유 X 씀"이 사용처에서 읽힌다
+   (전체 연결은 호버 시 점등, 후속). 노드 아래로 살짝 넘치게 절대 배치해 이름/배지를 안 가린다. */
+.component-node__shared-uses {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: -10px;
+  display: flex;
+  gap: 4px;
+  max-width: 130%;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 2;
+}
+/* 솔리드 pill 버튼 — 배경색은 인라인(그 공유 컨테이너의 팔레트 색)으로 통일, 여기선 형태만. 흰
+   테두리 + 그림자로 어떤 노드 위에서도 또렷하고 멀리서도 색 덩어리로 읽힌다. 클릭하면 인라인 peek
+   토글이라 pointer-events를 되살린다(부모 __shared-uses는 none). */
+.component-node__shared-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.5;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.25);
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.component-node__shared-chip--open {
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.15), 0 1px 3px rgba(15, 23, 42, 0.25);
+}
+body.rrb-dark-mode .component-node__shared-chip {
+  border-color: rgba(15, 23, 42, 0.85);
+}
+.component-node__shared-chip-glyph {
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.85;
+}
+/* 인라인 peek 카드 — 칩 아래로 펼쳐지는 미리보기(접힌 실제 인스턴스 내용). 점선 테두리로 "실제
+   트리 노드가 아니라 잠깐 펼친 미리보기"임을 표시(설계 문서). 노드 위로 떠서 z-index 높게. */
+.component-node__shared-peek {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 96px;
+  max-width: 180px;
+  padding: 5px 7px;
+  border: 1.5px dashed;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.22);
+  cursor: default;
+  white-space: nowrap;
+}
+body.rrb-dark-mode .component-node__shared-peek {
+  background: #1e293b;
+}
+.component-node__shared-peek-title {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin-bottom: 1px;
+}
+.component-node__shared-peek-item {
+  font-size: 9px;
+  font-weight: 500;
+  color: #475569;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(100, 116, 139, 0.1);
+  text-align: left;
+}
+body.rrb-dark-mode .component-node__shared-peek-item {
+  color: #cbd5e1;
+}
+
+/* 호버 on-demand 공유 연결선(pillar ②) — 사용처↔공유 그룹 직선. 색은 인라인(공유 그룹 팔레트)
+   으로 칩·레인과 통일. 평소엔 없고 호버 때만 생겨, "전체 연결 보기"를 필요할 때만 준다. */
+.react-flow__edge.edge-shared-ondemand .react-flow__edge-path {
+  stroke-dasharray: 6 3;
+  filter: drop-shadow(0 0 2px rgba(15, 23, 42, 0.2));
+}
+
+/* 공유 레인 그룹 프레임 — 아래 별도 밴드에 있는 다중부모 컨테이너. 살짝 다른 배경으로 "이 띠는
+   트리가 아니라 공유 자원"임을 알린다(스윔레인 언어, 설계 문서). */
+.group-node.group-node--shared {
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(100, 116, 139, 0.06),
+    rgba(100, 116, 139, 0.06) 6px,
+    rgba(100, 116, 139, 0.11) 6px,
+    rgba(100, 116, 139, 0.11) 12px
+  );
+}
+.group-node__usage {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  white-space: nowrap;
+}
+body.rrb-dark-mode .group-node__usage {
+  color: #94a3b8;
+}
+
 /* --- 간선 3채널: opacity=깊이 감쇠 / hue=부모 도메인 / 선 스타일=그룹 내·경계 --- */
 /* (ADR-0029 결정 #4 감쇠 + ADR-0044 후속 부모색). 그룹 내 간선은 hairline으로 얇게 하되(잉크
    절약), 색은 회색이 아니라 부모 도메인 색으로 통일한다 — 같은-그룹은 부모가 그 그룹 안이라
@@ -354,7 +473,7 @@ body.rrb-dark-mode .react-flow__edge.edge-parent-palette-7 .react-flow__edge-pat
    (edge-cross-group-frame, source가 화면 밖 그룹 프레임이라 혈통 탐색에서 빠짐)은 dim 예외 —
    안 그러면 호버할 때 "저 도메인에서 들어오는 연결"이 통째로 사라진다(피드백 2). */
 .canvas.lineage-active
-  .react-flow__edge:not(.edge-lineage):not(.edge-tracked):not(.edge-hot):not(.edge-cross-group-frame) {
+  .react-flow__edge:not(.edge-lineage):not(.edge-tracked):not(.edge-hot):not(.edge-cross-group-frame):not(.edge-shared-ondemand) {
   opacity: 0.04;
 }
 /* 노드 쪽 짝(ComponentNode가 LineageNodesContext로 판정): 혈통 밖 노드는 흐리게 죽여, 혈통

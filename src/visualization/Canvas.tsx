@@ -32,7 +32,7 @@ import {
   computeGroupBoundaryKinds,
   withGroupBoundaryKinds,
 } from './lib/boundaryFrames';
-import { paletteHex } from './lib/groupColor';
+import { paletteHex, colorIndexForGroup } from './lib/groupColor';
 import { getStoredColorMode, setStoredColorMode } from './lib/colorModePreference';
 import { loadStickyNotes, saveStickyNotes, createStickyNoteId, type StickyNote } from './lib/stickyNotes';
 import { OrthoEdge } from './components/OrthoEdge';
@@ -45,6 +45,7 @@ import { BoundaryFrame } from './components/BoundaryFrame';
 import { StickyNoteNode, type StickyNoteNodeData } from './components/StickyNoteNode';
 import { ContextMenu, type ContextMenuState } from './components/ContextMenu';
 import { SemanticZoomController, MAP_MODE_THRESHOLD } from './components/SemanticZoomController';
+import { shouldSuppressMapModeDetail } from './lib/mapModeDetail';
 // props 흐름 추적 + 변경 잔상 (ADR-0032) — 아래 "ADR-0032" 주석이 붙은 코드 조각들이 이 기능이다.
 import { PropsPanel } from './components/PropsPanel';
 import {
@@ -279,6 +280,10 @@ function BoardContent({
   // 기존 간선 장식 파이프라인(flowEdgesDecorated)에 클래스만 얹으며 dimming은 CSS가 맡는다
   // (검색 dimming ADR-0027과 같은 메커니즘 재사용).
   const [hoveredNodeId, setHoveredNodeId] = useState<number | null>(null);
+  // 공유 UI 레인(pillar ②) 호버: 공유 그룹 프레임을 호버하면 그걸 쓰는 모든 사용처로 on-demand
+  // 직선을 점등한다(상시 선 폐지의 짝). 사용처 노드 호버는 hoveredNodeId로 잡아 그 노드가 쓰는
+  // 공유 그룹으로 선을 그린다. 둘 다 좌표 순수라 flowNodes 불변(hover 상태만).
+  const [hoveredSharedGroup, setHoveredSharedGroup] = useState<string | null>(null);
 
   // 노드를 새로 선택하면, 그 노드의 대표 prop(방금 바뀐 추적 가능한 것 우선, 없으면 첫 추적
    // 가능한 것)을 자동으로 추적해 흐름(간선)을 한 번의 클릭으로 보여준다(ADR-0032 UX 후속).
@@ -359,7 +364,12 @@ function BoardContent({
       // "검색은 언제나 이긴다"는 ui-philosophy.md의 탈출구 원칙을 그룹 접기에도 그대로 적용한다.
       if (group === highlightedGroup || matchedGroups.has(group) || trackedGroups.has(group)) return true;
       if (manuallyCollapsedGroups.has(group)) return false; // 그룹 접기/펼치기 (ADR-0029)
-      if (isMapMode && !wideDetail) return false; // 지도 모드 = 영역만 (wideDetail이면 예외, ADR-0049)
+      // 지도 모드 = 영역만(wideDetail이면 예외, ADR-0049) — 단 작은 트리는 지도 모드라도 항상
+      // 디테일을 보여준다(ADR-0064). 원래 이 억제는 노드 수천/그룹 100개+에서만 의미 있는
+      // 최적화(ADR-0018)였는데 노드 수와 무관하게 순수 줌 배율로만 걸려 있어, 수십 노드짜리
+      // 작은 앱도 초기 fitView가 우연히 그 배율 밑이면 화면이 통째로 비어 보이는 실사용 버그가
+      // 있었다(43노드 앱에서 실측).
+      if (shouldSuppressMapModeDetail(isMapMode, wideDetail, snapshot.nodes.length)) return false;
       if (!viewRect) return true; // 아직 팬 크기를 모르는 첫 렌더는 안전하게 전부 펼친다.
       return rectsIntersect(frame, viewRect);
     };
@@ -821,6 +831,55 @@ function BoardContent({
   const lineageNodeIds = lineage?.nodeIds ?? EMPTY_TRACKED_IDS;
   const lineageActive = lineage !== null;
 
+  // 공유 UI 레인 연결 맵(pillar ②): 사용처 노드 ↔ 공유 그룹. flowNodes에서 파생(component 노드
+  // data.sharedUses + shared 그룹 프레임). 상시 선은 없고 호버 시에만 이 맵으로 on-demand 직선을 낸다.
+  const sharedConnections = useMemo(() => {
+    const usageToShared = new Map<string, string[]>(); // 노드 id → 공유 그룹 키들
+    const sharedToUsages = new Map<string, string[]>(); // 공유 그룹 키 → 사용처 노드 id들
+    for (const n of flowNodes) {
+      if (n.type !== 'component') continue;
+      const uses = (n.data as ComponentNodeData).sharedUses;
+      if (!uses || uses.length === 0) continue;
+      usageToShared.set(n.id, uses);
+      for (const key of uses) {
+        const arr = sharedToUsages.get(key);
+        if (arr) arr.push(n.id);
+        else sharedToUsages.set(key, [n.id]);
+      }
+    }
+    return { usageToShared, sharedToUsages };
+  }, [flowNodes]);
+
+  // 호버 시 on-demand 공유 연결선(직선). 사용처 노드 호버 → 그 노드가 쓰는 공유 그룹으로, 공유
+  // 그룹 호버 → 그걸 쓰는 모든 사용처로. 색은 공유 그룹 팔레트(칩·레인과 통일). 트리(직교)와
+  // 다른 기하(직선)라 "소유 아닌 사용"이 읽힌다. hover 상태에서만 생겨 평소 화면은 깨끗.
+  const onDemandSharedEdges = useMemo<Edge[]>(() => {
+    const edges: Edge[] = [];
+    // 공유 그룹을 **항상 target**으로 둔다 → 선이 공유 UI의 top 핸들(위쪽 가장자리)로 들어온다
+    // (사용자 요청 "공용 ui에 연결되는 선은 위쪽으로"). 사용처(source)에서 아래 레인 top으로.
+    const line = (usage: string, key: string): Edge => ({
+      id: `shared-od:${usage}->group:${key}`,
+      source: usage,
+      target: `group:${key}`,
+      type: 'straight',
+      className: 'edge-shared-ondemand',
+      style: { stroke: paletteHex(colorIndexForGroup(key), colorMode), strokeWidth: 2 },
+      animated: true,
+      zIndex: 30,
+      selectable: false,
+      focusable: false,
+    });
+    if (hoveredNodeId !== null) {
+      const uses = sharedConnections.usageToShared.get(String(hoveredNodeId));
+      if (uses) for (const key of uses) edges.push(line(String(hoveredNodeId), key));
+    }
+    if (hoveredSharedGroup) {
+      const key = hoveredSharedGroup.replace(/^group:/, '');
+      for (const usage of sharedConnections.sharedToUsages.get(key) ?? []) edges.push(line(usage, key));
+    }
+    return edges;
+  }, [hoveredNodeId, hoveredSharedGroup, sharedConnections, colorMode]);
+
   // 크로스-그룹 직교 배선(OrthoEdge, ADR-0029 §5)이 회피할 장애물 = 펼쳐진 그룹 프레임 rect들.
   // flowNodes에서 파생(그룹 프레임은 position+style로 크기를 안다). flowNodes가 바뀔 때만 재계산.
   const edgeObstacles = useMemo<RoutingRect[]>(() => {
@@ -1119,7 +1178,7 @@ function BoardContent({
             안쪽만 실제로 DOM에 그리는가"를 맡는다. */}
         <ReactFlow
           nodes={[...stableFlowNodes, ...stickyFlowNodes]}
-          edges={flowEdgesDecorated}
+          edges={onDemandSharedEdges.length ? [...flowEdgesDecorated, ...onDemandSharedEdges] : flowEdgesDecorated}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           onNodeClick={handleNodeClick}
@@ -1132,10 +1191,14 @@ function BoardContent({
             if (node.type === 'component') {
               setHoveredNodeId(Number(node.id));
               previewComponentNode(Number(node.id)); // 정방향 hover 프리뷰 → 실제 DOM 요소에 엣칭
+            } else if (node.type === 'group' && (node.data as GroupNodeData)?.shared) {
+              // 공유 레인 그룹 호버 → 사용처들로 on-demand 직선(pillar ②).
+              setHoveredSharedGroup(node.id);
             }
           }}
           onNodeMouseLeave={() => {
             setHoveredNodeId(null);
+            setHoveredSharedGroup(null);
             interactionStore.setHoverElements([]); // 실제 DOM 엣칭 프리뷰 해제
           }}
           onNodesChange={handleNodesChange}
