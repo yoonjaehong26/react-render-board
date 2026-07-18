@@ -47,6 +47,8 @@ Run "pnpm approve-builds" to pick which dependencies should be allowed to run sc
 
 **해결(사용자 쪽 한 번의 승인)**: `pnpm approve-builds --all`(비대화형 일괄 승인) 또는 `pnpm approve-builds`(대화형 선택). 승인 후 재실행하면 우리 `postinstall.mjs`가 실제로 돌아 config를 패치하고, 그 출력(`✓ 패치 완료: vite.config.ts` 등)이 `pnpm approve-builds`의 로그에 그대로 뜬다 — 실측으로 확인.
 
+**함정(실사용자 실측으로 발견): `pnpm install ... && pnpm approve-builds --all`처럼 `&&`로 이어 붙이면 안 된다.** ignored-builds가 걸리면 `pnpm install`이 **exit code 1**을 돌려준다(패키지 자체는 정상 설치되고 lockfile도 갱신됐는데도 — `[ERR_PNPM_IGNORED_BUILDS]`가 pnpm 기준 에러급 신호이기 때문). `&&`는 왼쪽이 exit 0일 때만 오른쪽을 실행하므로, `pnpm approve-builds --all`이 **조용히 실행 자체가 안 되고** 아무 로그도 없이 프롬프트로 돌아온다 — 실사용자가 정확히 이 패턴으로 겪었고 재현해 확정했다. README는 애초에 두 명령을 **별도 줄**로 안내해 이 문제가 없지만(터미널에 줄 단위로 붙여넣으면 각 줄이 이전 exit code와 무관하게 실행됨), 사용자가 직접 `&&`로 이어 치면 걸린다 — README에 명시적 경고를 추가했다.
+
 ## 근거 (Rationale)
 
 - **npm/yarn에서 "설치=사용 가능"을 실제로 달성했다.** 사용자의 명시적 요청("최대한 진입장벽 없이 한 줄로")에 부합.

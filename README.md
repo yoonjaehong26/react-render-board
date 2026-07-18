@@ -29,6 +29,8 @@ pnpm approve-builds --all   # 비대화형 일괄 승인. 고르고 싶으면 `p
 npm run dev
 ```
 
+> ⚠️ **`&&`로 이어 붙이지 마세요**(`pnpm install ... && pnpm approve-builds --all`). ignored-builds가 걸리면 `pnpm install`이 **exit code 1**을 돌려주므로(패키지 자체는 정상 설치됨) `&&` 뒤의 `approve-builds`가 실행되지 않고 조용히 스킵됩니다. 위처럼 **줄을 나눠서**(또는 `;`로) 실행하세요.
+
 ### 수동 실행 (재확인하고 싶을 때 / 자동 설정이 스킵됐을 때)
 
 ```bash
