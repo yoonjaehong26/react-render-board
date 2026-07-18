@@ -566,6 +566,21 @@ function BoardContent({
     interactionStore.highlight(elements);
   };
 
+  // 정방향 hover 프리뷰(사용자 요청): 보드 노드에 마우스를 올리면 대응하는 실제 DOM 요소에
+  // 픽 모드 hover-follow와 똑같은 엣칭(테두리 + 대각선 헷칭)을 잠깐 얹는다 — 픽 모드의 역방향
+  // (요소 hover → 노드 햇칭)과 대칭이고, 같은 setHoverElements/DomHighlightOverlay 경로를
+  // 그대로 재사용한다(타이머 없이 leave에서 비움). 클릭 하이라이트(highlight, 타이머 자동 소멸)와
+  // 달리 hover하는 동안만 유지된다. 픽 모드와 무관하게 동작한다(DomHighlightOverlay는 hoverElements를
+  // 픽 모드와 상관없이 그린다).
+  const previewComponentNode = (id: number) => {
+    const fiber = store.getFiber(id);
+    if (!fiber) {
+      interactionStore.setHoverElements([]);
+      return;
+    }
+    interactionStore.setHoverElements(resolveHostElements(fiber));
+  };
+
   // 더블클릭(ADR-0043): 단일 클릭 하이라이트보다 강한 "여기로 데려가줘" — 대응하는 실제 DOM
   // 요소를 화면 안으로 스크롤한 뒤 하이라이트한다. 오버레이 패널(ADR-0040)이 앱 일부를 덮거나
   // 요소가 스크롤로 밀려나 안 보일 때, 더블클릭 한 번으로 그 요소를 실제 화면에 데려온다.
@@ -984,9 +999,15 @@ function BoardContent({
           zoomOnDoubleClick={false}
           // hover 혈통 점등(연구문서 7절 c) — 컴포넌트 노드에만 반응(그룹/스티키는 무시).
           onNodeMouseEnter={(_, node) => {
-            if (node.type === 'component') setHoveredNodeId(Number(node.id));
+            if (node.type === 'component') {
+              setHoveredNodeId(Number(node.id));
+              previewComponentNode(Number(node.id)); // 정방향 hover 프리뷰 → 실제 DOM 요소에 엣칭
+            }
           }}
-          onNodeMouseLeave={() => setHoveredNodeId(null)}
+          onNodeMouseLeave={() => {
+            setHoveredNodeId(null);
+            interactionStore.setHoverElements([]); // 실제 DOM 엣칭 프리뷰 해제
+          }}
           onNodesChange={handleNodesChange}
           onPaneClick={() => {
             setContextMenu(null);

@@ -47,3 +47,13 @@ UI QA에서 사용자가 원한 건 react-scan / React DevTools 엘리먼트 피
 - **알려진 한계**: hover 박스는 요소가 바뀔 때 측정하므로, 한 요소 위에 머문 채 페이지가 스크롤되면 잠깐 어긋날 수 있다(클릭 하이라이트와 같은 기존 한계, ADR-0025). 실시간 스크롤 추적은 과투자로 판단해 넣지 않았다.
 - **후속 여지**: 지금은 커서 아래 host 요소를 그대로 강조한다. 향후 "그 요소를 그린 컴포넌트의 전체 영역"(fiber→nearest host들)으로 넓히거나, hover 중 컴포넌트 이름 툴팁을 띄우는 것도 이 구조 위에 얹을 수 있다.
 - **관련 문서**: 픽 모드 [ADR-0024](0024-board-dom-bidirectional-interaction.md)/[0026](0026-bidirectional-interaction-implementation.md), 손그림 강조 링 [ADR-0030](0030-excalidraw-hand-drawn-visual-identity.md)/[0035](0035-shape-and-hand-drawn-implementation.md), 플로팅 버튼(픽 위성) [ADR-0037](0037-circular-floating-button-with-pick-satellite.md).
+
+## 개정 (2026-07-18) — 정방향 hover 프리뷰: 보드 노드 hover → 실제 DOM 요소 엣칭
+
+- 상태: 채택됨(위 hover-follow 메커니즘을 반대 방향으로 재사용)
+
+원래 이 hover 프리뷰는 **역방향**(실제 요소 hover → 보드 노드 강조)만 있었다. UX QA에서 사용자가 요청한 대칭 동작은 **정방향**이다: **다이어그램 노드에 마우스를 올리면 대응하는 실제 개발 웹 요소에 그 엣칭(테두리 + 대각선 헷칭)이 뜨는 것.** 클릭이 아니라 hover만으로 "이 노드가 화면 어디인가"를 미리 보여준다(클릭 하이라이트 1.6초 타이머 전에).
+
+- **구현**: `Canvas.tsx`의 `previewComponentNode(id)` — 노드 id로 `store.getFiber` → `resolveHostElements`(정방향 클릭 하이라이트와 같은 경로) → `interactionStore.setHoverElements()`. React Flow `onNodeMouseEnter`(component 노드일 때)에서 호출하고 `onNodeMouseLeave`에서 `setHoverElements([])`로 비운다. 이미 hover 혈통 점등(ADR-0044)이 걸어둔 같은 두 핸들러에 한 줄씩 얹었다.
+- **왜 새 상태/스키마가 필요 없나**: 표현·렌더 경로(`hoverElements` → `DomHighlightOverlay.__hover`)와 fiber→host 조회(`resolveHostElements`)가 이미 다 있어, 정방향은 그 둘을 잇기만 하면 됐다. 픽 모드와 무관하게 동작한다(`DomHighlightOverlay`는 `hoverElements`를 픽 모드와 상관없이 그린다). 타이머 없이 leave에서 비우는 라이브 특성도 그대로 상속.
+- **검증**: `tsc` 클린, `interactionStore`/`DomHighlightOverlay` 유닛 테스트 19개 통과. 데이터 스키마·클릭 인터랙션 로직 불변.
