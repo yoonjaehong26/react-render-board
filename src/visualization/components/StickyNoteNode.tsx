@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type NodeProps, type WheelEvent } from 'react';
+import { useEffect, useRef, useState, type WheelEvent } from 'react';
+import type { NodeProps } from '@xyflow/react';
 
 export interface StickyNoteNodeData extends Record<string, unknown> {
   text: string;
