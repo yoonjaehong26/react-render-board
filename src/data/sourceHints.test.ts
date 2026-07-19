@@ -114,4 +114,34 @@ describe('resolveGroupHints', () => {
     expect(results).toEqual([]);
     expect(mockedGetSource).not.toHaveBeenCalled();
   });
+
+  it('times out a hung getSource without blocking the rest of the batch', async () => {
+    vi.useFakeTimers();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const okFiber = fakeFiber();
+    const hungFiber = fakeFiber();
+    mockedGetSource.mockImplementation(async (fiber) => {
+      if (fiber === hungFiber) return new Promise(() => {}); // 절대 안 풀림 (Turbopack sourcemap hang 재현)
+      return { fileName: 'ok.tsx' };
+    });
+
+    const resultsPromise = resolveGroupHints(
+      new Map([
+        [1, okFiber],
+        [2, hungFiber],
+      ]),
+    );
+    await vi.advanceTimersByTimeAsync(5000);
+    const results = await resultsPromise;
+
+    expect(results).toEqual(
+      expect.arrayContaining([
+        { id: 1, groupHint: 'ok.tsx', groupPath: null },
+        { id: 2, groupHint: null, groupPath: null },
+      ]),
+    );
+    expect(errorSpy).toHaveBeenCalledWith('[data-layer] getSource 타임아웃', expect.objectContaining({ id: 2 }));
+    errorSpy.mockRestore();
+    vi.useRealTimers();
+  });
 });

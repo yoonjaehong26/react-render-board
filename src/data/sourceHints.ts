@@ -44,6 +44,29 @@ export function usagePathFromStack(debugStack: unknown): string | null {
   return null;
 }
 
+// getSource는 내부적으로 sourcemap을 fetch하는데, 이 fetch가 응답 없이 영원히 pending될 수 있다
+// (예: 번들러 dev 서버가 특정 sourcemap 요청에 끝내 응답하지 않는 경우 — Turbopack 실사용 중 재현,
+// 콘솔 에러 없이 조용히 멈춤). getSource(fiber) 하나가 hang하면(= reject가 아니라 그냥 안 끝나면)
+// 이 함수 전체가 한 배열의 Promise.all이라 나머지 fiber까지 전부 "그룹 확인 중"에 영원히 갇힌다
+// (실사용 리포트, 2026-07-19). 타임아웃으로 hang한 entry만 null로 폴백시켜 배치 전체를 살린다.
+const GET_SOURCE_TIMEOUT_MS = 5000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => resolve(undefined), ms);
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
 export async function resolveGroupHints(compositeFibers: Map<number, Fiber>): Promise<GroupHintResult[]> {
   const entries = [...compositeFibers.entries()];
   return Promise.all(
@@ -51,7 +74,11 @@ export async function resolveGroupHints(compositeFibers: Map<number, Fiber>): Pr
       // groupPath는 동기 파싱이라 getSource 실패와 무관하게 먼저 잡아둔다.
       const groupPath = usagePathFromStack((fiber as { _debugStack?: unknown })._debugStack);
       try {
-        const source = await getSource(fiber);
+        const source = await withTimeout(getSource(fiber), GET_SOURCE_TIMEOUT_MS);
+        if (source === undefined) {
+          console.error('[data-layer] getSource 타임아웃', { id, timeoutMs: GET_SOURCE_TIMEOUT_MS });
+          return { id, groupHint: null, groupPath };
+        }
         return { id, groupHint: source?.fileName ?? null, groupPath };
       } catch (err) {
         console.error('[data-layer] getSource 실패', { id, err });
