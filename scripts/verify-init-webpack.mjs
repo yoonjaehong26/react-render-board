@@ -12,7 +12,7 @@
 // 실행: node scripts/verify-init-webpack.mjs (npm run verify:init-webpack)
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync, rmSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, rmSync, readdirSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -149,6 +149,8 @@ async function main() {
     const nodes = await page.locator('.react-flow__node').count();
     if (nodes > 0) pass(`실제 React Flow 캔버스 — 앱 트리 노드 ${nodes}개(webpack에서 보드 동작!).`);
     else fail('캔버스 노드 0.');
+    mkdirSync(path.join(repoRoot, 'verify-output/matrix'), { recursive: true });
+    await page.screenshot({ path: path.join(repoRoot, 'verify-output/matrix/webpack.png') }).catch(() => {});
 
     if (readFileSync(indexPath, 'utf8') === indexBefore) pass('app 소스(src/index.tsx) 무수정.');
     else fail('src/index.tsx 변경됨.');

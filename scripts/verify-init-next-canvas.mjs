@@ -112,8 +112,8 @@ async function main() {
     const nodes = await page.locator('.react-flow__node').count();
     if (nodes > 0) pass(`실제 React Flow 캔버스 — Next 앱 트리 노드 ${nodes}개.`);
     else fail('캔버스 노드 0.');
-    mkdirSync(path.join(repoRoot, 'verify-output'), { recursive: true });
-    await page.screenshot({ path: path.join(repoRoot, 'verify-output', 'next-turbopack-canvas.png') }).catch(() => {});
+    mkdirSync(path.join(repoRoot, 'verify-output/matrix'), { recursive: true });
+    await page.screenshot({ path: path.join(repoRoot, 'verify-output/matrix/next-turbopack.png') }).catch(() => {});
 
     if (readFileSync(pagePath, 'utf8') === pageBefore) pass('app/page.tsx 무수정.');
     else fail('page.tsx 변경됨.');

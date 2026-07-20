@@ -16,7 +16,7 @@ import { chromium } from 'playwright';
 import { createServer, build } from 'vite';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'node:url';
-import { readFileSync, rmSync } from 'node:fs';
+import { readFileSync, rmSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { rrbInjectPlugin } from '../cli/vite.mjs';
 
@@ -94,6 +94,9 @@ async function verifyDev() {
     const nodeCount = await page.locator('.react-flow__node').count();
     if (nodeCount > 0) pass(`보드가 대상 앱 Fiber 커밋을 관찰함(React Flow 노드 ${nodeCount}개).`);
     else fail('보드는 열렸으나 노드가 0 — Fiber 훅이 커밋을 못 받음.');
+
+    mkdirSync(path.join(repoRoot, 'verify-output/matrix'), { recursive: true });
+    await page.screenshot({ path: path.join(repoRoot, 'verify-output/matrix/vite.png') }).catch(() => {});
 
     // 3. 콘솔 에러 0.
     if (consoleErrors.length === 0) pass('콘솔 에러 0.');

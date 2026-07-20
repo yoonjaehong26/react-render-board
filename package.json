@@ -78,7 +78,9 @@
     "verify:init": "node scripts/verify-init.mjs",
     "verify:init-next": "node scripts/verify-init-next.mjs",
     "verify:init-next-canvas": "node scripts/verify-init-next-canvas.mjs",
-    "verify:init-webpack": "node scripts/verify-init-webpack.mjs"
+    "verify:init-webpack": "node scripts/verify-init-webpack.mjs",
+    "verify:init-rspack": "node scripts/verify-init-rspack.mjs",
+    "verify:matrix": "node scripts/verify-matrix.mjs"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0",
