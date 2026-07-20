@@ -5,6 +5,12 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: {
+    // experiments/·scripts/init-fixture 아래엔 검증용으로 clone한 서드파티 앱이 자기 자신의
+    // index.html + node_modules를 갖고 있다 — 기본 스캔이 루트부터 이들까지 훑다 exports 필드
+    // 불일치로 깨지는 것을 막기 위해 진입점을 이 앱 자신의 index.html로 한정한다.
+    entries: ['index.html'],
+  },
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
