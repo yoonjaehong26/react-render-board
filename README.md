@@ -13,6 +13,8 @@ npm install --save-dev react-render-board   # postinstall이 번들러를 감지
 npm run dev                                   # 앱 우측 하단에 보드 버튼이 뜬다
 ```
 
+> **pnpm 사용자는 한 단계 더 필요합니다** — pnpm은 설치 스크립트를 기본 차단해 위 자동 설정이 안 걸립니다. 바로 [pnpm 섹션](#pnpm)을 확인하세요.
+
 ---
 
 ## 목차
@@ -150,6 +152,8 @@ export default defineConfig({
 ```
 
 **② Next.js / Turbopack** — Turbopack엔 플러그인 API가 없어 루트 `layout.tsx`의 `<head>`에 조기 `<script>`를 넣고(초기 커밋부터 버퍼링), `<body>`에 클라이언트 컴포넌트를 배선합니다. `npx react-render-board init`이 이 배선과 `RenderBoardClient.tsx` 생성을 자동으로 처리합니다(수동 편집 권장 안 함).
+>
+> **`layout.tsx`가 직접 수정되므로 `git status`에 잡힙니다.** 도구를 뗄 때는 `git checkout -- app/layout.tsx`(또는 diff에서 rrb 블록만 제거)로 되돌리세요. 이 변경은 커밋해도 안전합니다 — 스크립트는 `NODE_ENV !== 'production'` 가드로 감싸여 있어 프로덕션 빌드에는 포함되지 않습니다.
 
 **③ webpack**
 
