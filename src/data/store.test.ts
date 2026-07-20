@@ -144,6 +144,64 @@ describe('createRenderStore', () => {
       expect(mockedResolveGroupHints).toHaveBeenNthCalledWith(2, new Map([[2, fiberB]]));
     });
 
+    it('retries a timed-out groupHint on later commits, then gives up and caches null after the budget (ADR-0073)', async () => {
+      const fiberA = {} as Fiber;
+      const serializeOnce = () =>
+        mockedSerializeFiberTree.mockReturnValueOnce({
+          nodes: [node({ id: 1 })],
+          compositeFibers: new Map([[1, fiberA]]),
+          fibersById: new Map([[1, fiberA]]),
+        });
+
+      const store = createRenderStore();
+
+      // MAX_GROUP_HINT_TIMEOUT_RETRIES(2) + 확정 1회 = 3번 연속 타임아웃. 캐시 안 되므로 매 커밋
+      // 다시 pending으로 잡혀 재해석된다(전이적 경합 타임아웃 회복 경로).
+      for (let i = 0; i < 3; i++) {
+        mockedResolveGroupHints.mockResolvedValueOnce([{ id: 1, groupHint: null, groupPath: null, timedOut: true }]);
+        serializeOnce();
+        store.handleCommit({} as Fiber);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(mockedResolveGroupHints).toHaveBeenCalledTimes(i + 1);
+      }
+
+      // 예산 소진 → null로 확정 캐시 → 다음 커밋에선 더 이상 재해석하지 않는다(genuine hang 수렴).
+      serializeOnce();
+      store.handleCommit({} as Fiber);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(mockedResolveGroupHints).toHaveBeenCalledTimes(3);
+    });
+
+    it('caches a groupHint that resolves after an earlier timeout and stops retrying (ADR-0073)', async () => {
+      const fiberA = {} as Fiber;
+      const serializeOnce = () =>
+        mockedSerializeFiberTree.mockReturnValueOnce({
+          nodes: [node({ id: 1 })],
+          compositeFibers: new Map([[1, fiberA]]),
+          fibersById: new Map([[1, fiberA]]),
+        });
+
+      const store = createRenderStore();
+
+      mockedResolveGroupHints.mockResolvedValueOnce([{ id: 1, groupHint: null, groupPath: null, timedOut: true }]);
+      serializeOnce();
+      store.handleCommit({} as Fiber);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // 재시도에서 성공적으로 resolve → 캐시되고 재시도 카운터가 정리된다.
+      mockedResolveGroupHints.mockResolvedValueOnce([{ id: 1, groupHint: 'src/App.tsx', groupPath: null }]);
+      serializeOnce();
+      store.handleCommit({} as Fiber);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(store.getSnapshot().nodes[0].groupHint).toBe('src/App.tsx');
+
+      // 이제 캐시 히트 → 세 번째 커밋에선 재해석하지 않는다.
+      serializeOnce();
+      store.handleCommit({} as Fiber);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(mockedResolveGroupHints).toHaveBeenCalledTimes(2);
+    });
+
     it('does not schedule a follow-up notify when the resolved groupHint matches what is already in the snapshot', async () => {
       mockedResolveGroupHints.mockResolvedValueOnce([{ id: 1, groupHint: null, groupPath: null }]); // same as node()'s default
       mockedSerializeFiberTree.mockReturnValueOnce({

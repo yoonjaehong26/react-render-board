@@ -137,11 +137,36 @@ describe('resolveGroupHints', () => {
     expect(results).toEqual(
       expect.arrayContaining([
         { id: 1, groupHint: 'ok.tsx', groupPath: null },
-        { id: 2, groupHint: null, groupPath: null },
+        { id: 2, groupHint: null, groupPath: null, timedOut: true }, // ADR-0073: 타임아웃 폴백은 플래그로 표시
       ]),
     );
     expect(errorSpy).toHaveBeenCalledWith('[data-layer] getSource 타임아웃', expect.objectContaining({ id: 2 }));
     errorSpy.mockRestore();
     vi.useRealTimers();
+  });
+
+  it('caps in-flight getSource calls (ADR-0073) yet resolves every id', async () => {
+    // 대형 배치에서 getSource를 한꺼번에 착수시키지 않고 동시성 8로 캡하는지 확인한다 —
+    // 캡이 없으면 N개의 5초 타이머가 t=0에 동시 시작해 대형 라우트에서 큐 뒤쪽이 억울하게
+    // 타임아웃된다(ADR-0073 진단). 여기선 타이머가 아니라 "동시 in-flight 수"만 관측한다.
+    let inFlight = 0;
+    let maxInFlight = 0;
+    mockedGetSource.mockImplementation(async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await Promise.resolve(); // 마이크로태스크 한 틱 양보해 동시성을 실제로 겹치게 한다.
+      inFlight--;
+      return { fileName: 'x.tsx' };
+    });
+
+    const N = 50;
+    const map = new Map<number, Fiber>(Array.from({ length: N }, (_, i) => [i, fakeFiber()]));
+    const results = await resolveGroupHints(map);
+
+    expect(results).toHaveLength(N);
+    expect(new Set(results.map((r) => r.id)).size).toBe(N); // 모든 id가 정확히 한 번씩
+    expect(results.every((r) => r.groupHint === 'x.tsx')).toBe(true);
+    expect(maxInFlight).toBeLessThanOrEqual(8);
+    expect(maxInFlight).toBeGreaterThan(1); // 그래도 병렬로 돈다(직렬화 아님)
   });
 });

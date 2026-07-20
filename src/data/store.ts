@@ -48,10 +48,21 @@ function now(): number {
 // 갱신하므로 유지되고, 중간 스냅샷은 어차피 버려도 되는 값이다.
 const MIN_NOTIFY_INTERVAL_MS = 33;
 
+// 타임아웃(ADR-0073)으로 폴백된 id를 몇 번까지 다음 커밋에서 재해석할지. ADR-0071은 타임아웃 id도
+// hintCache에 캐시해 "같은 fiber를 또 hang시키며 재시도하지 않는다"고 결정했는데, 이는 dev 서버가
+// 진짜로 무응답인 경우(Turbopack)엔 맞지만, 대형 라우트의 "동시성 경합으로 인한 일시적 타임아웃"
+// (ADR-0073이 진단한 급락의 원인)까지 영구 null로 굳혀 sticky하게 만든다. 동시성 캡(ADR-0073)으로
+// 경합 타임아웃 자체가 크게 줄지만, 남은 것도 이후 커밋에서 제한적으로 재시도해 회복시킨다. 재시도
+// 예산을 소진하면 영구 null로 확정해(genuine hang에서 매 커밋 재발사 방지) ADR-0071의 수렴성은 지킨다.
+const MAX_GROUP_HINT_TIMEOUT_RETRIES = 2;
+
 export function createRenderStore(): RenderStore {
   let snapshot: RenderSnapshot = { commitId: 0, nodes: [] };
   // id -> 이미 resolve된 groupHint + groupPath (dev 세션 동안 계속 누적, 페이지 새로고침 전까지 유지).
   const hintCache = new Map<number, { groupHint: string | null; groupPath: string | null }>();
+  // id -> 지금까지의 타임아웃 폴백 횟수(ADR-0073). MAX_GROUP_HINT_TIMEOUT_RETRIES를 넘기기 전까지는
+  // hintCache에 넣지 않아 다음 커밋 pending에 다시 잡혀 재해석된다. 정상 resolve되면 삭제된다.
+  const groupHintTimeoutRetries = new Map<number, number>();
   // 최신 커밋의 id -> Fiber. RenderSnapshot과 달리 매 커밋 통째로 교체될 뿐 누적하지 않는다
   // (Fiber는 크고 변경 가능한 React 내부 객체라 여러 커밋치를 들고 있을 이유가 없다).
   let latestFibersById = new Map<number, Fiber>();
@@ -102,7 +113,21 @@ export function createRenderStore(): RenderStore {
 
     resolveGroupHints(pending)
       .then((results) => {
-        for (const r of results) hintCache.set(r.id, { groupHint: r.groupHint, groupPath: r.groupPath });
+        for (const r of results) {
+          if (r.timedOut) {
+            const attempts = (groupHintTimeoutRetries.get(r.id) ?? 0) + 1;
+            if (attempts <= MAX_GROUP_HINT_TIMEOUT_RETRIES) {
+              // 아직 재시도 예산 남음 — 캐시하지 않아 다음 커밋에서 다시 pending으로 잡혀 재해석된다.
+              groupHintTimeoutRetries.set(r.id, attempts);
+              continue;
+            }
+            // 예산 소진 — null로 확정 캐시(genuine hang에서 매 커밋 재발사 방지, ADR-0071 수렴성 유지).
+            groupHintTimeoutRetries.delete(r.id);
+          } else {
+            groupHintTimeoutRetries.delete(r.id);
+          }
+          hintCache.set(r.id, { groupHint: r.groupHint, groupPath: r.groupPath });
+        }
         const patched = applyCachedHints(snapshot.nodes);
         const changed = patched.some(
           (n, i) => n.groupHint !== snapshot.nodes[i]?.groupHint || n.groupPath !== snapshot.nodes[i]?.groupPath,
