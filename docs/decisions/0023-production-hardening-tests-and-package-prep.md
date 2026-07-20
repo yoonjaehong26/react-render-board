@@ -1,7 +1,12 @@
 # ADR-0023: 정식 재구현 1라운드 — 테스트 커버리지 + 배포 준비
 
-- 상태: 채택됨
+- 상태: 채택됨 (아래 §2·§4·§5의 시점 스냅샷은 후속 ADR이 앞질러 감 — 하단 "후속 갱신" 참고)
 - 날짜: 2026-07-17
+
+> **후속 갱신(2026-07-20, ADR 정합성 검증 라운드)**: 이 ADR은 2026-07-17 시점의 기록이라 아래 세 항목이 현행 코드와 어긋난다(당시 사실로서는 정확 — 후속 ADR이 앞질러 구현/변경한 결과):
+> - **§5 배포 상태**: 본문은 "`private: true` 유지, `license` 미추가"로 못박았으나, 현 `package.json`은 `private` 필드 제거 + `"license": "MIT"` + `"version": "0.2.4"` + `prepublishOnly` 스크립트를 갖는다(ADR-0036 CLI init 배포 흐름 구현 + ADR-0072 publish 게이트가 뒤집음). "미배포/비공개"로 오독하지 말 것.
+> - **§2 유닛 테스트 수**: 본문 표(12파일 91개, `sourceHints.test.ts` 4개)는 현재 크게 늘었다(예: `sourceHints.test.ts` 9개). 현 수치는 `npm run test`로 확인.
+> - **§4 공개 API**: 본문의 5개 export에서 이후 `domInteraction`/`interactionStore`/`BoardOverlay`/`afterglowStore`/`propsFlow` 등으로 확장됐다(ADR-0026·0032 등). 현행 표면은 `src/index.ts` 참고.
 
 ## 맥락 (Context)
 

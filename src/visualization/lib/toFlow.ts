@@ -56,7 +56,7 @@ export interface GroupNodeData extends Record<string, unknown> {
   label: string;
   count: number;
   pending: boolean;
-  /** 뷰포트 밖(또는 지도 모드)이라 자식 노드를 펼치지 않은 그룹인지 (ADR-0016 ①). */
+  /** 뷰포트 밖(또는 지도 모드)이라 자식 노드를 펼치지 않은 그룹인지 (ADR-0017 결정 1). */
   collapsed: boolean;
   /** 도메인별 커스텀 팔레트에서 이 그룹에 배정된 팔레트 인덱스. PENDING_GROUP이면 undefined. */
   colorIndex?: number;
@@ -101,7 +101,7 @@ export interface ToFlowOptions {
    * 이 그룹의 자식 컴포넌트 노드/엣지를 실제로 만들지 결정한다. false를 반환하면 그룹
    * 프레임(라벨+개수)만 만들고 내부 자식·엣지는 만들지 않는다.
    *
-   * 뷰포트 기반 부분 재계산(ADR-0016 ①)의 핵심 장치 — 프로파일링 결과 `onlyRenderVisibleElements`는
+   * 뷰포트 기반 부분 재계산(ADR-0017 결정 1)의 핵심 장치 — 프로파일링 결과 `onlyRenderVisibleElements`는
    * 화면 밖 노드의 "실제 렌더"만 건너뛸 뿐, React Flow가 `nodes` 배열의 모든 원소마다 치르는
    * 내부 wrapper 처리 비용(수천 개 규모에서 지배적 비용)은 줄이지 못했다 — 배열 자체에서
    * 아예 빼야 그 비용이 사라진다.
