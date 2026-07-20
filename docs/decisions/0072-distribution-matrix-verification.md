@@ -30,9 +30,16 @@
 - 각 스택 실행 시 스크린샷 1장(`verify-output/matrix/<stack>.png`)만 남긴다 — diff 비교(visual regression) 도구는 투자하지 않는다(그게 필요했다는 증거가 없음). "뭔가 이상하다" 싶을 때 훑어보는 용도.
 - 새 스택 추가 시 / 이상 감지 시에만 그 스택을 직접 `npm run dev`로 띄워 눈으로 본다. 매번 전 스택을 눈으로 보지 않는다.
 
-### 4. 실행 주기: publish 직전 1회, 스케줄러 없음
+### 4. 실행 주기: publish 이벤트에 묶어 자동 실행, 스케줄러 없음
 
 주 1회 크론(OCI 서버 등)으로 도는 방안을 검토했으나 기각했다 — 지금까지 실사용 결함은 전부 "우리가 코드를 바꿨을 때" 드러난 것이지, 가만히 있는데 저절로 깨진 사례가 없다. 서버 비용을 들여 "아무도 안 건드렸는데 매주 확인"하는 것보다 publish 직전 1회가 같은 위험을 더 저비용으로 덮는다. "업스트림(Next/Vite 등)이 업데이트되면서 우리가 안 건드렸는데 깨졌다"는 사례가 실제로 한 번이라도 생기면, 그때는 서버가 아니라 GitHub Actions 무료 스케줄 워크플로우로 충분하다(관리 비용 0) — 지금은 그 증거가 없어 안 만든다.
+
+**개정(2026-07-20, 같은 날): "수동 1회"를 `prepublishOnly` 자동화로.** 소유자가 "publish 전 수동 실행"을 까먹을 것 같다고 지적 — ADR-0063 타입체크 규칙이 "아무도 `tsc`를 안 돌림"에서 나온 것과 같은 문제다. 매트릭스는 스케줄러가 아니라 **publish라는 이벤트**에 묶는 게 맞다: `prepublishOnly`를 `npm run build:lib && npm run verify:matrix`로 바꿔, `npm publish`(소유자 2FA 수동) 시점에 자동으로 돌고 하나라도 FAIL이면 publish가 중단된다. 근거:
+- 이건 스케줄러가 아니라 이벤트 훅이라 위 기각 논리(주기 실행의 무의미함)와 충돌하지 않는다 — "코드 바꿨을 때 드러난다"는 관찰과 정확히 일치(배포 = 코드 확정 시점).
+- flaky(dev 서버 컴파일 타임아웃)로 publish가 막히는 건 **안전한 실패**다 — 릴리스 게이트에선 false-green(깨진 걸 배포)이 false-red(재시도)보다 나쁘다. 막히면 `npm publish` 재실행(6분).
+- 스캐폴드(`experiments/bundler-injection-spike/*`, gitignore) node_modules가 없는 환경에선 각 verify-init이 SKIP(exit 0)이라 publish를 **막지 않는다** — 소유자 로컬(스캐폴드 설치됨)에선 진짜 검증, 다른 환경에선 조용히 통과라 락아웃 위험 없음.
+- 탈출구: 확실히 안전한 재배포(문서만 등)는 `npm publish --ignore-scripts`.
+- GitHub Actions 등 CI 도입은 여전히 안 한다 — prepublishOnly는 관리 비용 0의 로컬 훅이고, 이 프로젝트 "과한 프로세스 금지" 원칙(CLAUDE.md) 안에 있다.
 
 ### 5. 오케스트레이터는 기존 검증 스크립트를 재사용한다
 
@@ -46,7 +53,7 @@ Rspack만 verify 스크립트가 없어서 신규 작성했다(`verify-init-rspa
 
 ## 결과
 
-- `npm run verify:matrix` 스크립트 추가(번들러 축 4개 전부 편입). publish 전 수동 실행 게이트.
+- `npm run verify:matrix` 스크립트 추가(번들러 축 4개 전부 편입). **`prepublishOnly`에 걸어 `npm publish` 시 자동 실행**(위 결정 4의 개정) — 까먹을 여지 없이 배포 게이트로 강제된다.
 - `npm run verify:init-rspack` 단독 실행도 가능(다른 스택과 동일 패턴).
 - pnpm strict/yarn Berry 엣지케이스는 **의도적으로 미구현** — 실사용 리포트로 문제가 생기면 그때 추가(다른 스택들과 같은 패턴 — 이번 ADR 5개 결함 모두 실사용 리포트가 먼저였다). pnpm의 lifecycle 차단은 이미 ADR-0062가 다뤘다(`pnpm approve-builds --all` 안내).
 - 이 분해 원칙(번들러만 축, PM/React버전은 엣지케이스, 기능은 스택불변, publish-time만)을 기록해두는 이유: 안 남기면 나중 세션이 "스택마다 진짜 앱 다시 만들자"로 되돌아가 곁가지에 시간을 쓸 위험이 있다.

@@ -57,7 +57,7 @@
     "*.css"
   ],
   "scripts": {
-    "prepublishOnly": "npm run build:lib",
+    "prepublishOnly": "npm run build:lib && npm run verify:matrix",
     "postinstall": "node cli/postinstall.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
