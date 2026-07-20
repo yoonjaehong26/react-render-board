@@ -1,6 +1,6 @@
 # ADR-0044: hover 혈통 점등 — 간선 클러터 감쇠 c (on-demand)
 
-- 상태: 채택됨(구현)
+- 상태: 채택됨(구현). **단, 아래 결정 중 "부모 색은 hover에서만"은 [ADR-0047](0047-always-on-parent-colored-edges.md)이 상시 적용으로 대체함(superseded-in-part)** — 현재 코드는 모든 간선에 상시 부모 도메인 색(`edge-parent-palette-N`)을 부여한다. hover 혈통 점등(굵기·dimming·혈통 계산) 자체는 유효.
 - 날짜: 2026-07-18
 
 ## 맥락 (Context)
@@ -16,6 +16,7 @@
 - **강한 점등 + dimming은 CSS가 담당.** hover 중 `canvas`에 `lineage-active` 클래스를 붙이고(`search-active`와 같은 방식), `.lineage-active .react-flow__edge:not(.edge-lineage)…`가 혈통 아닌 간선을 opacity 0.04로 거의 지운다. 점등 간선은 깊이 감쇠(`edge-depth-N`)·중간 줌 LOD(`.zoom-mid .edge-detail`)를 **무시하고** **굵게(width 3) + 은은한 글로우**로 되살아난다("검색은 언제나 이긴다"의 연장 — LOD 규칙 셀렉터에 `:not(.edge-lineage)` 추가).
 - **점등 색 = 각 간선의 부모(source) 노드 도메인 색**(연구문서 규칙 7 "선 정체성"). `toFlow`/`flowEdgesDecorated`가 부모의 팔레트 인덱스로 `edge-parent-palette-{0..7}` 클래스를 얹고, CSS가 그 색으로 stroke를 덮어쓴다(그룹 간 간선의 주황 `!important`보다 셀렉터 특이도가 높아 이긴다). 조상 체인이 그룹 경계를 넘으면 색이 도메인 따라 바뀌어, 혈통이 "어느 도메인을 거쳐 내려왔는지"가 색으로 읽힌다.
 - **부모 색은 hover에서만.** 모든 간선을 상시 부모 색으로 칠하면 방금 a·b로 죽인 그룹 내 간선 잉크가 그대로 되살아나 클러터가 복원된다. 그래서 색 입힘은 `lineage-active` 스코프 CSS로만 — 간선 수가 적고 주목도가 높은 hover 순간에만 색이 의미(도메인 정체성)를 더하고 평상시 화면은 감쇠 상태를 유지한다.
+  > **⚠️ 이 결정은 [ADR-0047](0047-always-on-parent-colored-edges.md)이 뒤집었다.** "opacity로 이미 감쇠했으니 색까지 감쇠할 필요 없다 — 같은-그룹은 부모가 그 그룹 안이라 그룹당 단색이 돼 haze가 아니라 도메인 응집으로 읽힌다"는 근거로, 부모 도메인 색을 **상시** 적용하는 것으로 바뀌었다. 색 부여는 `lineage-active` CSS가 아니라 `toFlow`가 담당하고, 구 hover 전용 `colorIndexById`는 제거됐다. hover는 이제 색이 아니라 **굵기·dimming**으로만 혈통을 점등한다.
 - **역할 분리.** hover = **구조 혈통**(조상+자손, 이 ADR). 클릭/선택 = **데이터 흐름 추적**(ADR-0032, 특정 참조가 어디로). 둘은 다른 제스처·다른 정보라 공존한다. 추적/활동 간선은 혈통 dim의 예외(신호)이고, 혈통이면서 추적이면 둘 다 얹힌다.
 
 ## 근거 (Rationale)

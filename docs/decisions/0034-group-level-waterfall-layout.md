@@ -1,6 +1,6 @@
 # ADR-0034: 그룹 간 배치 — 단일 행-패킹 → 부모 깊이 기반 waterfall(층 배치)
 
-- 상태: 채택됨(ADR-0008의 "그룹 간 배치" 결정을 수정 — 그룹 내부 배치·순서 안정성 전략은 유지)
+- 상태: 채택됨(ADR-0008의 "그룹 간 배치" 결정을 수정 — 그룹 내부 배치·순서 안정성 전략은 유지). **배치 방식은 이후 대체/개정됨**: x 좌표는 [ADR-0056](0056-downfall-parent-anchored-placement.md)(부모 앵커)→[ADR-0058](0058-tidy-tree-centered-group-layout.md)(tidy-tree 중앙 정렬)로 대체됐고(이 ADR의 "단일 행-패킹" 및 `MAX_ROW_WIDTH` 줄바꿈은 이제 폴더 중첩([ADR-0053](0053-folder-nested-grouping.md)) 경로에만 잔존, `computeGroupDepths`는 y-밴드 전용으로 역할 축소), 공유(다중부모) 그룹 처리는 아래 결정의 "옵션 (A)=최장 층에 1회"가 [ADR-0061](0061-shared-ui-lane.md)의 별도 "공유 레인"(원문에서 기각했던 옵션 B 계열)으로 개정됐다. 아래 본문은 당시 결정 기록으로 남긴다.
 - 날짜: 2026-07-18
 
 ## 맥락 (Context)

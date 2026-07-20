@@ -1,4 +1,4 @@
-// 캔버스 스티키노트(ADR-0029) — RenderNode/RenderSnapshot과 무관한 순수 UI 주석이라, 데이터
+// 캔버스 스티키노트(ADR-0031) — RenderNode/RenderSnapshot과 무관한 순수 UI 주석이라, 데이터
 // 레이어를 거치지 않고 캔버스 좌표계에 좌표(x/y)만 들고 localStorage에 직접 영속화한다.
 // vision.md/ui-philosophy.md가 말하는 "온보딩 중 낯선 구조에 메모 남기기" 용도는 1인 로컬
 // 사용 시나리오라 실시간 공유 없이 이걸로 충분하다(research/2026-07-17-react-flow-ux-capabilities.md

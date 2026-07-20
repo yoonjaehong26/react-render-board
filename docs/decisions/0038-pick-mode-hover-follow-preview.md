@@ -29,7 +29,7 @@ UI QA에서 사용자가 원한 건 react-scan / React DevTools 엘리먼트 피
 **픽 모드가 켜져 있는 동안 마우스를 따라 커서 아래 요소를 실시간 강조하는 hover-follow 프리뷰를 추가한다.**
 
 - `interactionStore`에 `hoverElements` 상태와 `setHoverElements()` 추가 — 클릭 하이라이트와 분리된 라이브 상태(타이머 없음). 같은 요소면 알림을 보내지 않아(mousemove 스팸 방지) 요소가 실제로 바뀔 때만 재렌더한다. **픽 모드를 끄면 즉시 비운다.**
-- `domInteraction.ts`의 클릭 브리지에 mousemove 브리지 추가 — **픽 모드가 켜진 동안만** subjectContainer에 `mousemove`/`mouseleave` 리스너를 붙이고(꺼지면 뗀다 → 평소 mousemove 비용 0), `requestAnimationFrame`으로 프레임당 1회만 `setHoverElements([커서 아래 요소])`를 반영한다.
+- `domInteraction.ts`의 클릭 브리지에 mousemove 브리지 추가 — **픽 모드가 켜졌거나 Alt(⌥)가 눌린 동안만**(`pickModeActive || altHeld`, Alt-held 확장은 ADR-0032 후속에서 추가) subjectContainer에 `mousemove`/`mouseleave` 리스너를 붙이고(둘 다 아니면 뗀다 → 평소 mousemove 비용 0), `requestAnimationFrame`으로 프레임당 1회만 `setHoverElements([커서 아래 요소])`를 반영한다.
 - `DomHighlightOverlay`가 `hoverElements`를 **CSS 깔끔한 테두리 + 옅은 대각선 헷칭**(`.dom-highlight-overlay__hover`, `repeating-linear-gradient`)으로 실시간 렌더한다 — 클릭 하이라이트(`.dom-highlight-overlay__box`, 실선 박스+틴트)와 별도 클래스로 구분. 요소가 바뀔 때 위치/크기를 90ms로 전환해 "손으로 짚어가는" 미끄러지는 느낌을 준다. 헷칭은 크기 무관하게 늘어나므로 어떤 요소에도 왜곡 없이 깔끔하다.
 
 ## 근거 (Rationale)

@@ -34,7 +34,7 @@
 
 - **이름 사용 가능**: `npm view react-render-board` → 404(미등록). 선점 리스크 없음.
 - **MIT**: 선행 프로젝트(React-Sight 등) 대부분 MIT라 참고 코드 활용에 유리하고, "나중에 오픈소스화" 방향과도 정합적. 없으면 "all rights reserved"라 남이 법적으로 못 쓴다.
-- **`prepublishOnly`로 빌드 게이트**: publish 직전 `build:lib`가 강제 실행돼, 낡거나 깨진 `dist-lib`가 올라가는 걸 막는다.
+- **`prepublishOnly`로 빌드 게이트**: publish 직전 `build:lib`가 강제 실행돼, 낡거나 깨진 `dist-lib`가 올라가는 걸 막는다. *(갱신: 이후 [ADR-0072](0072-distribution-matrix-verification.md)에서 배포 매트릭스 검증이 추가돼 현재 값은 `"npm run build:lib && npm run verify:matrix"`이다.)*
 - **`0.1.0`(1.0.0 아님)**: 아직 "제품 완성"이 아니라 "설치해 쓸 수 있는 초기 버전"임을 semver로 표현. 이후 다듬어 올린다.
 
 ## 결과 (Consequences)

@@ -259,7 +259,7 @@ createRoot(overlayHost).render(
 
 ## 프로젝트 상태
 
-🚀 **npm 배포됨 (`0.2.0`, MIT).** 엔진(훅킹→데이터→시각화) 완성 + 3개 번들러(Vite/Turbopack/webpack) `install`→캔버스 실측 완료. vitest 유닛 테스트 335개.
+🚀 **npm 배포됨 (`0.2.1`, MIT — 레포 현재 버전 `0.2.4`는 소유자 publish 대기).** 엔진(훅킹→데이터→시각화) 완성 + 3개 번들러(Vite/Turbopack/webpack) `install`→캔버스 실측 완료. vitest 유닛 테스트 335개.
 
 - [x] 기술·UI 검증, 라이브 MVP, 실제 제3자 앱 검증(excalidraw / berry-admin / shadcn-admin)
 - [x] 확인된 결함 5건(P0~P4) 해소 + 테스트 커버리지 + 패키지 배포 준비

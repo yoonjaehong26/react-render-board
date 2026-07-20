@@ -7,7 +7,7 @@
 // 없이 기존 트리의 서브체인을 하이라이트하는 것이므로, 클릭은 Canvas의 trackedIds 상태만 바꾼다.
 //
 // 위치·크기: 캔버스를 자유롭게 떠다니는 창이라 헤더 드래그로 옮기고 좌하단 핸들로 크기를 바꾼다
-// (ADR-0051). props가 많아지면 넓게/길게 늘려 볼 수 있어야 해서다. 좌표/크기는 컨테이너
+// (ADR-0052). props가 많아지면 넓게/길게 늘려 볼 수 있어야 해서다. 좌표/크기는 컨테이너
 // (.canvas) 기준으로 계산하고 localStorage에 기억한다(propsPanelPreference.ts).
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';

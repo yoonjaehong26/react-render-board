@@ -106,7 +106,7 @@ function nodesShallowEqual(a: Node, b: Node): boolean {
 // 높게 잡아, 갓 식어가는 잔열까지 간선으로 번지지 않고 "지금 확실히 바쁜" 경로만 잡는다.
 const AFTERGLOW_EDGE_HOT = 0.15;
 
-// 스티키노트(ADR-0029) 고정 크기 — NODE_WIDTH/HEIGHT(layout.ts)와 달리 이건 레이아웃 엔진이
+// 스티키노트(ADR-0031) 고정 크기 — NODE_WIDTH/HEIGHT(layout.ts)와 달리 이건 레이아웃 엔진이
 // 관리하지 않는 자유 배치 노드라 여기서 직접 상수로 둔다.
 const STICKY_NOTE_WIDTH = 180;
 const STICKY_NOTE_HEIGHT = 140;
@@ -249,7 +249,7 @@ function BoardContent({
   // 묶는다. 폴더 경로는 파이버 _debugStack에서 파싱(dev 전용)하고, 못 얻으면 파일 그룹핑으로 폴백.
   // 세션 탐색 보조라 wideDetail과 같이 영속화하지 않는다.
   const [nestFolders, setNestFolders] = useState(false);
-  // 그룹 접기/펼치기(ADR-0029). 세션 안에서만 유지되는 탐색 보조 상태라 localStorage에
+  // 그룹 접기/펼치기(ADR-0031). 세션 안에서만 유지되는 탐색 보조 상태라 localStorage에
   // 영속화하지 않는다(다크모드처럼 "장기 선호"가 아니라 "지금 이 화면을 정리해서 보는" 용도).
   const [manuallyCollapsedGroups, setManuallyCollapsedGroups] = useState<Set<string>>(new Set());
   const toggleGroupCollapse = (group: string) => {
@@ -363,7 +363,7 @@ function BoardContent({
       // 아예 없어(ADR-0017) 하이라이트도 fitView도 대상이 존재하지 않는 조용한 실패가 된다.
       // "검색은 언제나 이긴다"는 ui-philosophy.md의 탈출구 원칙을 그룹 접기에도 그대로 적용한다.
       if (group === highlightedGroup || matchedGroups.has(group) || trackedGroups.has(group)) return true;
-      if (manuallyCollapsedGroups.has(group)) return false; // 그룹 접기/펼치기 (ADR-0029)
+      if (manuallyCollapsedGroups.has(group)) return false; // 그룹 접기/펼치기 (ADR-0031)
       // 지도 모드 = 영역만(wideDetail이면 예외, ADR-0049) — 단 작은 트리는 지도 모드라도 항상
       // 디테일을 보여준다(ADR-0066). 원래 이 억제는 노드 수천/그룹 100개+에서만 의미 있는
       // 최적화(ADR-0018)였는데 노드 수와 무관하게 순수 줌 배율로만 걸려 있어, 수십 노드짜리
@@ -579,7 +579,7 @@ function BoardContent({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery]);
 
-  // 정방향 인터랙션(ADR-0024/0025)과 컨텍스트 메뉴(ADR-0029)의 "실제 화면에서 보기" 액션이
+  // 정방향 인터랙션(ADR-0024/0025)과 컨텍스트 메뉴(ADR-0031)의 "실제 화면에서 보기" 액션이
   // 공유하는 로직 — 대응하는 실제 DOM 요소를 하이라이트한다.
   const highlightComponentNode = (id: number) => {
     const fiber = store.getFiber(id);
@@ -660,7 +660,7 @@ function BoardContent({
     selectComponentNode(id, (node.data as ComponentNodeData).displayName);
   };
 
-  // 우클릭 컨텍스트 메뉴(ADR-0029) — 그룹은 접기/펼치기 토글 + 이 그룹으로 확대, 컴포넌트는
+  // 우클릭 컨텍스트 메뉴(ADR-0031) — 그룹은 접기/펼치기 토글 + 이 그룹으로 확대, 컴포넌트는
   // 클릭과 같은 하이라이트 + 검색창에 이 이름 채우기(검색 기능과의 연동). 스티키노트는 자유
   // 배치 주석일 뿐이라 컨텍스트 메뉴 액션이 없다(우클릭 시 아무 일도 안 함).
   const handleNodeContextMenu: NodeMouseHandler = (event, node) => {
@@ -693,7 +693,7 @@ function BoardContent({
     }
   };
 
-  // 캔버스 스티키노트(ADR-0029) — RenderNode 데이터와 무관한 순수 UI 주석이라 localStorage에
+  // 캔버스 스티키노트(ADR-0031) — RenderNode 데이터와 무관한 순수 UI 주석이라 localStorage에
   // 직접 영속화한다(최초 1회 하이드레이션 + 변경마다 저장).
   const [stickyNotes, setStickyNotes] = useState<StickyNote[]>(() => loadStickyNotes());
   useEffect(() => {

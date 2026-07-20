@@ -166,7 +166,7 @@ export function toFlow(
     sharedGroupMembers.set(n.group, arr);
   }
 
-  // 그룹+개별 동시 필터(ADR-미정) — matchedIds가 실제로 뭔가를 담고 있을 때만 켠다. 검색어가
+  // 그룹+개별 동시 필터(ADR-0033) — matchedIds가 실제로 뭔가를 담고 있을 때만 켠다. 검색어가
   // 비어 있으면(matchedIds.size === 0) filterToMatches가 true여도 무시해 화면이 통째로
   // 비지 않게 한다.
   const filtering = !!filterToMatches && !!matchedIds && matchedIds.size > 0;

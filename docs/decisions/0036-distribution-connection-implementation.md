@@ -23,7 +23,9 @@
 
 ADR-0021이 채택한 `transformIndexHtml`(`order:'pre'`, `injectTo:'head-prepend'`)로, dev 서버가 서빙하는 HTML `<head>`에 `<script type="module">import 'react-render-board/inject'</script>`를 주입한다. 스파이크의 "자기 완결형 스텁"과 달리, 인라인 module의 bare/루트-상대 import를 Vite dev가 그 자리에서 해석하므로 실제 라이브러리 진입점을 로드한다. `entry` 옵션으로 로컬 개발/검증 시 소스 경로로 바꿔 끼울 수 있다.
 
-### 3. CLI `init` — `cli/bin.mjs` (`npx react-render-board init`)
+### 3. CLI `init` (`npx react-render-board init`)
+
+> **갱신:** 이 ADR 작성 시점엔 감지/패치 로직이 `cli/bin.mjs`에 있었으나, 이후 [ADR-0062](0062-postinstall-automation.md)에서 공유 로직을 `cli/init-core.mjs`의 `runInit()`으로 분리했다(`cli/bin.mjs`는 이를 호출하는 얇은 진입점). 또한 `npm install` 직후 `cli/postinstall.mjs`가 자동으로 `runInit`을 돌려 대부분의 경우 수동 `init` 명령조차 불필요해졌다(npm/yarn). 아래 서술의 "감지·패치" 동작은 그대로 유효하며, 소재 파일만 이동했다.
 
 번들러를 감지해:
 - **Vite** → `vite.config` 자동 패치(import 추가 + `plugins` 배열에 `rrbInjectPlugin()` 삽입). 멱등(재실행 시 "변경 없음").

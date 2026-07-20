@@ -31,7 +31,7 @@
 
 - **실측**: 데모 상세 줌에서 크로스-그룹 6간선 전부 ortho 경로, **남의 그룹 프레임 관통 0**(거터 배선). `scripts/verify-edge-routing.mjs`(`npm run verify:edge-routing`)로 회귀 가드. 유닛 테스트 8개(`edgeRouting.test.ts` — 장애물 회피, 자기 프레임 제외, 다중 장애물 클리어, **벽 사이 통로 완전 회피(A* 완전성)**, 피드백 폴백, path 생성).
 - **v2가 v1을 대체**: v1의 "3-세그먼트+우회, 못 풀면 중점 폴백(관통 가능)"을 Hanan-그리드 A*로 교체해 **완전 회피**를 보장한다(우회로가 있으면 반드시 찾음).
-- **남은 것(v3)**: ① **간선 간 교차 최소화 + 명시적 버스 획 병합(7절 d, 규칙 8)** — 현재는 간선별 독립 A*라 서로 다른 부모의 경로가 채널에서 **교차**할 수 있고(피드백), 한 부모의 여러 간선을 트렁크+바로 "명시적으로" 합치는 회로도풍 정렬도 없다. 둘 다 채널 안에서 간선 순서를 배정하는 **coordination pass**(간선 간 좌표 공유, metro-line crossing minimization)가 필요하다 — v2의 간선별 순수 함수 구조를 넘어서는 부분이라 별도 라운드. ② 실제 앱(excalidraw/shadcn) 대규모 실측 — 9000노드 렌더가 자동화 도구를 막아 미완(데모+유닛으로 검증). ③ 초대형에서 A* 격자 비용 프로파일링(현재는 bbox 제한 + memoize로 충분).
+- **남은 것(v3)** *(갱신: ①은 이후 구현됨 — [ADR-0054](0054-edge-routing-v3-coordination-design.md) Phase 2 `routeCrossGroupBuses`(트렁크+바+스텁 병합)와 [ADR-0060](0060-corridor-local-sticky-edge-tracks.md) Phase 3 `assignGutterTracks`(sticky 트랙)가 같은 `edgeRouting.ts`에 존재하며, 병합이 프레임을 관통하면 그 간선만 A* 폴백해 관통 0 유지. 색은 [ADR-0059](0059-edge-target-color-gradient-and-lane-spread.md) 타깃 그라데이션. ②③은 여전히 유효)*: ① **간선 간 교차 최소화 + 명시적 버스 획 병합(7절 d, 규칙 8)** — 현재는 간선별 독립 A*라 서로 다른 부모의 경로가 채널에서 **교차**할 수 있고(피드백), 한 부모의 여러 간선을 트렁크+바로 "명시적으로" 합치는 회로도풍 정렬도 없다. 둘 다 채널 안에서 간선 순서를 배정하는 **coordination pass**(간선 간 좌표 공유, metro-line crossing minimization)가 필요하다 — v2의 간선별 순수 함수 구조를 넘어서는 부분이라 별도 라운드. ② 실제 앱(excalidraw/shadcn) 대규모 실측 — 9000노드 렌더가 자동화 도구를 막아 미완(데모+유닛으로 검증). ③ 초대형에서 A* 격자 비용 프로파일링(현재는 bbox 제한 + memoize로 충분).
 - **성능**: 크로스-그룹 간선은 소수(수십)라 간선당 O(장애물 수) 경로 계산이 가볍다. 장애물은 그룹 프레임(수십)뿐이고 `EdgeObstaclesContext`로 공유해 간선마다 재계산 안 함.
 - **되돌리기 쉬움**: `type:'ortho'`를 `'smoothstep'`으로 되돌리면 끝(edgeTypes/함수는 남아도 무해). 데이터·레이아웃 불변.
 
