@@ -36,7 +36,7 @@
 | 데이터 | `src/data/{serialize,sourceHints,store,types}.ts` | Fiber → 정규화 노드, groupHint 비동기 해석(+폴더 그룹핑용 전체 경로 groupPath는 `_debugStack` 파싱, ADR-0053), 구독 가능한 store(+id→Fiber 보조 조회) |
 | 시각화 | `src/visualization/` | React Flow 기반 그룹 프레임+노드, 그룹 경계 횡단 엣지, semantic zoom(지도↔상세), host 노드 기본 숨김, 도킹 패널 셸(`BoardOverlay.tsx`) |
 
-보드에서 실제로 되는 것: 실시간 렌더 트리 관찰, 도메인별 그룹 프레임, 줌아웃 시 지도 모드/줌인 시 상세 모드 전환("지도에서도 상세" 토글로 줌아웃해도 내부 유지, ADR-0049), host 노드 토글, 수천 개 노드까지 안 뭉개짐(P0~P4 반영 후), 리스트(같은 종류 형제 ≥5)는 대표 하나 + "×N"으로 접어 구조 안정화(ADR-0046), **"폴더로 묶기" 토글로 파일 그룹을 상위 폴더 프레임으로 2단 중첩(folder>file>component, ADR-0053)**, **그룹 간 배치는 downfall tidy-tree 중앙 정렬(부모를 자식 스팬 중앙 위에, 대칭 트리; ADR-0058이 ADR-0056 부모 앵커의 우측 치우침을 대체)**, **공유 UI 레인(pillar ②, ADR-0061): 다중 부모(groupParents≥2) 컨테이너를 트리에서 빼 아래 별도 "공유" 밴드(부모 centroid 아래)로(남은 트리 순수화·요동 0) — 상시 긴 선 대신 사용처에 "↘X 공유" 인라인 칩(전체 연결은 호버 점등 예정)+"×N 사용" 배지, Dialog fixture로 실증(증분1=리프 컨테이너)** — 남은 안정성 설계(슬롯 예약 "학습·동결 지도", pillar ③)는 [설계 확정 문서](research/2026-07-18-stable-skeleton-shared-ui-lane.md)로 동결(지터 통증 검증 후). 고빈도 앱(60~240Hz)에서도 store notify 스로틀(~30Hz 캡) + 안 바뀐 노드 참조 재사용으로 과도한 재렌더/깜빡임을 줄임(ADR-0050).
+보드에서 실제로 되는 것: 실시간 렌더 트리 관찰, 도메인별 그룹 프레임, 줌아웃 시 지도 모드/줌인 시 상세 모드 전환("지도에서도 상세" 토글로 줌아웃해도 내부 유지, ADR-0049), host 노드 토글, 수천 개 노드까지 안 뭉개짐(P0~P4 반영 후), 리스트(같은 종류 형제 ≥5)는 대표 하나 + "×N"으로 접어 구조 안정화(ADR-0046), **"폴더로 묶기" 토글로 파일 그룹을 상위 폴더 프레임으로 2단 중첩(folder>file>component, ADR-0053)**, **그룹 간 배치는 downfall tidy-tree 중앙 정렬(부모를 자식 스팬 중앙 위에, 대칭 트리; ADR-0058이 ADR-0056 부모 앵커의 우측 치우침을 대체)**, **공유 UI 레인(pillar ②, ADR-0061): 다중 부모(groupParents≥2) 컨테이너를 트리에서 빼 아래 별도 "공유" 밴드(부모 centroid 아래)로(남은 트리 순수화·요동 0) — 상시 긴 선 대신 사용처에 "↘X 공유" 인라인 칩(전체 연결은 호버 점등 예정)+"×N 사용" 배지, Dialog fixture로 실증, 증분2(자식 있는 공유 컨테이너 — 레인 안 미니 tidy-tree)까지 완료** — 남은 안정성 설계(슬롯 예약 "학습·동결 지도", pillar ③)는 [설계 확정 문서](research/2026-07-18-stable-skeleton-shared-ui-lane.md)로 동결(지터 통증 검증 후). 고빈도 앱(60~240Hz)에서도 store notify 스로틀(~30Hz 캡) + 안 바뀐 노드 참조 재사용으로 과도한 재렌더/깜빡임을 줄임(ADR-0050).
 
 ### 🟢 보드 ↔ 실제 DOM 양방향 인터랙션 — 구현됨 (ADR-0024/0025/0026, hover 프리뷰 ADR-0038)
 
@@ -248,6 +248,8 @@ vision.md가 던진 성공 질문("완성 후에도 계속 붙잡을 동기가 �
 **ADR-0071 — `groupHint` 해석 배치 hang 타임아웃(2026-07-19, react-render-board를 다른 프로젝트에 설치해 쓴 세션이 제보).** 또 다른 실사용 리포트: Next+Turbopack 프로젝트에서 렌더 트리 캡처는 정확한데(콘솔 에러 0건) 앱 컴포넌트 77개 전부가 "(그룹 확인 중…)"에 25초+ 영구히 갇혔다. 리포트는 Turbopack owner-stack 파싱 실패로 추정했으나, 실제 원인은 **번들러 무관 아키텍처 결함**이었다: `resolveGroupHints`(`src/data/sourceHints.ts`)가 배치 안 모든 fiber의 `getSource` 호출을 하나의 `Promise.all`로 묶는데, `getSource` 내부 sourcemap fetch가 reject 없이 응답 없는 채로 hang하면 catch가 안 걸리고 **배치 전체**가 영원히 안 풀린다(초기 커밋엔 앱 전체가 한 배치). 개별 `getSource` 호출에 5초 타임아웃(`Promise.race`)을 추가해 hang한 항목만 기존 null 폴백(파일 그룹핑)을 타도록 수정. Turbopack에서 sourcemap fetch가 왜 무응답이었는지 근본 원인은 미규명(재현 fixture 없음, blocker 아님). 세부 내용은 [ADR-0071](decisions/0071-group-hint-batch-hang-timeout.md) 참고. **`0.2.4`로 범프 완료, `npm publish`만 소유자 2FA 실행 대기.**
    - ~~보드 ↔ 실제 DOM 양방향 인터랙션~~ — **완료(2026-07-18).** 정방향(노드 클릭→DOM 하이라이트)·역방향(Alt+클릭/픽 모드→보드 이동) 전부 구현. 구현 중 셸 충돌(전체화면→도킹 패널, ADR-0025)과 역방향 트리거 범위(모든 클릭→Alt+클릭/픽 모드로 축소) 두 가지 실측 결함을 발견해 그 자리에서 고쳤다. 세부 내용은 [ADR-0026](decisions/0026-bidirectional-interaction-implementation.md) 참고.
    - ~~검색 하이라이트+자동 이동, 다크모드+도메인 팔레트~~ — **완료(2026-07-18).** 구현 중 다른 세션의 병행 편집(rough.js 손그림 테두리)을 발견해 검색 강조/팔레트 표현 방식을 재설계했고, 역방향 인터랙션이 접힌 그룹 안 노드를 못 가리키던 gap도 함께 발견해 고쳤다. 세부 내용은 [ADR-0027](decisions/0027-search-and-theme-ux-round.md) 참고.
+
+**ADR-0072 — 배포 매트릭스 검증(2026-07-20).** ADR-0067~0071로 스택별(주로 Next+Turbopack) 실사용 결함이 반복되자, "여러 번들러를 한 레포에서 자동 검증"하는 방안을 논의. 전 축(번들러×패키지매니저×React버전) 곱 대신 **번들러/프레임워크만 진짜 축**(주입 지점이 실제로 다름)으로 분해하고 패키지매니저는 엣지케이스로, 기능은 스택 불변이라 매트릭스에서 제외했다. `npm run verify:matrix`(`scripts/verify-matrix.mjs`)가 기존 `verify-init.mjs`(Vite)·`verify-init-webpack.mjs`·`verify-init-next-canvas.mjs`(Next/Turbopack) 3개를 새 어서션 없이 순회하며 pass/fail 표 + 스크린샷(`verify-output/matrix/`)만 남긴다. 실측 3개 전부 PASS. 주기적 스케줄러(사용자가 검토한 OCI 서버 등)는 "우리가 안 건드렸는데 저절로 깨진" 재발 증거가 없어 기각 — publish 직전 1회 수동 실행. Rspack·pnpm strict·yarn Berry는 스캐폴드만 있고 검증 스크립트는 의도적 미구현(증거 생기면 추가). 세부 내용은 [ADR-0072](decisions/0072-distribution-matrix-verification.md) 참고.
 3. (선택) 메모리 누수 격리 재실행, groupHint 해석 급락 원인 규명 등 "조사 필요" 항목은 위 2번과 병행하거나 뒤로 미룬다.
 4. **기능 완성 후에야** 7-2의 생존 전략(오픈소스화 여부·방식)을 다시 연다.
 
@@ -258,7 +260,7 @@ vision.md가 던진 성공 질문("완성 후에도 계속 붙잡을 동기가 �
 - 아키텍처·설계 원칙: [`architecture.md`](architecture.md)
 - 로드맵·판단 지점: [`roadmap.md`](roadmap.md)
 - UI 철학: [`ui-philosophy.md`](ui-philosophy.md)
-- 전체 의사결정 기록: [`decisions/`](decisions/) (ADR-0001~0035)
+- 전체 의사결정 기록: [`decisions/`](decisions/) (ADR-0001~0072)
 - 선행 프로젝트 조사: [`research/prior-art.md`](research/prior-art.md)(요약) · [`research/2026-07-17-prior-art-survey.md`](research/2026-07-17-prior-art-survey.md) · [`research/2026-07-17-prior-art-causes-and-legacy.md`](research/2026-07-17-prior-art-causes-and-legacy.md)
 - 기술 옵션 조사(훅킹·시각화 레이어 후보): [`research/technical-options.md`](research/technical-options.md)
 - React Flow UX 확장 가능 범위 조사(미구현): [`research/2026-07-17-react-flow-ux-capabilities.md`](research/2026-07-17-react-flow-ux-capabilities.md)
