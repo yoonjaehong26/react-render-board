@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 💬 Question / discussion
+    url: https://github.com/yoonjaehong26/react-render-board/discussions
+    about: Usage questions and open-ended ideas — if Discussions is enabled. Otherwise a blank issue is fine.

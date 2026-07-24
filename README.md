@@ -4,96 +4,99 @@
 [![license](https://img.shields.io/npm/l/react-render-board.svg)](./LICENSE)
 [![React](https://img.shields.io/badge/React-18%20%7C%2019-61dafb.svg)](https://react.dev)
 
-> React 앱의 **실시간 렌더 트리**를 Figma 같은 보드 위에 박스+선 다이어그램으로 시각화하는 **dev 전용** 도구.
+English | **[한국어](README.ko.md)**
 
-React DevTools의 들여쓰기 리스트 뷰가 아니라, 실행 중인 컴포넌트 구조를 **공간적으로 배치된 노드 다이어그램**으로 보여줍니다. 새 코드베이스에 처음 들어온 사람이 전체 구조를 한눈에 파악하는 것을 목표로 합니다.
+> A **dev-only** tool that visualizes your React app's **live render tree** as a box-and-line diagram on a Figma-like board.
+
+Instead of React DevTools' indented list view, it shows your running component structure as a **spatially arranged node diagram**. The goal: someone landing in a new codebase can grasp the whole structure at a glance.
 
 ```bash
-npm install --save-dev react-render-board   # postinstall이 번들러를 감지해 자동 설정
-npm run dev                                   # 앱 우측 하단에 보드 버튼이 뜬다
+npm install --save-dev react-render-board   # postinstall detects your bundler and wires everything up
+npm run dev                                   # a board button appears at the bottom-right of your app
 ```
 
-> **pnpm 사용자는 한 단계 더 필요합니다** — pnpm은 설치 스크립트를 기본 차단해 위 자동 설정이 안 걸립니다. 바로 [pnpm 섹션](#pnpm)을 확인하세요.
+> **pnpm users need one extra step** — pnpm blocks install scripts by default, so the auto-setup above won't run. See the [pnpm section](#pnpm).
 
 ---
 
-## 목차
+## Table of contents
 
-- [무엇이 다른가](#무엇이-다른가)
-- [핵심 기능](#핵심-기능)
-- [설치](#설치)
+- [How it's different](#how-its-different)
+- [Features](#features)
+- [Installation](#installation)
   - [npm / yarn](#npm--yarn)
   - [pnpm](#pnpm)
-  - [수동 설정](#수동-설정-init)
-- [번들러별 설정](#번들러별-설정)
-- [동작 원리](#동작-원리)
-- [프로그래밍 방식 API](#프로그래밍-방식-api-커스텀-통합)
-- [호환성](#호환성)
-- [요구사항 · 한계](#요구사항--한계)
-- [프로젝트 상태](#프로젝트-상태)
-- [문서](#문서)
-- [개발](#개발-이-레포에서)
-- [라이선스](#라이선스)
+  - [Manual setup](#manual-setup-init)
+- [Per-bundler setup](#per-bundler-setup)
+- [How it works](#how-it-works)
+- [Programmatic API](#programmatic-api-custom-integration)
+- [Compatibility](#compatibility)
+- [Requirements & limitations](#requirements--limitations)
+- [Project status](#project-status)
+- [Contributing](#contributing)
+- [Documentation](#documentation)
+- [Development](#development-in-this-repo)
+- [License](#license)
 
 ---
 
-## 무엇이 다른가
+## How it's different
 
-| 도구 | 접근 | 한계 |
+| Tool | Approach | Limitation |
 |---|---|---|
-| **React DevTools** | 실행 중 트리를 텍스트 리스트로 | 강력하지만 "전체 그림"이 직관적으로 안 들어옴 |
-| **CodeSee / 정적 분석** | `import` 관계를 그래프로 | 실제 렌더 구조(`children` prop, Context, 포탈 등)와 불일치 |
-| **react-render-board** | **실행 중** Fiber 트리를 **공간 다이어그램**으로 | React 전용 · dev 전용 (아래 [한계](#요구사항--한계)) |
+| **React DevTools** | Live tree as a text list | Powerful, but the "big picture" doesn't come through intuitively |
+| **CodeSee / static analysis** | Graphs `import` relationships | Diverges from the actual render structure (`children` props, Context, portals, …) |
+| **react-render-board** | **Live** Fiber tree as a **spatial diagram** | React-only · dev-only (see [limitations](#requirements--limitations)) |
 
-"실시간 렌더 트리 + Figma식 캔버스"라는 조합은 여러 팀이 시도했지만(React-Sight, Realize, Reactron 등) 모두 유지보수가 끊겼습니다. 이 조합은 현재 시장에서 비어 있습니다. 배경 조사는 [`docs/research/prior-art.md`](docs/research/prior-art.md) 참고.
+Several teams have tried the "live render tree + Figma-style canvas" combination (React-Sight, Realize, Reactron, …) — all unmaintained today. The niche is currently empty. Background research: [`docs/research/prior-art.md`](docs/research/prior-art.md) (Korean).
 
-**대상 사용자**: 매일 디버깅하는 베테랑이 아니라, **새 코드베이스에 처음 들어온 사람** — 온보딩, 코드 리뷰, 아키텍처 문서화, 신규 입사자 교육을 위한 도구입니다.
+**Target user**: not the veteran who debugs daily, but **someone entering a new codebase** — onboarding, code review, architecture documentation, teaching new hires.
 
 <!--
-데모 자리표시자 — 스크린샷/GIF를 아래에 넣으세요:
-![보드 개요](docs/assets/overview.gif)
+Demo placeholder — put screenshots/GIFs here:
+![Board overview](docs/assets/overview.gif)
 -->
 
 ---
 
-## 핵심 기능
+## Features
 
-### 구조 시각화
-- **실시간 렌더 트리** — React 커밋마다 Fiber 트리를 읽어 보드에 반영. 앱이 리렌더되면 보드도 따라 갱신됩니다.
-- **도메인별 그룹 프레임** — 컴포넌트를 소스 파일 경로 기준으로 묶어 색이 다른 프레임으로 표시. **"폴더로 묶기"** 토글로 파일 그룹을 상위 폴더로 2단 중첩(folder › file › component).
-- **Semantic zoom** — 줌아웃하면 지도 모드(도메인 개요), 줌인하면 상세 모드(개별 컴포넌트). "지도에서도 상세" 토글로 줌아웃해도 화면 안 그룹의 내부를 유지.
-- **tidy-tree 배치** — 부모를 자식 스팬의 중앙 위에 놓는 대칭 트리 레이아웃. 좌→우가 렌더 순서, 위→아래가 깊이.
-- **리스트 접기** — 같은 부모 밑 같은 종류 형제가 5개 이상이면 대표 하나 + "×N" 배지로 접어 구조를 안정화.
-- **host 노드 기본 숨김** — DOM 뷰어가 아니라 "컴포넌트 보드"라는 정체성 유지 (토글 가능).
+### Structure visualization
+- **Live render tree** — reads the Fiber tree on every React commit; when your app re-renders, the board follows.
+- **Domain group frames** — components are clustered by source file path into color-coded frames. A **"group by folder"** toggle nests file groups under their parent folder (folder › file › component).
+- **Semantic zoom** — zoom out for map mode (domain overview), zoom in for detail mode (individual components). A "detail in map" toggle keeps on-screen group internals visible even when zoomed out.
+- **Tidy-tree layout** — symmetric tree placement with each parent centered above its children's span. Left→right is render order, top→bottom is depth.
+- **List coalescing** — 5+ same-kind siblings under one parent collapse into a single representative + "×N" badge, keeping the structure stable.
+- **Host nodes hidden by default** — it's a "component board", not a DOM viewer (toggleable).
 
-### 보드 ↔ 실제 화면 양방향 인터랙션
-- **노드 → 화면**: 보드 노드를 클릭하면 대응하는 실제 DOM 요소에 하이라이트. **더블클릭**하면 그 요소로 스크롤 이동.
-- **화면 → 노드**: 앱에서 `Alt`(⌥)+클릭하거나 "요소 선택" 모드로 클릭하면 대응하는 보드 노드로 자동 이동+강조. (평소 클릭은 전혀 건드리지 않아 앱 조작을 방해하지 않음.)
-- **hover 프리뷰** — 픽 모드에서 커서 아래 요소를 실시간 강조("클릭하면 이게 선택된다"를 미리 보여줌).
+### Board ↔ live DOM two-way interaction
+- **Node → screen**: click a board node to highlight the matching DOM element. **Double-click** to scroll it into view.
+- **Screen → node**: `Alt`(⌥)+click in your app, or click with "pick element" mode on, to jump to and highlight the matching board node. (Normal clicks are never intercepted — your app stays fully usable.)
+- **Hover preview** — in pick mode, the element under the cursor is highlighted live ("this is what you'd select").
 
-### 탐색 · 필터
-- **검색 하이라이트 + 자동 이동** — 컴포넌트명/도메인명 검색 시 매치 강조 + 나머지 흐림 + 카메라 자동 이동. 접힌 그룹 안에 매치가 있으면 강제로 펼침.
-- **그룹 + 개별 필터** — "매치만 표시"로 매치 없는 그룹/노드를 아예 렌더에서 제외.
-- **그룹 접기/펼치기**, **우클릭 컨텍스트 메뉴**(그룹: 접기·확대 / 컴포넌트: 화면에서 보기·검색), **캔버스 스티키노트**(자유 배치 메모, localStorage 영속).
+### Search & filtering
+- **Search highlight + auto-navigate** — searching by component/domain name highlights matches, dims the rest, and moves the camera. Matches inside collapsed groups force them open.
+- **Group + individual filter** — "show matches only" excludes non-matching groups/nodes from rendering entirely.
+- **Group collapse/expand**, **right-click context menu** (groups: collapse·zoom-to / components: show on screen·search), **canvas sticky notes** (free-floating memos, persisted to localStorage).
 
-### 데이터 흐름 (실험적)
-- **props 흐름 추적 + 변경 잔상(afterglow)** — 노드 선택 시 우선순위 정렬 props 패널, prop 클릭 시 자손으로의 참조 추적을 간선 경로로 강조, props 변경이 부모→자식 간선을 타고 흐르는 애니메이션. (Context/외부 스토어 추적은 보류.)
+### Data flow (experimental)
+- **Props flow tracking + change afterglow** — selecting a node opens a priority-sorted props panel; clicking a prop traces its references into descendants along highlighted edges; prop changes animate flowing along parent→child edges. (Context/external-store tracking is deferred.)
 
-### 시각 언어
-- **도형 = 역할**: 라우트 진입 노드는 6각형, 포탈 `⧉`, Suspense 경계 `⏳`, 에러 바운더리 `🛡`.
-- **손그림 정체성** — Excalidraw풍 rough.js 스케치 테두리 (노드 수 무관 O(1) 정적 이미지).
-- **간선 정리** — 그룹 내 간선은 깊이별 감쇠, 그룹 간 간선은 직교 배선(프레임을 장애물로 회피) + 출발→타깃 도메인 색 그라데이션, hover 시 혈통(조상+자손) 점등.
-- **다크모드 + 도메인별 팔레트** — 그룹 이름 해시 기반 8색 고정 팔레트가 프레임·노드·미니맵에 일관 적용.
+### Visual language
+- **Shape = role**: route entry nodes are hexagons, portals `⧉`, Suspense boundaries `⏳`, error boundaries `🛡`.
+- **Hand-drawn identity** — Excalidraw-style rough.js sketch borders (static images, O(1) regardless of node count).
+- **Edge decluttering** — within-group edges fade by depth; cross-group edges get orthogonal routing (frames as obstacles) plus a source→target domain color gradient; hovering a node lights up its lineage (ancestors + descendants).
+- **Dark mode + per-domain palette** — a fixed 8-color palette (hashed from group names) applied consistently to frames, nodes, and the minimap.
 
-### 셸
-- **도킹 패널** — 화면 하단(기본)/좌/우 사이드바로 위치 전환 + 드래그 크기 조절 (localStorage 영속). **오버레이 전용** — 계측 대상 앱의 레이아웃/CSS는 절대 건드리지 않습니다.
-- **고빈도 안정성** — store 갱신을 ~30Hz로 스로틀하고 안 바뀐 노드는 참조를 재사용해 60~240Hz 앱에서도 깜빡임을 억제.
+### Shell
+- **Docked panel** — bottom (default), left, or right sidebar, with drag-resize (persisted to localStorage). **Overlay-only** — it never touches the host app's layout or CSS.
+- **High-frequency stability** — store updates are throttled to ~30Hz and unchanged nodes keep their references, suppressing flicker even in 60–240Hz apps.
 
 ---
 
-## 설치
+## Installation
 
-**dev 전용 도구입니다** — 프로덕션 빌드엔 주입되지 않습니다(다중 가드, [동작 원리](#dev-전용-가드) 참고).
+**This is a dev-only tool** — it is never injected into production builds (multiple guards, see [dev-only guards](#dev-only-guards)).
 
 ### npm / yarn
 
@@ -102,41 +105,41 @@ npm install --save-dev react-render-board
 npm run dev
 ```
 
-설치 직후 `postinstall`이 번들러를 감지해 설정을 **자동으로** 넣습니다. 그대로 `npm run dev`만 실행하면 앱 우측 하단에 보드 버튼이 뜹니다.
+Right after install, a `postinstall` hook detects your bundler and wires the config **automatically**. Just run `npm run dev` and a board button appears at the bottom-right of your app.
 
 ### pnpm
 
-pnpm은 처음 보는 패키지의 설치 스크립트를 기본 차단합니다(공급망 보안 정책 — `esbuild`·`sharp` 등 설치 스크립트가 있는 대부분의 유명 패키지도 동일하게 겪는 pnpm 표준 절차이며, 이 패키지만의 특이사항이 아닙니다). 한 번만 승인하면 됩니다:
+pnpm blocks install scripts from unknown packages by default (a supply-chain security policy — the same standard step applies to most well-known packages with install scripts, such as `esbuild` and `sharp`; it's not specific to this package). Approve once:
 
 ```bash
 pnpm install --save-dev react-render-board
-pnpm approve-builds --all   # 비대화형 일괄 승인. 고르고 싶으면 `pnpm approve-builds`
+pnpm approve-builds --all   # non-interactive bulk approval; use `pnpm approve-builds` to pick
 npm run dev
 ```
 
-> ⚠️ **`&&`로 이어 붙이지 마세요.** ignored-builds가 걸리면 `pnpm install`이 **exit code 1**을 돌려주므로(패키지 자체는 정상 설치됨) `&&` 뒤의 `approve-builds`가 조용히 스킵됩니다. 위처럼 줄을 나눠서(또는 `;`로) 실행하세요.
+> ⚠️ **Don't chain with `&&`.** When ignored-builds trip, `pnpm install` returns **exit code 1** (the package itself installs fine), so anything after `&&` is silently skipped. Run the lines separately (or join with `;`).
 
-### 수동 설정 (`init`)
+### Manual setup (`init`)
 
-자동 설정이 스킵됐거나 다시 확인하고 싶을 때:
+If auto-setup was skipped or you want to re-check:
 
 ```bash
 npx react-render-board init
 ```
 
-`init`(자동이든 수동이든)이 번들러를 감지해 설정을 구성하고, 실행 후 앱 우측 하단 버튼을 누르면 하단 도킹 패널에 실시간 렌더 트리가 그려집니다. **앱 소스 코드는 한 줄도 건드리지 않으며**(설정 파일만 수정), 프로덕션에는 들어가지 않습니다.
+`init` (automatic or manual) detects your bundler and configures it. After that, click the button at the bottom-right of your running app to open a docked panel with the live render tree. **It never touches your app's source code** (config files only) and never ships to production.
 
 ---
 
-## 번들러별 설정
+## Per-bundler setup
 
-`init`이 자동으로 하지만, 무엇을 하는지 알고 싶거나 직접 넣고 싶을 때 참고하세요.
+`init` does this for you — reference this section if you want to know what it does, or prefer to wire it manually.
 
-| 번들러 | `init`이 하는 일 | 수동 설정 |
+| Bundler | What `init` does | Manual setup |
 |---|---|---|
-| **Vite** | `vite.config`의 `plugins`에 플러그인 추가 | 아래 ① |
-| **Next.js / Turbopack** | 루트 `layout.tsx`에 조기 `<head>` 스크립트 + `RenderBoardClient` 배선 | 아래 ② |
-| **webpack** | `webpack.config`를 `withRenderBoard(...)`로 래핑 | 아래 ③ |
+| **Vite** | Adds a plugin to `plugins` in `vite.config` | ① below |
+| **Next.js / Turbopack** | Adds an early `<head>` script + `RenderBoardClient` wiring to the root `layout.tsx` | ② below |
+| **webpack** | Wraps `webpack.config` with `withRenderBoard(...)` | ③ below |
 
 **① Vite**
 
@@ -147,13 +150,13 @@ import react from '@vitejs/plugin-react';
 import { rrbInjectPlugin } from 'react-render-board/vite';
 
 export default defineConfig({
-  plugins: [react(), rrbInjectPlugin()],   // dev(serve)에서만 활성
+  plugins: [react(), rrbInjectPlugin()],   // active in dev (serve) only
 });
 ```
 
-**② Next.js / Turbopack** — Turbopack엔 플러그인 API가 없어 루트 `layout.tsx`의 `<head>`에 조기 `<script>`를 넣고(초기 커밋부터 버퍼링), `<body>`에 클라이언트 컴포넌트를 배선합니다. `npx react-render-board init`이 이 배선과 `RenderBoardClient.tsx` 생성을 자동으로 처리합니다(수동 편집 권장 안 함).
+**② Next.js / Turbopack** — Turbopack has no plugin API, so an early `<script>` goes into the root `layout.tsx` `<head>` (buffering commits from the very first one) and a client component is wired into `<body>`. `npx react-render-board init` handles this wiring and generates `RenderBoardClient.tsx` automatically (manual editing not recommended).
 >
-> **`layout.tsx`가 직접 수정되므로 `git status`에 잡힙니다.** 도구를 뗄 때는 `git checkout -- app/layout.tsx`(또는 diff에서 rrb 블록만 제거)로 되돌리세요. 이 변경은 커밋해도 안전합니다 — 스크립트는 `NODE_ENV !== 'production'` 가드로 감싸여 있어 프로덕션 빌드에는 포함되지 않습니다.
+> **`layout.tsx` is modified directly, so it shows up in `git status`.** To remove the tool, run `git checkout -- app/layout.tsx` (or strip just the rrb block from the diff). Committing the change is safe — the script is wrapped in a `NODE_ENV !== 'production'` guard and is excluded from production builds.
 
 **③ webpack**
 
@@ -161,39 +164,39 @@ export default defineConfig({
 // webpack.config.js
 const { withRenderBoard } = require('react-render-board/webpack');
 
-module.exports = withRenderBoard({ /* 기존 config */ });
+module.exports = withRenderBoard({ /* your existing config */ });
 ```
 
-> 보드 스타일은 `0.2.2`부터 런타임이 스스로 주입합니다 — 어떤 번들러에서도 별도 CSS 설정이 필요 없습니다(css-loader 불필요). 예전 안내로 앱 엔트리에 `import 'react-render-board/style.css'`를 추가했다면 지워도 됩니다(있어도 무해).
+> Since `0.2.2`, the runtime injects the board's styles itself — no CSS setup needed for any bundler (no css-loader required). If older instructions had you add `import 'react-render-board/style.css'` to your app entry, you can remove it (harmless if left).
 
 ---
 
-## 동작 원리
+## How it works
 
-소스 코드(`.jsx` 파일)를 파싱하지 **않습니다.** 대신 브라우저에서 **실행 중인** React 앱이 메모리에 만들어 둔 Fiber 트리를 실시간으로 읽습니다. React가 개발용으로 열어 둔 `window.__REACT_DEVTOOLS_GLOBAL_HOOK__`을 통해 접근합니다.
+It does **not** parse your source code (`.jsx` files). Instead, it reads the Fiber tree that your **running** React app already keeps in memory, in real time — via `window.__REACT_DEVTOOLS_GLOBAL_HOOK__`, the official channel React exposes for development tools.
 
-**3-레이어 구조** (자세한 내용은 [`docs/architecture.md`](docs/architecture.md)):
+**Three-layer structure** (details in [`docs/architecture.md`](docs/architecture.md)):
 
 ```
-① 훅킹        bippy로 커밋마다 Fiber 트리 접근 + DOM↔Fiber 양방향 매핑
+① Hooking        access the Fiber tree on every commit via bippy + DOM↔Fiber two-way mapping
    ↓
-② 데이터      Fiber → 정규화된 RenderNode 트리, 소스 경로 기반 groupHint 해석
+② Data           Fiber → normalized RenderNode tree, source-path-based groupHint resolution
    ↓
-③ 시각화      React Flow(@xyflow) 기반 그룹 프레임 + 노드 + 직교 간선, semantic zoom
+③ Visualization  React Flow (@xyflow) group frames + nodes + orthogonal edges, semantic zoom
 ```
 
-- **훅킹은 직접 구현하지 않고** 검증된 라이브러리([bippy](https://github.com/aidenybai/bippy))에 위임합니다.
-- 실제 제3자 앱 3개(excalidraw · berry-admin · shadcn-admin)에서 콘솔 에러 0건으로 검증됐습니다.
+- **Hooking is not implemented in-house** — it's delegated to a proven library ([bippy](https://github.com/aidenybai/bippy)).
+- Verified against three real third-party apps (excalidraw · berry-admin · shadcn-admin) with zero console errors.
 
-### dev 전용 가드
+### Dev-only guards
 
-프로덕션 유출을 막는 다중 가드가 있습니다: Vite 플러그인 `apply: 'serve'`, Next `process.env.NODE_ENV` 정적 제외, 주입 레이어가 세우는 런타임 신호 `__RRB_DEV__`. 프로덕션 번들에는 어떤 형태로도 들어가지 않습니다.
+Multiple guards prevent production leakage: the Vite plugin's `apply: 'serve'`, Next's static `process.env.NODE_ENV` exclusion, and the runtime `__RRB_DEV__` signal set by the injection layer. Nothing reaches your production bundle in any form.
 
 ---
 
-## 프로그래밍 방식 API (커스텀 통합)
+## Programmatic API (custom integration)
 
-`init`/postinstall 자동 배선 대신 직접 통합하고 싶을 때. 공개 API는 3-레이어 각각의 진입점만 노출합니다(내부 구현은 재수출하지 않음).
+For integrating directly instead of the `init`/postinstall auto-wiring. The public API exposes only each layer's entry points (internals are not re-exported).
 
 ```tsx
 import { createRoot } from 'react-dom/client';
@@ -204,102 +207,115 @@ import {
   startDomClickBridge,
   BoardOverlay,
 } from 'react-render-board';
-import 'react-render-board/style.css';   // 라이브러리 소비 시 CSS를 직접 import해야 함
+import 'react-render-board/style.css';   // when consuming as a library, import the CSS yourself
 
 const store = createRenderStore();
 const interactionStore = createInteractionStore();
 
-startFiberInspector(store, subjectContainer);              // ① 훅킹 시작
-startDomClickBridge(subjectContainer, interactionStore);   // 역방향(DOM→보드) 인터랙션, 선택
+startFiberInspector(store, subjectContainer);              // ① start hooking
+startDomClickBridge(subjectContainer, interactionStore);   // reverse (DOM→board) interaction, optional
 
 createRoot(overlayHost).render(
   <BoardOverlay store={store} interactionStore={interactionStore} />
 );
 ```
 
-주요 export:
+Main exports:
 
-| 심볼 | 레이어 | 역할 |
+| Symbol | Layer | Role |
 |---|---|---|
-| `createRenderStore` | 데이터 | 구독 가능한 렌더 트리 스토어 |
-| `startFiberInspector` | 훅킹 | 커밋마다 Fiber를 읽어 스토어에 반영 |
-| `startDomClickBridge`, `findFiberIdForElement`, `resolveHostElements` | 훅킹 | DOM↔Fiber 매핑(역방향 인터랙션) |
-| `Canvas`, `BoardOverlay`, `DomHighlightOverlay` | 시각화 | 보드 UI 컴포넌트 |
-| `createInteractionStore` | 시각화 | 노드↔DOM 인터랙션 상태 |
-| `createAfterglowStore`, `readFiberProps`, `trackReferenceInDescendants` 등 | 시각화 | props 흐름/변경 잔상(선택) |
+| `createRenderStore` | Data | Subscribable render-tree store |
+| `startFiberInspector` | Hooking | Reads Fibers on every commit into the store |
+| `startDomClickBridge`, `findFiberIdForElement`, `resolveHostElements` | Hooking | DOM↔Fiber mapping (reverse interaction) |
+| `Canvas`, `BoardOverlay`, `DomHighlightOverlay` | Visualization | Board UI components |
+| `createInteractionStore` | Visualization | Node↔DOM interaction state |
+| `createAfterglowStore`, `readFiberProps`, `trackReferenceInDescendants`, … | Visualization | Props flow / change afterglow (optional) |
 
-타입: `RenderNode`, `RenderSnapshot`, `FiberKind`, `RenderStore`, `InteractionStore`, `PropRow` 등도 함께 export됩니다. 전체 목록은 [`src/index.ts`](src/index.ts) 참고.
-
----
-
-## 호환성
-
-**추가 스키마 변경 없이** 다음 React 패턴을 커버합니다(실제 앱으로 검증):
-
-- 함수형 / class 컴포넌트, 에러 바운더리
-- Concurrent 기능: `useTransition`, `use()` + Suspense
-- `React.lazy` 코드 스플리팅 경계
-- 포탈(논리적 부모 아래 정확히 배치)
-- `memo` / `forwardRef`(정확한 이름 표시)
-
-**React 18 · 19** 지원 (peerDependencies `^18 || ^19`).
+Types are exported too: `RenderNode`, `RenderSnapshot`, `FiberKind`, `RenderStore`, `InteractionStore`, `PropRow`, and more. Full list in [`src/index.ts`](src/index.ts).
 
 ---
 
-## 요구사항 · 한계
+## Compatibility
 
-- **React 전용.** 기술 스택 전체가 React Fiber 내부 구조에 묶여 있습니다(구조적 제약이며 초기 선택 사항이 아님). Vue/Svelte 등은 각 프레임워크별 별도 구현이 필요합니다.
-- **dev 전용.** `getSource` 기반 그룹핑이 개발 빌드에서만 동작하며, 프로덕션엔 주입되지 않습니다.
-- **규모.** 소~중 규모(수백 개 노드)는 견고합니다. 대규모(수천~9,000+ 노드)도 뷰포트 기반 부분 렌더링으로 응답성이 평탄화되지만(P0~P4 수정 반영), 그룹이 매우 많을 때 지도 모드 라벨 겹침(declutter)은 부분 완화 상태입니다.
-- **고빈도 갱신.** 실질 한계는 ~30Hz 스로틀 캡입니다(60~240Hz 앱도 동작하되 갱신이 스로틀됨).
+Covers the following React patterns **without any schema changes** (verified against real apps):
+
+- Function / class components, error boundaries
+- Concurrent features: `useTransition`, `use()` + Suspense
+- `React.lazy` code-splitting boundaries
+- Portals (placed correctly under their logical parent)
+- `memo` / `forwardRef` (accurate names)
+
+Supports **React 18 · 19** (peerDependencies `^18 || ^19`).
+
+---
+
+## Requirements & limitations
+
+- **React only.** The entire stack is tied to React Fiber internals (a structural constraint, not an early-stage choice). Vue/Svelte would each need a separate implementation.
+- **Dev only.** `getSource`-based grouping works only in development builds, and nothing is injected into production.
+- **Scale.** Small-to-medium apps (hundreds of nodes) are solid. Large apps (thousands to 9,000+ nodes) stay responsive thanks to viewport-based partial rendering, but map-mode label overlap (declutter) with very many groups is only partially mitigated.
+- **High-frequency updates.** The practical ceiling is the ~30Hz throttle cap (60–240Hz apps work, but updates are throttled).
 - Node.js ≥ 18.
-- 런타임 의존성: `@xyflow/react`, `bippy`, `roughjs`.
+- Runtime dependencies: `@xyflow/react`, `bippy`, `roughjs`.
 
 ---
 
-## 프로젝트 상태
+## Project status
 
-🚀 **npm 배포됨 (`0.2.1`, MIT — 레포 현재 버전 `0.2.4`는 소유자 publish 대기).** 엔진(훅킹→데이터→시각화) 완성 + 3개 번들러(Vite/Turbopack/webpack) `install`→캔버스 실측 완료. vitest 유닛 테스트 335개.
+🚀 **Published on npm (MIT).** Engine complete (hooking → data → visualization) + one-command `install`→canvas verified on three bundlers (Vite/Turbopack/webpack). 340+ vitest unit tests.
 
-- [x] 기술·UI 검증, 라이브 MVP, 실제 제3자 앱 검증(excalidraw / berry-admin / shadcn-admin)
-- [x] 확인된 결함 5건(P0~P4) 해소 + 테스트 커버리지 + 패키지 배포 준비
-- [x] 배포 진입 경험: postinstall 자동 설정 + 3개 번들러 원커맨드
-- [ ] 실사용/도그푸딩 + 생존 전략 결정 (완성 우선 기조로 의도적 보류 중)
+- [x] Tech & UI validation, live MVP, real third-party app verification (excalidraw / berry-admin / shadcn-admin)
+- [x] All 5 identified defects (P0–P4) resolved + test coverage + package prep
+- [x] Install experience: postinstall auto-setup, one command across three bundlers
+- [x] Direction settled: stay open source, real-user feedback first (ADR-0074)
+- [ ] Growing real-world usage + collecting feedback (in progress — issues welcome!)
 
-전체 현황은 [`docs/project-status.md`](docs/project-status.md)를 참고하세요 — 지금까지의 모든 조사·실험·검증·결정을 요약한 살아있는 스냅샷이며, 개별 [ADR](docs/decisions/)로 링크됩니다.
+For the full picture see [`docs/project-status.md`](docs/project-status.md) (Korean) — a living snapshot of every investigation, experiment, and decision, linked to individual [ADRs](docs/decisions/).
 
 ---
 
-## 문서
+## Contributing
 
-| 문서 | 내용 |
+Bug reports are the most valuable contribution — every critical defect in this tool was caught by real-world reports. When [opening an issue](https://github.com/yoonjaehong26/react-render-board/issues/new/choose), please fill in the environment fields (bundler/framework, package manager, React version, browser extensions) — most bugs here come from environment combinations.
+
+Before contributing code, read [`docs/architecture.md`](docs/architecture.md) — the code map (layer guide, invariants, verification checklist). Pre-PR check: `npm run typecheck && npm run test`, and bug fixes should come with a reproducing fixture or `verify:*` script.
+
+> Most in-repo docs (ADRs, research notes) are in Korean — they're well-structured markdown, so machine translation works well. English issues and PRs are absolutely welcome.
+
+---
+
+## Documentation
+
+| Document | Contents |
 |---|---|
-| [`docs/project-status.md`](docs/project-status.md) | **현황 종합** — 검증 결과·확인된 결함·방향 (여기부터 읽기) |
-| [`docs/vision.md`](docs/vision.md) | 풀려는 문제와 목표 |
-| [`docs/architecture.md`](docs/architecture.md) | 3-레이어 구조와 동작 원리 |
-| [`docs/ui-philosophy.md`](docs/ui-philosophy.md) | UI 철학과 레퍼런스 |
-| [`docs/roadmap.md`](docs/roadmap.md) | 단계별 계획 |
-| [`docs/research/`](docs/research/) | 배경 조사(선행 프로젝트·기술 옵션) |
-| [`docs/decisions/`](docs/decisions/) | 주요 의사결정 기록(ADR) |
+| [`docs/project-status.md`](docs/project-status.md) | **Status overview** — verification results, known defects, direction (start here) |
+| [`docs/vision.md`](docs/vision.md) | The problem and goals |
+| [`docs/architecture.md`](docs/architecture.md) | Code map — 3-layer structure, invariants, how to verify |
+| [`docs/ui-philosophy.md`](docs/ui-philosophy.md) | UI philosophy and references |
+| [`docs/roadmap.md`](docs/roadmap.md) | Staged plan |
+| [`docs/research/`](docs/research/) | Background research (prior art, technical options) |
+| [`docs/decisions/`](docs/decisions/) | Architecture Decision Records (ADRs) |
+
+Docs are primarily in Korean; the [Korean README](README.ko.md) mirrors this one.
 
 ---
 
-## 개발 (이 레포에서)
+## Development (in this repo)
 
 ```bash
-npm run dev          # 라이브 MVP (좌: 계측 대상 데모 앱, 우: 실시간 보드)
-npm run build        # 타입체크 + 빌드
-npm run typecheck    # 타입체크만 (tsc -b) — 커밋 전 1회 권장
-npm run build:lib    # 라이브러리 빌드 (src/index.ts 공개 API → dist-lib/)
+npm run dev          # live MVP (left: instrumented demo app, right: live board)
+npm run build        # typecheck + build
+npm run typecheck    # typecheck only (tsc -b) — run once before committing
+npm run build:lib    # library build (src/index.ts public API → dist-lib/)
 npm run lint         # oxlint
-npm run test         # 레이어별 유닛 테스트 (vitest)
-npm run verify       # 자체 fixture 회귀 검증 (Playwright, dev 서버 실행 중이어야 함)
+npm run test         # per-layer unit tests (vitest)
+npm run verify       # fixture regression check (Playwright; dev server must be running)
 ```
 
-> `npm run test`(vitest)는 타입을 스트립하므로 타입 오류를 못 잡습니다. **커밋 전 `npm run typecheck`를 1회** 돌리세요.
+> `npm run test` (vitest) strips types and won't catch type errors. **Run `npm run typecheck` once before committing.**
 
 ---
 
-## 라이선스
+## License
 
 [MIT](LICENSE) © yoonjaehong26

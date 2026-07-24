@@ -1,0 +1,28 @@
+name: 💡 Feature request
+description: An idea to make the board more useful
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        한국어로 작성하셔도 됩니다.
+
+        A note on scope: this tool deliberately stays a **dev-only, React-only, overlay-only observer** — it never modifies the host app. Ideas within that identity are most likely to land. Design rationale lives in [docs/ui-philosophy.md](../../docs/ui-philosophy.md) and the [ADRs](../../docs/decisions/).
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the situation where you missed this feature, rather than the solution itself.
+      placeholder: "e.g. When reviewing a teammate's PR, I wanted to see only the components changed in the diff…"
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered (optional)

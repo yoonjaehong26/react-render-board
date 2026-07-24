@@ -1,0 +1,94 @@
+name: 🐛 Bug report
+description: Something broken — board not showing, wrong tree, crash, install failure, etc.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! **The environment fields below are required** — nearly every real bug in this tool has come from a specific environment combination (bundler × framework × browser extensions), so we usually can't reproduce without them.
+
+        한국어로 작성하셔도 됩니다.
+  - type: input
+    id: package-version
+    attributes:
+      label: react-render-board version
+      placeholder: "e.g. 0.2.4 (run: npm ls react-render-board)"
+    validations:
+      required: true
+  - type: dropdown
+    id: bundler
+    attributes:
+      label: Bundler / framework
+      description: This is the single most important field — injection works differently per bundler.
+      options:
+        - Vite
+        - Next.js + Turbopack
+        - Next.js + webpack
+        - webpack (non-Next)
+        - Rspack
+        - Other (describe below)
+    validations:
+      required: true
+  - type: input
+    id: framework-version
+    attributes:
+      label: Bundler / framework version
+      placeholder: "e.g. Next 16.1.2, Vite 8.1.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: package-manager
+    attributes:
+      label: Package manager
+      description: pnpm blocks postinstall by default; this changes how setup runs.
+      options:
+        - npm
+        - yarn (classic)
+        - yarn (Berry / PnP)
+        - pnpm
+        - bun
+    validations:
+      required: true
+  - type: input
+    id: react-version
+    attributes:
+      label: React version
+      placeholder: "e.g. 19.2.4"
+    validations:
+      required: true
+  - type: checkboxes
+    id: extensions
+    attributes:
+      label: Browser extensions / other dev tools active on the page
+      description: These compete for the same React hook and have caused real conflicts before — please check everything that applies, or "None".
+      options:
+        - label: React DevTools browser extension
+        - label: React Scan (extension or script)
+        - label: Other React instrumentation (redux devtools, why-did-you-render, …)
+        - label: None of the above
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you saw vs. what you expected. Include console errors if any (also check for silence — "no errors, board shows 0/0 nodes" is a known failure shape worth stating explicitly).
+      placeholder: |
+        e.g. Board opens but shows "0/0 nodes" forever. No console errors.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: Steps, or ideally a minimal repo / StackBlitz. If it only happens in your private app, describe the app's rough shape (SSR? route count? node count shown in the board? other tools running?).
+      placeholder: |
+        1. npx create-next-app@latest
+        2. npm install --save-dev react-render-board
+        3. npm run dev → click the board button
+    validations:
+      required: true
+  - type: textarea
+    id: debug
+    attributes:
+      label: Diagnostic output (optional but very helpful)
+      description: In the browser console on your dev page, run `window.__RRB_DEBUG__` and paste the output. Also paste the rrb block from your bundler config or layout.tsx if setup-related.
+      render: text
