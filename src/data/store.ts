@@ -17,6 +17,7 @@
 // "최대 지연"만 보장하고 "최소 간격"은 강제 못 해, 브라우저가 커밋 사이 한가하면 커밋률만큼
 // notify가 폭주해 시각화가 과도하게 재렌더됐다(ADR-0050에서 실측·교체).
 import type { Fiber } from 'bippy';
+import { isDevEnvironment } from '../hooking/devEnvironment';
 import { serializeFiberTree } from './serialize';
 import { resolveGroupHints } from './sourceHints';
 import type { RenderNode, RenderSnapshot } from './types';
@@ -106,7 +107,11 @@ export function createRenderStore(): RenderStore {
     snapshot = { commitId: snapshot.commitId + 1, nodes: applyCachedHints(nodes) };
     scheduleNotify();
 
-    if (!import.meta.env.DEV) return; // 그룹핑 힌트는 dev 전용 (ADR-0007).
+    // 그룹핑 힌트는 dev 전용 (ADR-0007). isDevEnvironment()를 반드시 거친다 —
+    // import.meta.env.DEV를 직접 쓰면 build:lib이 리터럴 false로 굳혀 이 아래 groupHint 해석
+    // 전체가 트리셰이킹으로 사라진다(ADR-0067에서 fiberInspector/domInteraction이 겪은 것과
+    // 동일한 사고가 이 파일에서 재발했었다 — 배포된 모든 버전에서 그룹핑이 죽어 있었다).
+    if (!isDevEnvironment()) return;
 
     const pending = new Map([...compositeFibers].filter(([id]) => !hintCache.has(id)));
     if (pending.size === 0) return;

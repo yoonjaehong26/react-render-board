@@ -3,7 +3,11 @@ import type { Fiber } from 'bippy';
 
 vi.mock('./serialize', () => ({ serializeFiberTree: vi.fn() }));
 vi.mock('./sourceHints', () => ({ resolveGroupHints: vi.fn() }));
+// groupHint 해석의 dev 게이트는 이제 isDevEnvironment()를 거친다(ADR-0075). 기본은 dev(true)로
+// 두고, dev-only gating 테스트에서만 false로 눌러 게이트 동작을 검증한다.
+vi.mock('../hooking/devEnvironment', () => ({ isDevEnvironment: vi.fn(() => true) }));
 
+import { isDevEnvironment } from '../hooking/devEnvironment';
 import { serializeFiberTree } from './serialize';
 import { resolveGroupHints } from './sourceHints';
 import { createRenderStore } from './store';
@@ -11,6 +15,7 @@ import type { RenderNode } from './types';
 
 const mockedSerializeFiberTree = vi.mocked(serializeFiberTree);
 const mockedResolveGroupHints = vi.mocked(resolveGroupHints);
+const mockedIsDevEnvironment = vi.mocked(isDevEnvironment);
 
 function node(overrides: Partial<RenderNode> = {}): RenderNode {
   return { id: 1, displayName: 'App', kind: 'composite', parentId: null, groupHint: null, ...overrides };
@@ -23,6 +28,7 @@ beforeEach(() => {
   // Sane default so an incidental call (a test that doesn't care about hint resolution) doesn't
   // call .then() on undefined.
   mockedResolveGroupHints.mockResolvedValue([]);
+  mockedIsDevEnvironment.mockReturnValue(true); // 기본은 dev; gating 테스트만 false로 덮는다.
 });
 
 afterEach(() => {
@@ -309,8 +315,8 @@ describe('createRenderStore', () => {
   });
 
   describe('dev-only gating', () => {
-    it('does not call resolveGroupHints when import.meta.env.DEV is false', () => {
-      vi.stubEnv('DEV', false);
+    it('does not call resolveGroupHints when isDevEnvironment() is false', () => {
+      mockedIsDevEnvironment.mockReturnValue(false);
       mockedSerializeFiberTree.mockReturnValueOnce({
         nodes: [node({ id: 1 })],
         compositeFibers: new Map([[1, {} as Fiber]]),

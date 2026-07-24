@@ -51,40 +51,65 @@ function detectBundler(cwd) {
   return { kind: 'unknown', config: null };
 }
 
+const VITE_IMPORT_LINE = `import { rrbInjectPlugin } from 'react-render-board/vite'`;
+
+/**
+ * vite.config 소스를 패치한 결과를 돌려주는 순수 함수(파일 I/O 없음 — next.mjs/webpack.cjs의
+ * 순수 패처와 같은 패턴이라 유닛 테스트로 파손 케이스를 고정할 수 있다). 반환:
+ *   { status: 'already' }              — 이미 설정됨, 변경 없음
+ *   { status: 'patched', code }        — 패치된 전체 소스
+ *   { status: 'skip', reason }         — 자동 삽입이 위험해 수동 안내로 폴백해야 함
+ */
+export function patchViteConfig(src) {
+  if (src.includes('react-render-board/vite') || src.includes('rrbInjectPlugin')) {
+    return { status: 'already' };
+  }
+
+  // plugins 배열 주입이 유일하게 파손 위험이 있는 지점이라 먼저 안전성을 판정한다. `plugins:[`
+  // 매치가 정확히 1개일 때만 자동 주입한다. 0개면 배열이 없는 것이고, 2개 이상이면
+  // css.postcss.plugins / worker.plugins / test.plugins 등 최상위가 아닌 배열이 섞여 엉뚱한
+  // 배열에 주입할 위험이 있다 — 둘 다 손대지 않고 수동 안내로 폴백한다(webpack 어댑터의 "모호하면
+  // 파싱하지 않고 폴백" 원칙과 동일). 흔한 `defineConfig({ plugins: [react()] })` 단일 배열
+  // 케이스는 그대로 자동 처리된다.
+  const pluginsMatches = src.match(/plugins\s*:\s*\[/g);
+  if (!pluginsMatches) {
+    return { status: 'skip', reason: 'no-plugins-array' };
+  }
+  if (pluginsMatches.length > 1) {
+    return { status: 'skip', reason: 'ambiguous-plugins-array' };
+  }
+
+  // import는 파일 맨 앞에 붙인다. ESM import는 위치와 무관하게 호이스팅되므로 항상 유효하고,
+  // "마지막 import 뒤에 삽입" 방식이 멀티라인 import(Prettier가 긴 import를 여러 줄로 쪼갠 경우)의
+  // 중괄호 한가운데에 삽입해 config를 문법 오류로 만들던 버그를 없앤다.
+  const code = `${VITE_IMPORT_LINE}\n${src}`.replace(
+    /plugins\s*:\s*\[/,
+    (m) => `${m}rrbInjectPlugin(), `,
+  );
+  return { status: 'patched', code };
+}
+
 // ── Vite 자동 패치(1급 경로) ─────────────────────────────────────────────────
 function initVite(cwd, configPath) {
-  const src = readFileSync(configPath, 'utf8');
+  const result = patchViteConfig(readFileSync(configPath, 'utf8'));
 
-  if (src.includes('react-render-board/vite') || src.includes('rrbInjectPlugin')) {
+  if (result.status === 'already') {
     ok('vite.config는 이미 react-render-board가 설정돼 있습니다. 변경 없음.');
     return;
   }
-
-  const importLine = `import { rrbInjectPlugin } from 'react-render-board/vite'`;
-  let patched = src;
-
-  // 1) import 추가 — 마지막 import 문 뒤에 삽입(없으면 파일 맨 앞).
-  const importRe = /^\s*import\s.+?$/gm;
-  let lastImportEnd = -1;
-  for (const m of src.matchAll(importRe)) lastImportEnd = m.index + m[0].length;
-  patched =
-    lastImportEnd >= 0
-      ? patched.slice(0, lastImportEnd) + `\n${importLine}` + patched.slice(lastImportEnd)
-      : `${importLine}\n` + patched;
-
-  // 2) plugins 배열에 rrbInjectPlugin() 추가.
-  if (/plugins\s*:\s*\[/.test(patched)) {
-    patched = patched.replace(/plugins\s*:\s*\[/, (m) => `${m}rrbInjectPlugin(), `);
-  } else {
-    // plugins 배열이 없으면 자동 삽입이 위험하므로 수동 안내로 폴백.
-    warn('vite.config에서 `plugins: [...]` 배열을 찾지 못해 자동 삽입을 건너뜁니다.');
+  if (result.status === 'skip') {
+    if (result.reason === 'ambiguous-plugins-array') {
+      warn('vite.config에 `plugins: [...]` 배열이 여러 개라(예: css.postcss.plugins) 어디에 넣을지 확실치 않아 자동 삽입을 건너뜁니다.');
+    } else {
+      warn('vite.config에서 `plugins: [...]` 배열을 찾지 못해 자동 삽입을 건너뜁니다.');
+    }
     printViteManual();
     return;
   }
 
-  writeFileSync(configPath, patched);
+  writeFileSync(configPath, result.code);
   ok(`패치 완료: ${configPath.replace(cwd + '/', '')}`);
-  log(`  ${C.dim}+ ${importLine}${C.reset}`);
+  log(`  ${C.dim}+ ${VITE_IMPORT_LINE}${C.reset}`);
   log(`  ${C.dim}+ plugins 배열에 rrbInjectPlugin() 추가${C.reset}`);
   log();
   step(`이제 평소처럼 dev 서버를 실행하면 됩니다:  ${C.bold}npm run dev${C.reset}`);

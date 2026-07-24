@@ -195,6 +195,13 @@
 - **수정:** `store.test.ts` 4곳 `groupPath: null` 채워 초록 복구 + `npm run typecheck`(`tsc -b`) 스크립트 + CLAUDE.md "커밋 전 1회" 규칙(무-도구, "과한 프로세스 금지" 원칙). 훅·CI는 재발 증거 쌓이면.
 - 근거: [ADR-0063](decisions/0063-typecheck-gate-before-commit.md)
 
+### ✅ 배포판 그룹핑 죽은 코드 (ADR-0067 재발) + Vite 패치 파손 — 해소됨 (2026-07-24, ADR-0075)
+기여자 유치(ADR-0074) 전 배포 코드(dist-lib 소스 + cli/)를 레이어별로 품질 검토하다 발견한 **CRITICAL 2건**. 코드의 타입 위생·성능 불변식·테스트 커버리지는 상위권으로 확인됐으나:
+- **그룹핑이 배포된 모든 버전에서 죽어 있었다:** `store.ts`의 groupHint 게이트가 `if (!import.meta.env.DEV) return` — **ADR-0067이 "중대 사고"로 금지하고 불변 규칙 2번으로 못 박은 바로 그 패턴이 이 파일에서 재발**. `build:lib`이 리터럴 false로 굳혀 `resolveGroupHints`/`sourceHints` 전체가 트리셰이킹 제거(dist-lib 실측 `getSource` 0건). git blame=MVP 최초 커밋부터라 **0.1.0~0.2.3 전부에서 도메인 그룹핑이 한 번도 동작 안 함**(노드가 영구 "그룹 확인 중"). ADR-0071의 "77개 전부 그룹 확인 중" 증상과 일치. **수정:** `isDevEnvironment()`로 교체 + 재발 방지 가드(`devEnvironmentGuard.test.ts` — import.meta.env가 devEnvironment.ts 밖에 있으면 `npm run test` 실패) + build 산출물로 groupHint 코드 생존 실증.
+- **Vite config 자동 패치가 흔한 config를 문법 오류로 파손:** 멀티라인 import(중괄호 안 삽입)·중첩 plugins 배열(css.postcss.plugins 오삽입). postinstall 자동 실행이라 `npm install`만으로 사용자 빌드가 깨질 수 있었다. **수정:** 순수 함수 `patchViteConfig`로 추출(맨 앞 import 호이스팅 + plugins 정확히 1개일 때만, 모호하면 수동 안내 폴백) + 유닛 테스트 5케이스(`cli/initVite.test.mjs`, vitest include에 cli 추가).
+- **`0.2.5`로 범프**(그룹핑 수정을 담은 첫 버전). publish는 소유자 2FA. 남은 검토 후속(파손 아님, 별도 진행): postinstall 자동 수정 정책 축소 여부(소유자 결정), 사용자 대면 문자열 영어화, BoardContent(약 1,060줄) 훅 추출.
+- 근거: [ADR-0075](decisions/0075-shipped-grouping-dead-code-and-vite-patch-hardening.md)
+
 ---
 
 ## 6. 3-레이어별 건강 상태
@@ -264,7 +271,7 @@ vision.md가 던진 성공 질문("완성 후에도 계속 붙잡을 동기가 �
 - 코드 맵(기여자/유지보수자 진입점 — 레이어 지도·불변 규칙·검증 체크리스트): [`architecture.md`](architecture.md) (ADR-0074로 전면 개편)
 - 로드맵·판단 지점: [`roadmap.md`](roadmap.md)
 - UI 철학: [`ui-philosophy.md`](ui-philosophy.md)
-- 전체 의사결정 기록: [`decisions/`](decisions/) (ADR-0001~0074)
+- 전체 의사결정 기록: [`decisions/`](decisions/) (ADR-0001~0075)
 - 선행 프로젝트 조사: [`research/prior-art.md`](research/prior-art.md)(요약) · [`research/2026-07-17-prior-art-survey.md`](research/2026-07-17-prior-art-survey.md) · [`research/2026-07-17-prior-art-causes-and-legacy.md`](research/2026-07-17-prior-art-causes-and-legacy.md)
 - 기술 옵션 조사(훅킹·시각화 레이어 후보): [`research/technical-options.md`](research/technical-options.md)
 - React Flow UX 확장 가능 범위 조사(미구현): [`research/2026-07-17-react-flow-ux-capabilities.md`](research/2026-07-17-react-flow-ux-capabilities.md)
