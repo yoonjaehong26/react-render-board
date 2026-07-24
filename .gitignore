@@ -28,3 +28,8 @@ experiments/real-app-validation/
 *.njsproj
 *.sln
 *.sw?
+
+# cli/init-core.mjs의 backupIfRisky가 남기는 원본 백업(ADR-0075). verify:matrix가 레포 안
+# experiments/ fixture를 직접 패치·복구할 때 부산물로 생길 수 있다 — 실제 사용자 프로젝트에서도
+# 의도적으로 커밋 대상이 아니다(사용자가 직접 지우거나 참고 후 정리).
+*.rrb-bak

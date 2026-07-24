@@ -52,5 +52,15 @@
 - **git-dirty 백업**: 기존 사용자 파일을 덮어쓰기 전, git으로 복구 불가능한 상태(추적 안 됨/수정됨/git 아님)면 `<파일>.rrb-bak`로 원본 백업(`backupIfRisky`). git-clean 추적 파일은 git이 복구하므로 백업 생략(클러터 방지).
 - **`npm install` 절대 안 깨뜨림 보강**: postinstall의 `runInit` 정적 import → **동적 import**(try/catch 안). 모듈 로드 단계 예외도 install을 실패시키지 않는다(기존 M8 구멍 해소).
 
+### 후속 결정 — 배포 콘솔 메시지 영어화 (2026-07-24)
+배포 번들(dist-lib)에 실려 사용자 브라우저 콘솔에 찍히는 런타임 에러/경고 9건을 영어로 번역(`inject.tsx`·`fiberInspector.ts`·`domInteraction.ts`·`store.ts`·`serialize.ts`·`sourceHints.ts`). 전부 catch/가드 안이라 정상 동작 시 노출되지 않고, verify 스크립트는 이 메시지 텍스트를 assert하지 않아(콘솔 에러 "0건"만 확인) 위험 없이 진행. 상수 토큰(`MAX_DEPTH`/`MAX_SIBLINGS`)은 `verify-real-app-shadcn-admin.mjs`의 `.includes()` 검사와 커플링돼 있어 보존.
+
+보드 UI 문자열(placeholder·aria-label·버튼 텍스트, `Canvas.tsx`/`BoardOverlay.tsx`/`PropsPanel.tsx` 등)은 다수 `scripts/verify-*.mjs`가 `getByRole({ name: '...' })`로 정확히 참조해, 번역 시 그 스크립트들을 lockstep으로 고치고 실제 dev 서버로 전체 Playwright 스위트를 재검증해야 파손 위험이 없다 — 이번 라운드에서는 안전하게 완주를 보장할 수 있는 범위(배포 콘솔 메시지)까지만 하고 **의도적으로 범위 밖에 둔다**. 후속 세션에서 진행.
+
+### 후속 수정 — `build:lib`이 이전 빌드의 죽은 청크를 정리하지 않음 (2026-07-24, 0.2.5 publish 중 발견)
+`vite.lib.config.ts`가 `emptyOutDir: false`로 설정돼 있다(이유: `tsc`가 vite build보다 먼저 `.d.ts`를 `dist-lib/`에 emit하는데, `emptyOutDir: true`(기본값)면 vite가 시작할 때 그 `.d.ts`까지 지워버리기 때문). 그런데 이 설정의 부작용으로, 매 빌드마다 콘텐츠 해시가 바뀐 JS 청크(`BoardOverlay-<hash>.js`)가 **이전 빌드의 것 위에 쌓이기만 하고 안 지워졌다** — `0.2.5` publish 시 tarball에 최신 청크 1개(사용됨) + 예전 청크 2개(죽은 코드, 총 ~213kB)가 함께 실려 나감(동작엔 무해 — `index.js`/`inject.js`는 최신 것만 참조).
+
+**수정**: `build:lib` 스크립트 맨 앞에 `dist-lib` 전체 삭제 단계 추가(`node -e "rmSync('dist-lib',{recursive:true,force:true})"` — 레포 관례상 `rimraf` 새 의존성 대신 `rmSync` 직접 사용, `scripts/verify-init*.mjs`와 동일 패턴). `tsc`가 그 다음 깨끗한 디렉터리에 `.d.ts`를 emit하고, `emptyOutDir: false`는 그 `.d.ts`를 vite가 안 지우게 하는 본래 역할만 남는다. 실측: `dist-lib`의 `BoardOverlay-*.js`가 1개로, `.d.ts` 43개 정상 생성 유지, 타입체크·테스트 352개 전부 통과.
+
 ### 남은 검토 후속(별도 진행, 파손 아님 — 품질/접근성)
-사용자 대면 문자열 영어화(콘솔·UI·생성 파일), BoardContent(약 1,060줄) 훅 추출·`layoutForest` 이름 충돌·`absPos` 중복 정리.
+보드 UI 문자열 영어화(위 참고), BoardContent(약 1,060줄) 훅 추출·`layoutForest` 이름 충돌·`absPos` 중복 정리.
