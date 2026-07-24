@@ -107,6 +107,8 @@ npm run dev
 
 Right after install, a `postinstall` hook detects your bundler and wires the config **automatically**. Just run `npm run dev` and a board button appears at the bottom-right of your app.
 
+The auto-setup only touches config files (never your app source), only runs when react-render-board is a **direct** dependency of your project, and backs up any pre-existing file it can't restore via git to `<file>.rrb-bak` before editing. To skip it entirely, set `RRB_SKIP_POSTINSTALL=1` and run [`npx react-render-board init`](#manual-setup-init) yourself when ready.
+
 ### pnpm
 
 pnpm blocks install scripts from unknown packages by default (a supply-chain security policy — the same standard step applies to most well-known packages with install scripts, such as `esbuild` and `sharp`; it's not specific to this package). Approve once:

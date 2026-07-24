@@ -10,6 +10,7 @@
 // "번들러를 못 찾음"류의 기대 가능한 실패를 process.exitCode = 1로 표시하지 않는다 — 그게
 // `npm install` 자체를 실패로 표시해버리기 때문이다(postinstall.mjs가 이중으로 강제 0 처리도 함).
 
+import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { patchNextLayout, wireCanvasIntoLayout, RENDER_BOARD_CLIENT_SOURCE, manualSnippet } from './next.mjs';
@@ -32,6 +33,30 @@ function findFile(cwd, names) {
     if (existsSync(p)) return p;
   }
   return null;
+}
+
+// 기존 사용자 파일을 덮어쓰기 전, git으로 원상복구할 수 없는 상태면 원본을 `<파일>.rrb-bak`로
+// 남긴다(ADR-0075 후속). postinstall은 npm이 stdout을 숨기므로 사용자가 모르는 채 파일이 바뀔 수
+// 있어, 잘못된 패치의 복구 수단을 항상 확보한다. git으로 깨끗이 추적 중인 파일은 git이 복구하므로
+// 백업을 건너뛴다(불필요한 .rrb-bak 클러터 방지). 판정 불가(git 없음/저장소 아님)면 안전하게 백업.
+// 새로 생성하는 파일(RenderBoardClient.tsx 등)에는 호출하지 않는다 — 덮어쓸 원본이 없다.
+function backupIfRisky(filePath, cwd) {
+  try {
+    if (existsSync(filePath + '.rrb-bak')) return; // 재실행 시 최초 원본을 보존.
+    let recoverable = false;
+    try {
+      const out = execFileSync('git', ['-C', cwd, 'status', '--porcelain', '--', filePath], {
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).toString();
+      recoverable = out.trim() === ''; // 빈 출력 = 추적됨 + 변경 없음 → git으로 복구 가능.
+    } catch {
+      recoverable = false; // git 미설치/비-저장소 → 안전하게 백업.
+    }
+    if (!recoverable) {
+      writeFileSync(filePath + '.rrb-bak', readFileSync(filePath, 'utf8'));
+      log(`  ${C.dim}↳ 원본 백업: ${filePath.replace(cwd + '/', '')}.rrb-bak${C.reset}`);
+    }
+  } catch { /* 백업 실패가 패치 자체를 막지는 않는다 */ }
 }
 
 // ── 번들러 감지 ────────────────────────────────────────────────────────────
@@ -107,6 +132,7 @@ function initVite(cwd, configPath) {
     return;
   }
 
+  backupIfRisky(configPath, cwd);
   writeFileSync(configPath, result.code);
   ok(`패치 완료: ${configPath.replace(cwd + '/', '')}`);
   log(`  ${C.dim}+ ${VITE_IMPORT_LINE}${C.reset}`);
@@ -136,6 +162,7 @@ function initWebpackLike(cwd, kind, configPath) {
       return;
     }
     if (changed) {
+      backupIfRisky(configPath, cwd);
       writeFileSync(configPath, source);
       ok(`패치 완료: ${rel} (${reason})`);
       log(`  ${C.dim}+ require('react-render-board/webpack') + module.exports = withRenderBoard(...)${C.reset}`);
@@ -188,6 +215,7 @@ function initNext(cwd, mode) {
   // 구버전 조기 스크립트 갱신(ADR-0070): 패키지 업데이트로 스크립트가 바뀌면 postinstall이
   // 이 경로로 layout의 rrb 블록만 최신으로 덮어쓴다 — 사용자는 재설치만으로 훅 wrap 등 수정을 받는다.
   if (headResult.changed && headResult.reason === 'refreshed-script') {
+    backupIfRisky(layoutPath, cwd);
     writeFileSync(layoutPath, headResult.source);
     ok(`${layoutPath.replace(cwd + '/', '')}의 구버전 조기 스크립트를 최신으로 갱신했습니다.`);
     log(`  ${C.dim}(내용이 바뀐 rrb <script> 블록만 교체 — RenderBoardClient/앱 코드는 안 건드림)${C.reset}`);
@@ -202,6 +230,7 @@ function initNext(cwd, mode) {
 
   // <head> 조기 스크립트에 이어 캔버스 클라이언트 컴포넌트까지 배선한다(둘 다 dev 전용).
   const canvas = wireCanvasIntoLayout(headResult.source);
+  backupIfRisky(layoutPath, cwd);
   writeFileSync(layoutPath, canvas.changed ? canvas.source : headResult.source);
 
   // RenderBoardClient.tsx 생성(있으면 건드리지 않음).

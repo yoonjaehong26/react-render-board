@@ -27,11 +27,29 @@
 // 실행하지 않는다(보안 정책, `pnpm approve-builds`로 승인해야 동작). 그 경우 이 자동화가
 // 조용히 스킵되므로 `npx react-render-board init`을 한 번 수동 실행하면 된다 — 대화형 CLI는
 // 항상 동일하게 동작한다.
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runInit } from './init-core.mjs';
 
-function main() {
+// INIT_CWD의 package.json이 react-render-board를 **직접** 의존성으로 갖는지 확인한다(ADR-0075
+// 후속). 없으면 우리가 다른 패키지의 전이 의존성으로 딸려 온 것이고, 그 프로젝트의 소유자는 이
+// 도구를 선택한 적이 없다 — 그런 프로젝트의 config를 자동 수정하면 안 된다. 판정 불가(파일 없음
+// /파싱 실패)면 보수적으로 "직접 의존 아님"으로 보고 건드리지 않는다.
+function isDirectDependency(initCwd) {
+  try {
+    const pkgPath = path.join(initCwd, 'package.json');
+    if (!existsSync(pkgPath)) return false;
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+    const fields = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'];
+    return fields.some((f) => pkg[f] && Object.prototype.hasOwnProperty.call(pkg[f], 'react-render-board'));
+  } catch {
+    return false;
+  }
+}
+
+async function main() {
+  // 명시적 옵트아웃 — 자동 설정을 원치 않는 사용자를 위한 escape hatch.
+  if (process.env.RRB_SKIP_POSTINSTALL) return;
   if (process.env.CI) return; // CI 파이프라인에는 자동 설정을 안 남긴다.
 
   const initCwd = process.env.INIT_CWD;
@@ -41,11 +59,17 @@ function main() {
   const pkgRoot = path.resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
   if (path.resolve(initCwd) === pkgRoot) return; // 이 패키지 자신의 저장소 install — 스킵.
 
+  // 전이 의존성으로 딸려온 경우 스킵 — 이 도구를 직접 고른 프로젝트만 자동 설정한다.
+  if (!isDirectDependency(initCwd)) return;
+
   // 소비자 프로젝트에 아직 node_modules가 없을 만큼 이른 시점(모노레포 워크스페이스 설치 순서
   // 등)이면 config 파일도 아직 없을 수 있다 — 그 경우 detectBundler가 자연히 'unknown'을
   // 돌려주고 안내만 출력한다(에러 아님).
   console.log('\x1b[2m[react-render-board] 번들러 자동 감지 중… (postinstall, ADR-0062)\x1b[0m');
   try {
+    // 정적 import가 아니라 동적 import — init-core.mjs(또는 그것이 부르는 어댑터)가 어떤 이유로든
+    // 로드 단계에서 던지더라도 이 try/catch가 삼켜 `npm install` 자체는 절대 실패하지 않는다(ADR-0075).
+    const { runInit } = await import('./init-core.mjs');
     runInit(initCwd, { mode: 'postinstall' });
   } catch (err) {
     console.error('\x1b[33m![react-render-board]\x1b[0m 자동 설정 중 예외 발생(설치는 정상 완료됩니다):');
