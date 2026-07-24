@@ -61,7 +61,7 @@ export function serializeFiberTree(root: Fiber): SerializeResult {
   // 자식 방향으로 내려갈 때만 재귀(walk)를 다시 호출해 depth를 늘린다.
   function walk(firstSibling: Fiber | null, visibleParentId: number | null, depth: number) {
     if (depth > MAX_DEPTH) {
-      console.warn('[data-layer] MAX_DEPTH 초과(트리 깊이), 순회 중단', { depth, visibleParentId });
+      console.warn('[data-layer] MAX_DEPTH exceeded (tree depth), stopping traversal', { depth, visibleParentId });
       return;
     }
 
@@ -69,7 +69,7 @@ export function serializeFiberTree(root: Fiber): SerializeResult {
     let fiber: Fiber | null = firstSibling;
     while (fiber) {
       if (siblingCount >= MAX_SIBLINGS) {
-        console.warn('[data-layer] MAX_SIBLINGS 초과(형제 수 또는 순환 참조 의심), 순회 중단', {
+        console.warn('[data-layer] MAX_SIBLINGS exceeded (too many siblings or a suspected cycle), stopping traversal', {
           siblingCount,
           visibleParentId,
         });

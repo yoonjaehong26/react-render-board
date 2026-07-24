@@ -143,7 +143,7 @@ export function createRenderStore(): RenderStore {
         }
       })
       .catch((err) => {
-        console.error('[data-layer] groupHint 해석 실패', err);
+        console.error('[data-layer] groupHint resolution failed', err);
       });
   }
 

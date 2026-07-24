@@ -82,7 +82,7 @@ export function startDomClickBridge(subjectContainer: Element, interactionStore:
         interactionStore.highlight([target]);
       }
     } catch (err) {
-      console.error('[hooking] DOM 클릭 브리지 처리 중 에러', err);
+      console.error('[hooking] error in the DOM click bridge', err);
     } finally {
       if (pickModeActive) interactionStore.setPickMode(false);
     }

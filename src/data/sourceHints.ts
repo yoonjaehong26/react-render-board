@@ -113,12 +113,12 @@ export async function resolveGroupHints(compositeFibers: Map<number, Fiber>): Pr
     try {
       const source = await withTimeout(getSource(fiber), GET_SOURCE_TIMEOUT_MS);
       if (source === undefined) {
-        console.error('[data-layer] getSource 타임아웃', { id, timeoutMs: GET_SOURCE_TIMEOUT_MS });
+        console.error('[data-layer] getSource timed out', { id, timeoutMs: GET_SOURCE_TIMEOUT_MS });
         return { id, groupHint: null, groupPath, timedOut: true };
       }
       return { id, groupHint: source?.fileName ?? null, groupPath };
     } catch (err) {
-      console.error('[data-layer] getSource 실패', { id, err });
+      console.error('[data-layer] getSource failed', { id, err });
       return { id, groupHint: null, groupPath };
     }
   });

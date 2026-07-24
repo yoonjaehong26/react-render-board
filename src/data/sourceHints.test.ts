@@ -140,7 +140,7 @@ describe('resolveGroupHints', () => {
         { id: 2, groupHint: null, groupPath: null, timedOut: true }, // ADR-0073: 타임아웃 폴백은 플래그로 표시
       ]),
     );
-    expect(errorSpy).toHaveBeenCalledWith('[data-layer] getSource 타임아웃', expect.objectContaining({ id: 2 }));
+    expect(errorSpy).toHaveBeenCalledWith('[data-layer] getSource timed out', expect.objectContaining({ id: 2 }));
     errorSpy.mockRestore();
     vi.useRealTimers();
   });

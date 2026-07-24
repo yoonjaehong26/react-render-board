@@ -99,7 +99,7 @@ export function bootRenderBoard(): void {
       try {
         store.handleCommit(root.current);
       } catch (err) {
-        console.error('[rrb] 커밋 처리 중 에러', err);
+        console.error('[rrb] error while handling a commit', err);
       }
     },
   });
@@ -116,7 +116,7 @@ export function bootRenderBoard(): void {
         if (isToolOverlayRoot(containerInfo)) return;
         store.handleCommit(root.current as never);
       } catch (err) {
-        console.error('[rrb] 버퍼된 초기 커밋 재생 중 에러', err);
+        console.error('[rrb] error while replaying buffered initial commits', err);
       }
     });
   };

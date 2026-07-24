@@ -36,7 +36,7 @@ export function startFiberInspector(store: RenderStore, subjectContainer: Elemen
       try {
         store.handleCommit(root.current);
       } catch (err) {
-        console.error('[hooking] 커밋 처리 중 에러', err);
+        console.error('[hooking] error while handling a commit', err);
       }
     },
   });
