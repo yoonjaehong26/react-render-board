@@ -1,3 +1,10 @@
+// 반드시 react/react-dom보다 먼저 평가돼야 한다. React는 react-dom 모듈이 평가되는 순간
+// 딱 한 번 __REACT_DEVTOOLS_GLOBAL_HOOK__에 renderer를 등록하는데, production 번들에서는
+// 번들러가 react-dom 청크를 bippy보다 먼저 평가해 훅이 아직 없고 → renderer 등록이 영영
+// 누락돼 커밋 이벤트가 0건이 된다(Netlify 데모 보드가 0/0 노드로 비던 실제 원인. dev 서버는
+// 모듈 제공 순서가 달라 우연히 동작했다). bippy가 이 목적으로 제공하는 부수효과 전용
+// 진입점을 최상단 import로 두어 훅을 먼저 설치한다.
+import 'bippy/install-hook-only';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
