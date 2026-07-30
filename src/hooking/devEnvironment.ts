@@ -16,6 +16,13 @@
 export function isDevEnvironment(): boolean {
   // (a) 주입 레이어가 세운 명시 신호 — 가장 신뢰 가능(위 주석 참고).
   if (typeof window !== 'undefined' && window.__RRB_DEV__ === true) return true;
+  // (b-1) Netlify 데모 배포 전용 빌드 플래그. netlify.toml이 VITE_IS_DEMO=true를 세워
+  // production 빌드에서도 이 저장소 자신의 데모(계측 대상 fixture)를 관찰 가능하게 한다 —
+  // 라이브러리 소비자 빌드(build:lib)는 이 변수를 세우지 않으므로 영향 없음.
+  try {
+    const demoEnv = (import.meta as unknown as { env?: { VITE_IS_DEMO?: string } }).env;
+    if (demoEnv?.VITE_IS_DEMO === 'true') return true;
+  } catch { /* import.meta.env 미지원 환경 */ }
   // (b) Vite dev 소스: import.meta.env.DEV.
   try {
     const viteEnv = (import.meta as unknown as { env?: { DEV?: boolean } }).env;
