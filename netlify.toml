@@ -1,5 +1,8 @@
+# 데모는 반드시 development 모드로 빌드한다(build:demo). 이 도구가 보여주는 정보(컴포넌트
+# 이름, _debugStack 기반 그룹핑)는 React development 빌드 + 이름 보존(minify off)에만 존재한다 —
+# production 빌드로 배포하면 노드 이름이 한 글자(z, Wn 등)로 뭉개지고 그룹이 번들 URL이 된다.
 [build]
-  command = "npm run build"
+  command = "npm run build:demo"
   publish = "dist"
 
 [build.environment]

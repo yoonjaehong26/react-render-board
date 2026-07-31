@@ -61,6 +61,7 @@
     "postinstall": "node cli/postinstall.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:demo": "tsc -b && NODE_ENV=development vite build --mode development --minify false --sourcemap true",
     "typecheck": "tsc -b",
     "build:lib": "node -e \"require('node:fs').rmSync('dist-lib',{recursive:true,force:true})\" && tsc -p tsconfig.lib.json && vite build --config vite.lib.config.ts",
     "lint": "oxlint",
