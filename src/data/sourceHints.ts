@@ -50,6 +50,24 @@ export function usagePathFromStack(debugStack: unknown): string | null {
   return null;
 }
 
+/**
+ * `getSource()`의 fileName 형식은 번들러/소스맵마다 다르다. Vite fixture에서는 `Panel.tsx`만
+ * 오지만, 다른 환경에서는 `src/domains/cart/Panel.tsx`처럼 전체 app 경로가 온다. 파일 그룹의
+ * 표시·키는 항상 basename으로 고정하고, 폴더 구조는 별도 `groupPath`만 맡는다(ADR-0053/0079).
+ *
+ * 단, 라이브러리 내부 경로는 groups.ts가 `node_modules`·`../` 패턴으로 판별해 조상 앱 그룹에
+ * 흡수해야 하므로 원형을 보존한다. 여기서 basename으로 잘라버리면 그 안전장치가 사라진다.
+ */
+export function groupHintFromFileName(fileName: string): string {
+  const withoutQuery = fileName.replace(/[?#].*$/, '');
+  const libraryInternal =
+    /(^|[/\\])node_modules[/\\]/.test(withoutQuery) || /^\.\.[/\\]/.test(withoutQuery);
+  if (libraryInternal) return fileName;
+
+  const basename = withoutQuery.replace(/\\/g, '/').split('/').filter(Boolean).pop();
+  return basename || fileName;
+}
+
 // getSource는 내부적으로 sourcemap을 fetch하는데, 이 fetch가 응답 없이 영원히 pending될 수 있다
 // (예: 번들러 dev 서버가 특정 sourcemap 요청에 끝내 응답하지 않는 경우 — Turbopack 실사용 중 재현,
 // 콘솔 에러 없이 조용히 멈춤). getSource(fiber) 하나가 hang하면(= reject가 아니라 그냥 안 끝나면)
@@ -116,7 +134,7 @@ export async function resolveGroupHints(compositeFibers: Map<number, Fiber>): Pr
         console.error('[data-layer] getSource timed out', { id, timeoutMs: GET_SOURCE_TIMEOUT_MS });
         return { id, groupHint: null, groupPath, timedOut: true };
       }
-      return { id, groupHint: source?.fileName ?? null, groupPath };
+      return { id, groupHint: source?.fileName ? groupHintFromFileName(source.fileName) : null, groupPath };
     } catch (err) {
       console.error('[data-layer] getSource failed', { id, err });
       return { id, groupHint: null, groupPath };

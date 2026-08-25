@@ -11,7 +11,22 @@ import {
   type PanelDock,
   type PanelLayout,
 } from './lib/panelLayoutPreference';
+import {
+  getStoredFloatingButtonPosition,
+  setStoredFloatingButtonPosition,
+  type FloatingButtonPosition,
+} from './lib/floatingButtonPreference';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
+
+const FLOATING_BUTTON_MARGIN = 16;
+const DRAG_START_DISTANCE_PX = 6;
+
+interface FloatingButtonDrag {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  startPosition: FloatingButtonPosition;
+}
 
 // 패널 도킹 방향 아이콘(ADR-0040) — 사각 아웃라인 + 도킹된 변을 채운 막대. 하단/좌/우.
 function DockIcon({ side }: { side: PanelDock }) {
@@ -65,6 +80,100 @@ export function BoardOverlay({ store, interactionStore }: BoardOverlayProps) {
   const [layout, setLayout] = useState(getStoredPanelLayout);
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
+
+  // 플로팅 버튼은 어떤 호스트 앱 위에도 떠 있으므로, 사용자마다 가리지 말아야 할 앱 UI가
+  // 다르다. 위치는 화면에서 버튼 묶음이 이동할 수 있는 범위의 비율로 영속화한다(ADR-0078).
+  const [floatingButtonPosition, setFloatingButtonPosition] = useState(getStoredFloatingButtonPosition);
+  const [floatingButtonSize, setFloatingButtonSize] = useState({ width: 0, height: 0 });
+  const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
+  const floatingButtonRef = useRef<HTMLDivElement>(null);
+  const floatingButtonDragRef = useRef<FloatingButtonDrag | null>(null);
+  const floatingButtonDidDragRef = useRef(false);
+  const [draggingFloatingButton, setDraggingFloatingButton] = useState(false);
+
+  useEffect(() => {
+    const updateViewport = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener('resize', updateViewport);
+    return () => window.removeEventListener('resize', updateViewport);
+  }, []);
+
+  useEffect(() => {
+    const element = floatingButtonRef.current;
+    if (!element) return;
+    const updateSize = () => setFloatingButtonSize({ width: element.offsetWidth, height: element.offsetHeight });
+    updateSize();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  const floatingButtonBounds = {
+    x: Math.max(FLOATING_BUTTON_MARGIN, viewport.width - floatingButtonSize.width - FLOATING_BUTTON_MARGIN),
+    y: Math.max(FLOATING_BUTTON_MARGIN, viewport.height - floatingButtonSize.height - FLOATING_BUTTON_MARGIN),
+  };
+  const floatingButtonStyle =
+    floatingButtonSize.width === 0
+      ? undefined
+      : {
+          left: FLOATING_BUTTON_MARGIN + (floatingButtonBounds.x - FLOATING_BUTTON_MARGIN) * floatingButtonPosition.x,
+          top: FLOATING_BUTTON_MARGIN + (floatingButtonBounds.y - FLOATING_BUTTON_MARGIN) * floatingButtonPosition.y,
+          right: 'auto',
+          bottom: 'auto',
+        };
+
+  const onFloatingButtonPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    floatingButtonDidDragRef.current = false;
+    floatingButtonDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startPosition: floatingButtonPosition,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }, [floatingButtonPosition]);
+
+  const onFloatingButtonPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = floatingButtonDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    if (!floatingButtonDidDragRef.current && Math.hypot(dx, dy) < DRAG_START_DISTANCE_PX) return;
+    floatingButtonDidDragRef.current = true;
+    setDraggingFloatingButton(true);
+    event.preventDefault();
+    const horizontalRange = Math.max(0, floatingButtonBounds.x - FLOATING_BUTTON_MARGIN);
+    const verticalRange = Math.max(0, floatingButtonBounds.y - FLOATING_BUTTON_MARGIN);
+    setFloatingButtonPosition({
+      x: horizontalRange === 0 ? 0 : Math.min(1, Math.max(0, drag.startPosition.x + dx / horizontalRange)),
+      y: verticalRange === 0 ? 0 : Math.min(1, Math.max(0, drag.startPosition.y + dy / verticalRange)),
+    });
+  }, [floatingButtonBounds.x, floatingButtonBounds.y]);
+
+  const finishFloatingButtonDrag = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = floatingButtonDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    floatingButtonDragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    if (!floatingButtonDidDragRef.current) return;
+    setDraggingFloatingButton(false);
+    setFloatingButtonPosition((current) => {
+      setStoredFloatingButtonPosition(current);
+      return current;
+    });
+    // pointerup 직후 발생하는 click만 막고, 다음 정상 클릭에는 영향이 없게 한다.
+    window.setTimeout(() => {
+      floatingButtonDidDragRef.current = false;
+    }, 0);
+  }, []);
+
+  const ignoreClickAfterFloatingButtonDrag = useCallback((event: React.MouseEvent) => {
+    if (!floatingButtonDidDragRef.current) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  }, []);
 
   const commitLayout = useCallback((next: PanelLayout) => {
     setLayout(next);
@@ -131,12 +240,23 @@ export function BoardOverlay({ store, interactionStore }: BoardOverlayProps) {
           워드마크를 원형에 맞춘 모노그램이라 손글씨체로 액센트한다(ADR-0030).
           접근성 이름(aria-label)은 verify 스크립트(openBoard.mjs 등)가 버튼을 찾는 이름이라
           "render-board 열기/닫기"를 그대로 유지한다 — 모노그램으로 바뀌어도 이름은 안 바뀐다. */}
-      <div className="board-toggle-group">
+      <div
+        ref={floatingButtonRef}
+        className={`board-toggle-group${draggingFloatingButton ? ' board-toggle-group--dragging' : ''}`}
+        style={floatingButtonStyle}
+        onPointerDown={onFloatingButtonPointerDown}
+        onPointerMove={onFloatingButtonPointerMove}
+        onPointerUp={finishFloatingButtonDrag}
+        onPointerCancel={finishFloatingButtonDrag}
+      >
         <button
           type="button"
           className={`board-fab board-fab--pick rrb-rough-chrome${pickModeActive ? ' board-fab--pick-active' : ''}`}
           style={{ backgroundImage: CHROME_CIRCLE.light }}
-          onClick={() => resolvedInteractionStore.setPickMode(!pickModeActive)}
+          onClick={(event) => {
+            if (ignoreClickAfterFloatingButtonDrag(event)) return;
+            resolvedInteractionStore.setPickMode(!pickModeActive);
+          }}
           aria-pressed={pickModeActive}
           aria-label={pickModeActive ? '요소 선택 중 (취소)' : '요소 선택'}
           title="요소 선택 — Alt(⌥)+클릭으로도 됩니다"
@@ -158,7 +278,10 @@ export function BoardOverlay({ store, interactionStore }: BoardOverlayProps) {
           style={
             { '--fab-circle': CHROME_CIRCLE.light, '--fab-pill': CHROME_BORDER.light } as CSSProperties
           }
-          onClick={() => resolvedInteractionStore.setBoardOpen(!boardOpen)}
+          onClick={(event) => {
+            if (ignoreClickAfterFloatingButtonDrag(event)) return;
+            resolvedInteractionStore.setBoardOpen(!boardOpen);
+          }}
           aria-pressed={boardOpen}
           aria-label={boardOpen ? 'render-board 닫기' : 'render-board 열기'}
           title={boardOpen ? 'render-board 닫기' : 'render-board 열기'}

@@ -4,7 +4,7 @@ import type { Fiber } from 'bippy';
 vi.mock('bippy/source', () => ({ getSource: vi.fn() }));
 
 import { getSource } from 'bippy/source';
-import { resolveGroupHints, usagePathFromStack } from './sourceHints';
+import { groupHintFromFileName, resolveGroupHints, usagePathFromStack } from './sourceHints';
 
 const mockedGetSource = vi.mocked(getSource);
 
@@ -44,12 +44,27 @@ describe('usagePathFromStack', () => {
   });
 });
 
+describe('groupHintFromFileName', () => {
+  it('normalizes app source paths to a cross-bundler-stable basename', () => {
+    expect(groupHintFromFileName('src/domains/cart/CartPanel.tsx')).toBe('CartPanel.tsx');
+    expect(groupHintFromFileName('/src/domains/cart/CartPanel.tsx?t=123')).toBe('CartPanel.tsx');
+    expect(groupHintFromFileName('src\\domains\\cart\\CartPanel.tsx')).toBe('CartPanel.tsx');
+  });
+
+  it('preserves library paths so groups.ts can absorb them into the app ancestor', () => {
+    expect(groupHintFromFileName('../../@radix-ui/react-dialog/dist/index.mjs')).toBe(
+      '../../@radix-ui/react-dialog/dist/index.mjs',
+    );
+    expect(groupHintFromFileName('/project/node_modules/react/index.js')).toBe('/project/node_modules/react/index.js');
+  });
+});
+
 describe('resolveGroupHints', () => {
   beforeEach(() => {
     mockedGetSource.mockReset();
   });
 
-  it('resolves groupHint to source.fileName for each id', async () => {
+  it('resolves groupHint to the source file basename for each id', async () => {
     const appFiber = fakeFiber();
     const buttonFiber = fakeFiber();
     mockedGetSource.mockImplementation(async (fiber) => {
@@ -67,8 +82,8 @@ describe('resolveGroupHints', () => {
 
     expect(results).toEqual(
       expect.arrayContaining([
-        { id: 1, groupHint: 'src/App.tsx', groupPath: null },
-        { id: 2, groupHint: 'src/Button.tsx', groupPath: null },
+        { id: 1, groupHint: 'App.tsx', groupPath: null },
+        { id: 2, groupHint: 'Button.tsx', groupPath: null },
       ]),
     );
     expect(results).toHaveLength(2);
