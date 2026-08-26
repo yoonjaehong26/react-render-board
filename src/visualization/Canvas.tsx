@@ -761,6 +761,9 @@ function BoardContent({
         id: note.id,
         type: 'sticky',
         position: { x: note.x, y: note.y },
+        // MiniMap은 style 크기를 읽지 않는다. 메모도 다른 보드 노드와 같은 기하 계약을 쓴다.
+        width: STICKY_NOTE_WIDTH,
+        height: STICKY_NOTE_HEIGHT,
         style: { width: STICKY_NOTE_WIDTH, height: STICKY_NOTE_HEIGHT },
         draggable: true,
         zIndex: 1000,

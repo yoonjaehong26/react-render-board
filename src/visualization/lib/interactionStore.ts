@@ -44,6 +44,11 @@ export interface InteractionSnapshot {
    */
   navigateRequestId: number;
   /**
+   * 이 navigate 요청이 닫힌 보드를 열면서 생겼다면 그 request id, 아니면 0. 패널의
+   * 가림 회피 배치는 이 경우에만 허용해 이미 읽고 있던 보드가 갑자기 이동하지 않게 한다.
+   */
+  autoPlacementRequestId: number;
+  /**
    * "요소 선택" 모드(ADR-0025 후속 수정). 켜져 있으면 계측 대상 앱 안의 모든 클릭이
    * 역방향 인터랙션으로 취급되고(그 클릭의 원래 동작은 막힌다), 꺼져 있으면 평소처럼
    * 앱을 조작할 수 있다 — Alt(⌥) 키를 누른 채 클릭하면 이 모드와 무관하게 항상 한 번
@@ -80,6 +85,7 @@ export function createInteractionStore(): InteractionStore {
     selectedTarget: null,
     navigateToNodeId: null,
     navigateRequestId: 0,
+    autoPlacementRequestId: 0,
     pickModeActive: false,
   };
   const listeners = new Set<InteractionListener>();
@@ -131,7 +137,14 @@ export function createInteractionStore(): InteractionStore {
       patch({ selectedTarget: null });
     },
     requestNavigate(rawId) {
-      patch({ boardOpen: true, navigateToNodeId: rawId, navigateRequestId: snapshot.navigateRequestId + 1 });
+      const requestId = snapshot.navigateRequestId + 1;
+      const shouldAutoPlace = !snapshot.boardOpen;
+      patch({
+        boardOpen: true,
+        navigateToNodeId: rawId,
+        navigateRequestId: requestId,
+        autoPlacementRequestId: shouldAutoPlace ? requestId : snapshot.autoPlacementRequestId,
+      });
     },
     consumeNavigate() {
       if (snapshot.navigateToNodeId === null) return;

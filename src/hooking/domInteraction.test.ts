@@ -37,6 +37,7 @@ function fakeInteractionStore(overrides: Partial<InteractionSnapshot> = {}): Int
     selectedTarget: null,
     navigateToNodeId: null,
     navigateRequestId: 0,
+    autoPlacementRequestId: 0,
     pickModeActive: false,
     ...overrides,
   };

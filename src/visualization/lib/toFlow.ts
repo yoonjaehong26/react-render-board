@@ -189,6 +189,10 @@ export function toFlow(
       id: `folder:${f.folder}`,
       type: 'folder',
       position: { x: f.frame.x, y: f.frame.y },
+      // React Flow의 MiniMap은 style 크기가 아니라 노드 자체의 width/height(또는 measured)를
+      // 읽는다. 프레임은 고정 레이아웃 크기이므로 둘을 함께 내려 화면/미니맵의 기하를 일치시킨다.
+      width: f.frame.width,
+      height: f.frame.height,
       style: { width: f.frame.width, height: f.frame.height },
       data: {
         label: slash >= 0 ? f.folder.slice(slash + 1) : f.folder,
@@ -223,6 +227,9 @@ export function toFlow(
       type: 'group',
       ...(parentFolderFrame ? { parentId: `folder:${g.parentFolder}`, extent: 'parent' as const } : {}),
       position: groupPosition,
+      // style만으로는 MiniMap이 이 프레임을 0×0으로 판단한다. (ADR-0082)
+      width: g.frame.width,
+      height: g.frame.height,
       style: { width: g.frame.width, height: g.frame.height },
       data: {
         label: pending ? '(그룹 확인 중…)' : g.group,
@@ -263,6 +270,9 @@ export function toFlow(
         parentId: `group:${g.group}`,
         extent: 'parent',
         position: pos,
+        // 컴포넌트 카드도 고정 크기라 top-level 치수를 명시한다. 화면 DOM 스타일은 유지한다.
+        width: NODE_WIDTH,
+        height: NODE_HEIGHT,
         style: { width: NODE_WIDTH, height: NODE_HEIGHT },
         data: {
           displayName: n.displayName,

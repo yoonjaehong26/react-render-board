@@ -18,15 +18,16 @@ describe('panelLayoutPreference', () => {
   });
 
   it('round-trips a stored layout', () => {
-    setStoredPanelLayout({ dock: 'left', sizeFraction: 0.5 });
-    expect(getStoredPanelLayout()).toEqual({ dock: 'left', sizeFraction: 0.5 });
+    setStoredPanelLayout({ dock: 'left', sizeFraction: 0.5, mode: 'reserve-space' });
+    expect(getStoredPanelLayout()).toEqual({ dock: 'left', sizeFraction: 0.5, mode: 'reserve-space' });
   });
 
   it('clamps an out-of-range fraction on read', () => {
-    setStoredPanelLayout({ dock: 'right', sizeFraction: 5 }); // absurdly large
+    setStoredPanelLayout({ dock: 'right', sizeFraction: 5, mode: 'overlay' }); // absurdly large
     const layout = getStoredPanelLayout();
     expect(layout.dock).toBe('right');
     expect(layout.sizeFraction).toBe(MAX_PANEL_FRACTION);
+    expect(layout.mode).toBe('overlay');
   });
 
   it('falls back to default for a malformed dock value', () => {
@@ -37,6 +38,11 @@ describe('panelLayoutPreference', () => {
   it('falls back to default for non-JSON garbage', () => {
     localStorage.setItem('rrb:panelLayout', 'not json');
     expect(getStoredPanelLayout()).toEqual(DEFAULT_PANEL_LAYOUT);
+  });
+
+  it('migrates a pre-mode preference to overlay without discarding the dock and size', () => {
+    localStorage.setItem('rrb:panelLayout', JSON.stringify({ dock: 'top', sizeFraction: 0.32 }));
+    expect(getStoredPanelLayout()).toEqual({ dock: 'top', sizeFraction: 0.32, mode: 'overlay' });
   });
 
   it('clampFraction keeps values within [MIN, MAX] and handles NaN', () => {

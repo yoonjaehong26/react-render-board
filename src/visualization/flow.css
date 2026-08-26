@@ -976,6 +976,14 @@ body.rrb-pick-mode {
   border-top: 1px solid #d0d3da;
 }
 
+.board-panel--top {
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--rrb-panel-size, 45vh);
+  border-bottom: 1px solid #d0d3da;
+}
+
 .board-panel--left {
   top: 0;
   bottom: 0;
@@ -990,6 +998,46 @@ body.rrb-pick-mode {
   right: 0;
   width: var(--rrb-panel-size, 40vw);
   border-left: 1px solid #d0d3da;
+}
+
+/* Document Picture-in-Picture 안에서는 별도 문서의 전체 viewport를 보드에 쓴다. */
+.board-panel--detached {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+}
+.board-panel--detached .board-panel__resize {
+  display: none;
+}
+.board-panel--detached .board-panel__dock {
+  top: 12px;
+  right: 14px;
+}
+
+/* 선택한 실제 요소를 계속 볼 수 없는 넓은 대상일 때만 쓰는 최소 레일. 캔버스를 숨겨
+   React Flow가 작은 viewport로 재측정/fitView하는 부작용도 피한다. */
+.board-panel--rail {
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+}
+.board-panel--rail.board-panel--left,
+.board-panel--rail.board-panel--right {
+  width: 52px;
+}
+.board-panel--rail.board-panel--top,
+.board-panel--rail.board-panel--bottom {
+  height: 52px;
+}
+.board-panel__rail-button {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #4f46e5;
+  color: #fff;
+  cursor: pointer;
+  font-size: 20px;
 }
 
 /* 리사이즈 핸들 — 패널의 "안쪽" 가장자리(하단=위, 좌=오른쪽, 우=왼쪽)에 얇게 얹는다. */
@@ -1018,6 +1066,20 @@ body.rrb-pick-mode {
   right: 0;
   height: 8px;
   cursor: ns-resize;
+}
+.board-panel--top .board-panel__resize {
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  cursor: ns-resize;
+}
+.board-panel--top .board-panel__resize::after {
+  left: 50%;
+  bottom: 3px;
+  transform: translateX(-50%);
+  width: 42px;
+  height: 3px;
 }
 .board-panel--bottom .board-panel__resize::after {
   left: 50%;
@@ -1072,6 +1134,10 @@ body.rrb-pick-mode {
    하단 도킹이면 위쪽 가장자리의 오른쪽 끝, 좌/우 사이드바면 안쪽 세로 가장자리의 위쪽 끝. */
 .board-panel--bottom .board-panel__dock {
   top: -13px;
+  right: 14px;
+}
+.board-panel--top .board-panel__dock {
+  bottom: -13px;
   right: 14px;
 }
 .board-panel--left .board-panel__dock {
@@ -1241,6 +1307,9 @@ body.rrb-dark-mode .board-panel {
 /* 도킹 컨트롤/리사이즈 그립 다크 대응(ADR-0040) */
 body.rrb-dark-mode .board-panel--bottom {
   border-top-color: #1f2937;
+}
+body.rrb-dark-mode .board-panel--top {
+  border-bottom-color: #1f2937;
 }
 body.rrb-dark-mode .board-panel--left {
   border-right-color: #1f2937;

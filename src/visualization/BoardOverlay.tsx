@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import type { RenderStore } from '../data/store';
 import { Canvas } from './Canvas';
 import { DomHighlightOverlay } from './components/DomHighlightOverlay';
@@ -9,6 +10,7 @@ import {
   clampFraction,
   getStoredPanelLayout,
   setStoredPanelLayout,
+  type PanelMode,
   type PanelDock,
   type PanelLayout,
 } from './lib/panelLayoutPreference';
@@ -17,6 +19,7 @@ import {
   setStoredFloatingButtonPosition,
   type FloatingButtonPosition,
 } from './lib/floatingButtonPreference';
+import { leastObstructiveDock, shouldUseFocusRail } from './lib/panelPlacement';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 
 const FLOATING_BUTTON_MARGIN = 16;
@@ -29,11 +32,12 @@ interface FloatingButtonDrag {
   startPosition: FloatingButtonPosition;
 }
 
-// 패널 도킹 방향 아이콘(ADR-0040) — 사각 아웃라인 + 도킹된 변을 채운 막대. 하단/좌/우.
+// 패널 도킹 방향 아이콘 — 사각 아웃라인 + 도킹된 변을 채운 막대.
 function DockIcon({ side }: { side: PanelDock }) {
   return (
     <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
       <rect x="1.75" y="1.75" width="12.5" height="12.5" rx="2" fill="none" stroke="currentColor" strokeWidth="1.3" />
+      {side === 'top' && <rect x="1.75" y="1.75" width="12.5" height="4.75" rx="1.5" fill="currentColor" />}
       {side === 'bottom' && <rect x="1.75" y="9.5" width="12.5" height="4.75" rx="1.5" fill="currentColor" />}
       {side === 'left' && <rect x="1.75" y="1.75" width="4.75" height="12.5" rx="1.5" fill="currentColor" />}
       {side === 'right' && <rect x="9.5" y="1.75" width="4.75" height="12.5" rx="1.5" fill="currentColor" />}
@@ -55,6 +59,11 @@ export interface BoardOverlayProps {
   store: RenderStore;
   /** 생략하면 내부에서 하나 만든다 — Canvas의 같은 동작(§CanvasProps) 참고. */
   interactionStore?: InteractionStore;
+  /**
+   * reserve-space 모드에서만 줄일, 통합 측이 명시한 레이아웃 경계. 주입 모드는 임의의
+   * 앱 레이아웃을 바꾸지 않으므로 이 값을 주지 않는다.
+   */
+  layoutTarget?: HTMLElement | null;
 }
 
 // ADR-0020(배포/진입 UX) + ADR-0025(도킹 패널로 수정)가 정한 "같은 페이지 + 플로팅 버튼 +
@@ -67,12 +76,12 @@ export interface BoardOverlayProps {
 // 동안에도 항상 보이고 조작 가능하다 — 정방향(Canvas의 onNodeClick)이 실제 DOM 요소를
 // 하이라이트하는 것도, 역방향(domInteraction.ts의 DOM 클릭 브리지)이 패널을 여는 것도
 // 전부 이 boardOpen 하나로 조정된다.
-export function BoardOverlay({ store, interactionStore }: BoardOverlayProps) {
+export function BoardOverlay({ store, interactionStore, layoutTarget = null }: BoardOverlayProps) {
   const interactionStoreRef = useRef<InteractionStore | null>(null);
   if (!interactionStoreRef.current) interactionStoreRef.current = interactionStore ?? createInteractionStore();
   const resolvedInteractionStore = interactionStoreRef.current;
 
-  const { boardOpen, pickModeActive, hoverTarget, selectedTarget } = useSyncExternalStore(
+  const { boardOpen, pickModeActive, hoverTarget, selectedTarget, highlightedElements, navigateRequestId, autoPlacementRequestId } = useSyncExternalStore(
     resolvedInteractionStore.subscribe,
     resolvedInteractionStore.getSnapshot,
   );
@@ -85,6 +94,11 @@ export function BoardOverlay({ store, interactionStore }: BoardOverlayProps) {
   const [layout, setLayout] = useState(getStoredPanelLayout);
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
+  const [railCollapsed, setRailCollapsed] = useState(false);
+
+  // Document PiP는 창 하나만 유지한다. 지원하지 않는 브라우저는 null이라 현재 인페이지
+  // 패널을 그대로 쓴다. 타입은 아직 표준 lib.dom에 없으므로 아래 request 함수에서 좁힌다.
+  const [pipWindow, setPipWindow] = useState<Window | null>(null);
 
   // 플로팅 버튼은 어떤 호스트 앱 위에도 떠 있으므로, 사용자마다 가리지 말아야 할 앱 UI가
   // 다르다. 위치는 화면에서 버튼 묶음이 이동할 수 있는 범위의 비율로 영속화한다(ADR-0078).
@@ -192,18 +206,29 @@ export function BoardOverlay({ store, interactionStore }: BoardOverlayProps) {
     [commitLayout],
   );
 
+  const setMode = useCallback(
+    (mode: PanelMode) => {
+      // 선언적 경계 없는 주입 모드에서 reserve-space를 허용하면 임의 페이지를 밀게 된다.
+      if (mode === 'reserve-space' && !layoutTarget) return;
+      commitLayout({ ...layoutRef.current, mode });
+    },
+    [commitLayout, layoutTarget],
+  );
+
   // 리사이즈 핸들 드래그: 안쪽으로 끌면 커진다(하단=위로/좌=오른쪽/우=왼쪽). 드래그 중에는
   // 상태만 갱신하고, 놓을 때(pointerup) 한 번 localStorage에 영속화한다. 크기는 창 치수 대비
   // 비율로 잡아 창이 리사이즈돼도 유지된다.
   const onResizePointerDown = useCallback((e: ReactPointerEvent) => {
     e.preventDefault();
     const { dock, sizeFraction } = layoutRef.current;
-    const startPos = dock === 'bottom' ? e.clientY : e.clientX;
-    const dim = dock === 'bottom' ? window.innerHeight : window.innerWidth;
+    const vertical = dock === 'bottom' || dock === 'top';
+    const startPos = vertical ? e.clientY : e.clientX;
+    const dim = vertical ? window.innerHeight : window.innerWidth;
 
     function onMove(ev: PointerEvent) {
-      const cur = dock === 'bottom' ? ev.clientY : ev.clientX;
-      const deltaPx = dock === 'left' ? cur - startPos : startPos - cur;
+      const cur = vertical ? ev.clientY : ev.clientX;
+      const growsTowardPointer = dock === 'left' || dock === 'top';
+      const deltaPx = growsTowardPointer ? cur - startPos : startPos - cur;
       setLayout((prev) => ({ ...prev, sizeFraction: clampFraction(sizeFraction + deltaPx / dim) }));
     }
     function onUp() {
@@ -215,11 +240,9 @@ export function BoardOverlay({ store, interactionStore }: BoardOverlayProps) {
     window.addEventListener('pointerup', onUp);
   }, []);
 
-  // 오버레이 전용(ADR-0040): 패널은 위에 떠서 덮기만 하고 계측 대상 앱의 레이아웃/CSS는 절대
-  // 건드리지 않는다 — 앱을 밀어내던 subject 패딩 주입은 "관찰 도구가 관찰 대상을 바꾼다"는
-  // 문제(반응형 breakpoint 오작동 등)라 제거했다. 가려진 부분은 패널을 이동/크기조절/닫아서
-  // 본다(react-scan/TanStack Query Devtools와 같은 모델). body에는 "보드 열림" 신호만 남기고,
-  // 패널 크기는 패널 요소에 --rrb-panel-size로 직접 준다(아래 render).
+  // 기본 overlay는 대상 앱을 절대 건드리지 않는다. 단 통합 측이 layoutTarget을 준 reserve-space
+  // 모드만 그 경계의 가용 폭/높이를 줄인다. 모든 인라인 값을 정확히 복원해 앱과 보드의 수명이
+  // 달라도 흔적을 남기지 않는다.
   useEffect(() => {
     document.body.classList.toggle('rrb-board-open', boardOpen);
     return () => {
@@ -227,9 +250,85 @@ export function BoardOverlay({ store, interactionStore }: BoardOverlayProps) {
     };
   }, [boardOpen]);
 
+  useEffect(() => {
+    if (!layoutTarget || !boardOpen || layout.mode !== 'reserve-space' || pipWindow) return;
+    const { style } = layoutTarget;
+    const previous = {
+      marginLeft: style.marginLeft,
+      marginRight: style.marginRight,
+      paddingTop: style.paddingTop,
+      paddingBottom: style.paddingBottom,
+    };
+    const size = `${(layout.sizeFraction * 100).toFixed(3)}${layout.dock === 'left' || layout.dock === 'right' ? 'vw' : 'vh'}`;
+    if (layout.dock === 'left') style.marginLeft = size;
+    if (layout.dock === 'right') style.marginRight = size;
+    // 상·하단은 폭을 억지로 줄이지 않고, 대상의 정상 스크롤 영역 끝에 여백을 둔다.
+    if (layout.dock === 'top') style.paddingTop = size;
+    if (layout.dock === 'bottom') style.paddingBottom = size;
+    return () => {
+      style.marginLeft = previous.marginLeft;
+      style.marginRight = previous.marginRight;
+      style.paddingTop = previous.paddingTop;
+      style.paddingBottom = previous.paddingBottom;
+    };
+  }, [boardOpen, layout.dock, layout.mode, layout.sizeFraction, layoutTarget, pipWindow]);
+
+  // requestNavigate()와 highlight()는 별도 store update다. interactionStore가 닫힌 보드를
+  // 열었던 request id만 별도로 남겨, 두 번째 update에서 실제 요소 사각형을 읽는다.
+  useEffect(() => {
+    if (!boardOpen) setRailCollapsed(false);
+  }, [boardOpen]);
+  const lastSmartNavigateRef = useRef(0);
+  useEffect(() => {
+    if (!boardOpen || autoPlacementRequestId !== navigateRequestId || navigateRequestId === 0 || navigateRequestId === lastSmartNavigateRef.current) return;
+    const target = highlightedElements[0];
+    if (!target) return; // requestNavigate와 highlight는 별도 store update라 다음 렌더에서 재시도한다.
+    lastSmartNavigateRef.current = navigateRequestId;
+    if (layout.mode === 'reserve-space' || pipWindow) return;
+    const rect = target.getBoundingClientRect();
+    const placement = leastObstructiveDock(
+      { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      layoutRef.current.dock,
+      layoutRef.current.sizeFraction,
+      { width: window.innerWidth, height: window.innerHeight },
+    );
+    if (placement.dock !== layoutRef.current.dock) setDock(placement.dock);
+    setRailCollapsed(
+      shouldUseFocusRail(
+        { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+        placement.overlapRatio,
+        { width: window.innerWidth, height: window.innerHeight },
+      ),
+    );
+  }, [autoPlacementRequestId, boardOpen, highlightedElements, layout.mode, navigateRequestId, pipWindow, setDock]);
+
   // 크기는 화면 비율로 저장하고(방향 전환·창 리사이즈에도 유지), 도킹 방향에 따라 하단=높이(vh)
   // /좌·우=너비(vw)로 해석한다.
-  const panelSizeCss = `${(layout.sizeFraction * 100).toFixed(3)}${layout.dock === 'bottom' ? 'vh' : 'vw'}`;
+  const panelSizeCss = `${(layout.sizeFraction * 100).toFixed(3)}${layout.dock === 'bottom' || layout.dock === 'top' ? 'vh' : 'vw'}`;
+
+  const openPictureInPicture = useCallback(async () => {
+    const documentPiP = (window as Window & { documentPictureInPicture?: { requestWindow(options?: { width?: number; height?: number }): Promise<Window> } }).documentPictureInPicture;
+    if (!documentPiP || pipWindow) return;
+    try {
+      const next = await documentPiP.requestWindow({ width: Math.round(window.innerWidth * 0.48), height: Math.round(window.innerHeight * 0.7) });
+      // Vite/injected CSS 모두 style/link 태그로 복제한다. PiP는 별도 document라 원 문서의
+      // 스타일 상속이 없으며, 보드만 옮겨 대상 앱은 원래 문서에 남는다.
+      for (const node of Array.from(document.head.querySelectorAll('style, link[rel="stylesheet"]'))) {
+        next.document.head.appendChild(node.cloneNode(true));
+      }
+      next.document.body.className = document.body.className;
+      next.addEventListener('pagehide', () => setPipWindow(null), { once: true });
+      setRailCollapsed(false);
+      setPipWindow(next);
+    } catch {
+      // 사용자 제스처/브라우저 정책으로 막히면 현재 도킹 패널이 그대로 폴백이다.
+    }
+  }, [pipWindow]);
+
+  const closePictureInPicture = useCallback(() => {
+    pipWindow?.close();
+    setPipWindow(null);
+  }, [pipWindow]);
 
   useEffect(() => {
     document.body.classList.toggle('rrb-pick-mode', pickModeActive);
@@ -237,6 +336,33 @@ export function BoardOverlay({ store, interactionStore }: BoardOverlayProps) {
       document.body.classList.remove('rrb-pick-mode');
     };
   }, [pickModeActive]);
+
+  const panel = boardOpen ? (
+    <div
+      className={`board-panel board-panel--${pipWindow ? 'detached' : layout.dock}${railCollapsed && !pipWindow ? ' board-panel--rail' : ''}`}
+      style={{ ...boardPanelVars, '--rrb-panel-size': panelSizeCss } as CSSProperties}
+    >
+      {railCollapsed && !pipWindow ? (
+        <button type="button" className="board-panel__rail-button" onClick={() => setRailCollapsed(false)} aria-label="render-board 펼치기" title="선택한 화면 요소를 가리지 않도록 축소됨 — 보드 펼치기">
+          ⟷
+        </button>
+      ) : (
+        <>
+          <div className="board-panel__resize" onPointerDown={onResizePointerDown} role="separator" aria-orientation={layout.dock === 'bottom' || layout.dock === 'top' ? 'horizontal' : 'vertical'} aria-label="패널 크기 조절 (드래그)" />
+          <div className="board-panel__dock" role="group" aria-label="패널 위치">
+            {(['left', 'top', 'bottom', 'right'] as const).map((d) => {
+              const label = d === 'bottom' ? '하단 도킹' : d === 'top' ? '상단 도킹' : d === 'left' ? '왼쪽 사이드바' : '오른쪽 사이드바';
+              return <button key={d} type="button" className={`board-panel__dock-btn${layout.dock === d ? ' board-panel__dock-btn--active' : ''}`} aria-pressed={layout.dock === d} aria-label={label} title={label} onClick={() => setDock(d)}><DockIcon side={d} /></button>;
+            })}
+            {layoutTarget && <button type="button" className={`board-panel__dock-btn${layout.mode === 'reserve-space' ? ' board-panel__dock-btn--active' : ''}`} aria-pressed={layout.mode === 'reserve-space'} aria-label="대상 앱 공간 확보" title="대상 앱 공간 확보" onClick={() => setMode(layout.mode === 'reserve-space' ? 'overlay' : 'reserve-space')}>↔</button>}
+            {!pipWindow && 'documentPictureInPicture' in window && <button type="button" className="board-panel__dock-btn" aria-label="별도 항상 위 창으로 분리" title="별도 항상 위 창으로 분리" onClick={openPictureInPicture}>↗</button>}
+            {pipWindow && <button type="button" className="board-panel__dock-btn" aria-label="도킹 패널로 돌아가기" title="도킹 패널로 돌아가기" onClick={closePictureInPicture}>↙</button>}
+          </div>
+          <Canvas store={store} interactionStore={resolvedInteractionStore} />
+        </>
+      )}
+    </div>
+  ) : null;
 
   return (
     <>
@@ -312,41 +438,7 @@ export function BoardOverlay({ store, interactionStore }: BoardOverlayProps) {
           onClear={billboardPreview ? undefined : () => resolvedInteractionStore.clearSelectedTarget()}
         />
       )}
-      {boardOpen && (
-        <div
-          className={`board-panel board-panel--${layout.dock}`}
-          style={{ ...boardPanelVars, '--rrb-panel-size': panelSizeCss } as CSSProperties}
-        >
-          {/* 안쪽 가장자리 리사이즈 핸들(드래그로 크기 조절, ADR-0040) */}
-          <div
-            className="board-panel__resize"
-            onPointerDown={onResizePointerDown}
-            role="separator"
-            aria-orientation={layout.dock === 'bottom' ? 'horizontal' : 'vertical'}
-            aria-label="패널 크기 조절 (드래그)"
-          />
-          {/* 도킹 위치 전환(하단/좌/우) — 안쪽 가장자리 중앙에 얹은 작은 컨트롤 */}
-          <div className="board-panel__dock" role="group" aria-label="패널 위치">
-            {(['left', 'bottom', 'right'] as const).map((d) => {
-              const label = d === 'bottom' ? '하단 도킹' : d === 'left' ? '왼쪽 사이드바' : '오른쪽 사이드바';
-              return (
-                <button
-                  key={d}
-                  type="button"
-                  className={`board-panel__dock-btn${layout.dock === d ? ' board-panel__dock-btn--active' : ''}`}
-                  aria-pressed={layout.dock === d}
-                  aria-label={label}
-                  title={label}
-                  onClick={() => setDock(d)}
-                >
-                  <DockIcon side={d} />
-                </button>
-              );
-            })}
-          </div>
-          <Canvas store={store} interactionStore={resolvedInteractionStore} />
-        </div>
-      )}
+      {pipWindow ? createPortal(panel, pipWindow.document.body) : panel}
       <DomHighlightOverlay interactionStore={resolvedInteractionStore} />
     </>
   );

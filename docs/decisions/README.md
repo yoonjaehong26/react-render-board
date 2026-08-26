@@ -98,3 +98,4 @@
 | [0088](0088-direct-child-envelope-readable-default.md) | 읽기 우선 기본 layout — leaf 부모 컴포넌트가 직접 렌더하는 자식 파일의 base frame 폭·개수만 슬롯으로 예약. 후손 폭은 전파하지 않아 수직 corridor와 폭 상한을 함께 보장 | 채택됨(구현, ADR-0087의 기본 우선순위 보완) |
 | [0089](0089-strict-source-subtree-waterfall.md) | strict source–subtree waterfall — 최종 자식 서브트리 span을 실제 leaf source 슬롯까지 아래→위로 예약하고, 단일 child 관계는 source/target center를 정확히 수직 정렬. 가로폭보다 관계 가독성 우선 | 채택됨(구현, ADR-0088 강화) |
 | [0090](0090-stable-parent-child-edges-across-zoom.md) | 확대율과 무관한 실제 부모–자식 간선 — 지도는 프레임 개요만, 컴포넌트가 보이는 모든 확대율에는 같은 실제 parent→child 간선만. 회색 파일 집계선·구조 모드는 제거 | 채택됨(구현, ADR-0084 대체) |
+| [0091](0091-adaptive-panel-layout-and-detached-board.md) | 적응형 패널 배치 + 분리 보드 — MiniMap 크기 계약 복구, overlay 기본 유지 + 선언적 `layoutTarget` 한정 reserve-space, 상/하/좌/우 도킹, Alt+클릭 가림 최소 배치·대형 대상 포커스 레일, Chromium Document PiP 분리/폴백 | 채택됨(구현) |

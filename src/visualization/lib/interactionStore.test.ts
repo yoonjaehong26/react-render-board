@@ -17,6 +17,7 @@ describe('createInteractionStore', () => {
       selectedTarget: null,
       navigateToNodeId: null,
       navigateRequestId: 0,
+      autoPlacementRequestId: 0,
       pickModeActive: false,
     });
   });
@@ -148,7 +149,7 @@ describe('createInteractionStore', () => {
     it('requestNavigate opens the board and sets navigateToNodeId', () => {
       const store = createInteractionStore();
       store.requestNavigate(42);
-      expect(store.getSnapshot()).toMatchObject({ boardOpen: true, navigateToNodeId: 42 });
+      expect(store.getSnapshot()).toMatchObject({ boardOpen: true, navigateToNodeId: 42, autoPlacementRequestId: 1 });
     });
 
     it('consumeNavigate resets navigateToNodeId to null without touching boardOpen', () => {
@@ -176,6 +177,8 @@ describe('createInteractionStore', () => {
 
       expect(store.getSnapshot().navigateRequestId).toBe(firstRequestId + 1);
       expect(store.getSnapshot().navigateToNodeId).toBe(7);
+      // 두 번째 요청은 이미 열린 패널에서 발생했으므로 자동 재배치 대상이 아니다.
+      expect(store.getSnapshot().autoPlacementRequestId).toBe(firstRequestId);
     });
   });
 

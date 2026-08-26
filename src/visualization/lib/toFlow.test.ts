@@ -30,6 +30,8 @@ describe('toFlow', () => {
     expect(groupNode.id).toBe('group:A');
     expect(groupNode.type).toBe('group');
     expect(groupNode.position).toEqual({ x: expectedFrame.x, y: expectedFrame.y });
+    expect(groupNode.width).toBe(expectedFrame.width);
+    expect(groupNode.height).toBe(expectedFrame.height);
     expect(groupNode.style).toEqual({ width: expectedFrame.width, height: expectedFrame.height });
     const data = groupNode.data as GroupNodeData;
     expect(data.label).toBe('A');
@@ -61,6 +63,8 @@ describe('toFlow', () => {
     expect(comp1.type).toBe('component');
     expect(comp1.parentId).toBe('group:A');
     expect(comp1.extent).toBe('parent');
+    expect(comp1.width).toBeGreaterThan(0);
+    expect(comp1.height).toBeGreaterThan(0);
     const data1 = comp1.data as ComponentNodeData;
     expect(data1.displayName).toBe('Parent');
     expect(data1.kind).toBe('composite');

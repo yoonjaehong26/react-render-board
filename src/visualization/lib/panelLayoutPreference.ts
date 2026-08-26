@@ -7,16 +7,22 @@
 // 그대로 재사용할 수 있고, 창 크기가 달라져도 비율이 유지된다.
 const STORAGE_KEY = 'rrb:panelLayout';
 
-export type PanelDock = 'bottom' | 'left' | 'right';
+export type PanelDock = 'top' | 'bottom' | 'left' | 'right';
+/**
+ * overlay는 대상 앱을 전혀 바꾸지 않는 기본값이다. reserve-space는 호출자가 명시한
+ * 레이아웃 경계에서만 여백을 확보한다 — 전역 body를 임의로 밀지 않는다.
+ */
+export type PanelMode = 'overlay' | 'reserve-space';
 
 export interface PanelLayout {
   dock: PanelDock;
   sizeFraction: number;
+  mode: PanelMode;
 }
 
 export const MIN_PANEL_FRACTION = 0.2;
 export const MAX_PANEL_FRACTION = 0.85;
-export const DEFAULT_PANEL_LAYOUT: PanelLayout = { dock: 'bottom', sizeFraction: 0.45 };
+export const DEFAULT_PANEL_LAYOUT: PanelLayout = { dock: 'bottom', sizeFraction: 0.45, mode: 'overlay' };
 
 export function clampFraction(fraction: number): number {
   if (!Number.isFinite(fraction)) return DEFAULT_PANEL_LAYOUT.sizeFraction;
@@ -24,7 +30,11 @@ export function clampFraction(fraction: number): number {
 }
 
 function isDock(value: unknown): value is PanelDock {
-  return value === 'bottom' || value === 'left' || value === 'right';
+  return value === 'top' || value === 'bottom' || value === 'left' || value === 'right';
+}
+
+function isMode(value: unknown): value is PanelMode {
+  return value === 'overlay' || value === 'reserve-space';
 }
 
 export function getStoredPanelLayout(): PanelLayout {
@@ -33,7 +43,12 @@ export function getStoredPanelLayout(): PanelLayout {
     if (!raw) return DEFAULT_PANEL_LAYOUT;
     const parsed = JSON.parse(raw) as Partial<PanelLayout>;
     if (!isDock(parsed.dock) || typeof parsed.sizeFraction !== 'number') return DEFAULT_PANEL_LAYOUT;
-    return { dock: parsed.dock, sizeFraction: clampFraction(parsed.sizeFraction) };
+    // ADR-0082 이전 저장값은 mode가 없으므로 안전한 overlay로 마이그레이션한다.
+    return {
+      dock: parsed.dock,
+      sizeFraction: clampFraction(parsed.sizeFraction),
+      mode: isMode(parsed.mode) ? parsed.mode : 'overlay',
+    };
   } catch {
     return DEFAULT_PANEL_LAYOUT;
   }

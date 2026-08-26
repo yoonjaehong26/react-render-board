@@ -59,7 +59,7 @@ if (boardEnabled) {
 
   createRoot(overlayHost).render(
     <StrictMode>
-      <BoardOverlay store={store} interactionStore={interactionStore} />
+      <BoardOverlay store={store} interactionStore={interactionStore} layoutTarget={appShell} />
     </StrictMode>,
   );
 }
