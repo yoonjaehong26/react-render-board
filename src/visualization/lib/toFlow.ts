@@ -13,13 +13,8 @@ export function isRouteGroup(group: string): boolean {
   return /(^|[/\\])page\.(tsx|jsx|ts|js)$/.test(group);
 }
 
-// 간선 클러터 감쇠 튜닝 상수(ADR-0029 결정 #4). 연구문서 7절 b가 정한 "구조 간선 = 그룹
-// 횡단 + 깊이 1~2"를 형식화한 값이다.
-// - STRUCTURAL_GROUP_DEPTH: 그룹 내 이 깊이까지는 구조 간선으로 보고 중간 줌(zoom-mid)에서도
-//   표시한다. 넘으면 detail로 분류돼 상세히 줌인해야 나타난다.
-// - EDGE_DEPTH_MAX: 시각적 감쇠(opacity) 깊이 클래스의 상한. 이 값은 "N 이상"을 뜻하는 마지막
-//   버킷이자 detail 버킷과 일치한다(STRUCTURAL_GROUP_DEPTH + 1).
-export const STRUCTURAL_GROUP_DEPTH = 2;
+// 그룹 내 깊이별 시각 감쇠의 마지막 버킷. 3은 "3 이상"을 뜻한다. 확대율에 따라 관계선을
+// 다른 표현으로 바꾸지 않으며, 이 값은 오직 잉크 강도에만 영향을 준다(ADR-0090).
 export const EDGE_DEPTH_MAX = 3;
 
 export interface ComponentNodeData extends Record<string, unknown> {
@@ -386,41 +381,13 @@ export function toFlow(
         target: String(n.id),
         type: 'smoothstep',
       } as const;
-      // 그룹 내 간선: 깊이 버킷(1..EDGE_DEPTH_MAX)으로 감쇠. STRUCTURAL_GROUP_DEPTH를 넘는 깊은
-      // 간선은 edge-detail로 표시해 단계형 LOD(중간 줌)에서 숨긴다(flow.css .zoom-mid).
+      // 그룹 내 간선: 깊이 버킷(1..EDGE_DEPTH_MAX)으로만 감쇠한다. 모든 상세 모드에서 같은
+      // 실제 parent→child 간선이 유지되므로, 줌은 관계의 의미를 바꾸지 않는다.
       const depth = groupDepthOf(n.id); // 같은 그룹 부모가 있으므로 항상 >= 1
       const bucket = Math.min(depth, EDGE_DEPTH_MAX);
-      const detail = depth > STRUCTURAL_GROUP_DEPTH;
-      const className = `edge-same-group edge-depth-${bucket}${detail ? ' edge-detail' : ''}${parentPalette}`;
+      const className = `edge-same-group edge-depth-${bucket}${parentPalette}`;
       return [{ ...base, className, zIndex: 1 }];
     });
-
-  // 그룹↔그룹 집계 엣지(ADR-0034): 노드 레벨 엣지는 양쪽 노드가 둘 다 펼쳐졌을 때만 그려져
-  // 지도 모드(그룹이 전부 접힘)에선 하나도 안 보인다. 그래서 "부모 그룹이 자식 그룹을
-  // 렌더한다"는 관계를 그룹당 1개로 집계한 엣지로 따로 그린다. flow.css가 이 엣지를 지도
-  // 모드(.zoom-far)에서만 보이게 하고 상세 모드에선 숨긴다(그땐 노드 레벨 엣지가 대신 보임).
-  const groupPairs = new Set<string>();
-  for (const n of nodes) {
-    if (n.parentId === null) continue;
-    const parent = byId.get(n.parentId);
-    if (!parent || parent.group === n.group) continue;
-    if (parent.group === PENDING_GROUP || n.group === PENDING_GROUP) continue;
-    groupPairs.add(`${parent.group}\n${n.group}`);
-  }
-  for (const pair of groupPairs) {
-    const [parentGroup, childGroup] = pair.split('\n');
-    if (!renderedGroups.has(parentGroup) || !renderedGroups.has(childGroup)) continue;
-    flowEdges.push({
-      id: `group:${parentGroup}->group:${childGroup}`,
-      source: `group:${parentGroup}`,
-      target: `group:${childGroup}`,
-      type: 'smoothstep',
-      className: 'edge-group-link',
-      zIndex: 5,
-      selectable: false,
-      focusable: false,
-    });
-  }
 
   return { flowNodes, flowEdges };
 }

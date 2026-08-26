@@ -537,27 +537,6 @@ body.rrb-dark-mode .canvas.lineage-active .react-flow__edge.edge-lineage.edge-pa
 body.rrb-dark-mode .canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-6 .react-flow__edge-path { stroke: #f472b6 !important; }
 body.rrb-dark-mode .canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-7 .react-flow__edge-path { stroke: #fb7185 !important; }
 
-/* 그룹↔그룹 집계 엣지(ADR-0034): GroupNode의 top/bottom 핸들에 붙는 앵커는 시각적으로 숨긴다
-   (엣지 위치 계산에만 쓰이고, 연결 상호작용은 GroupNode에서 isConnectable={false}로 막았다). */
-.group-node__handle {
-  opacity: 0;
-  pointer-events: none;
-}
-
-/* 집계 엣지는 지도 모드 전용이다 — 상세 모드에선 노드 레벨 엣지가 부모→자식 관계를 이미
-   보여주므로 숨겨 이중선을 피하고, 지도 모드(.zoom-far, 그룹이 전부 접혀 노드 엣지가 하나도
-   없는 상태)에서만 그룹 프레임끼리 이어 계층 흐름을 드러낸다. 아래 .zoom-far 규칙이 모든
-   엣지를 opacity:0으로 숨기므로, 이 엣지만 되살린다. */
-.react-flow__edge.edge-group-link {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.react-flow__edge.edge-group-link .react-flow__edge-path {
-  stroke: #94a3b8;
-  stroke-width: 2;
-}
-
 /* --- 캔버스 스티키노트(ADR-0029) --- */
 .sticky-note {
   width: 100%;
@@ -641,31 +620,12 @@ body.rrb-dark-mode .canvas.lineage-active .react-flow__edge.edge-lineage.edge-pa
   pointer-events: none;
 }
 
-/* 그룹↔그룹 집계 엣지(ADR-0034)는 지도 모드 전용이라 위 규칙을 역전시켜 여기서만 되살린다. */
-.zoom-far .react-flow__edge.edge-group-link {
-  opacity: 1;
-}
-
-/* "지도에서도 상세"(ADR-0049): 지도 모드여도 컴포넌트 노드/간선을 되살린다(위 .zoom-far 숨김
-   역전). 이 토글이 shouldExpandGroup으로 노드를 만들어도, .zoom-far가 opacity:0으로 숨기던 게
-   빠진 부분이었다. 그룹이 실제로 펼쳐지므로 집계 엣지(edge-group-link)는 대신 숨겨 노드 엣지와
-   중복을 피한다. */
+/* "지도에서도 상세"(ADR-0049): 지도 모드여도 컴포넌트 노드/실제 관계선을 함께 되살린다.
+   확대율은 같은 관계를 숨기거나 보이게만 할 뿐, 다른 파일 집계선으로 교체하지 않는다. */
 .zoom-far.wide-detail .component-node,
 .zoom-far.wide-detail .react-flow__edge {
   opacity: 1;
   pointer-events: auto;
-}
-.zoom-far.wide-detail .react-flow__edge.edge-group-link {
-  opacity: 0;
-}
-
-/* 간선 단계형 LOD: 중간 줌(ADR-0029 결정 #4, 연구문서 7절 b). 노드는 이미 보이지만 아직 덜
-   줌인한 구간에선 구조 간선(그룹 횡단 + 그룹 내 얕은 깊이)만 남기고 깊은(edge-detail) 간선을
-   숨긴다. 더 줌인하면(zoom-mid 해제) 위 edge-depth opacity로 페이드인한다. 추적/활동 간선은
-   신호라 이 LOD도 무시하고 유지한다("검색은 언제나 이긴다"의 연장). */
-.zoom-mid .react-flow__edge.edge-detail:not(.edge-tracked):not(.edge-hot):not(.edge-lineage) {
-  opacity: 0;
-  pointer-events: none;
 }
 
 /* GroupNode.tsx가 캔버스 줌의 역수를 곱해 라벨을 화면 기준 고정 크기로 유지한다

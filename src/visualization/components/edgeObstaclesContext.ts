@@ -1,5 +1,5 @@
 import { createContext } from 'react';
-import type { RoutingRect, Pt } from '../lib/edgeRouting';
+import type { RoutingRect, Pt, BusVisual } from '../lib/edgeRouting';
 
 // 크로스-그룹 직교 배선(OrthoEdge, ADR-0029 §5)이 회피할 장애물 = 펼쳐진 그룹 프레임 rect들(flow
 // 좌표). Canvas가 flowNodes에서 한 번 계산해 provider로 내려주고, 각 OrthoEdge가 자기 좌표로
@@ -19,3 +19,8 @@ export const EdgeLanesContext = createContext<ReadonlyMap<string, number>>(new M
 // OrthoEdge는 자기 id로 점열을 조회만 한다(간선별 A*를 중앙 pass로 대체 — 결정2). 맵에 없으면
 // (이론상 없음) OrthoEdge가 자기 좌표로 폴백 배선. 레이아웃 불변이면 memoize돼 재계산 안 함.
 export const EdgeBusPathsContext = createContext<ReadonlyMap<string, Pt[]>>(new Map());
+
+// 같은 source의 fan-out 버스를 N개 원본 edge가 겹쳐 그리지 않게 하는 시각 전용 정보. leader는
+// trunk+bar+stubs를 한 SVG path 묶음으로 그리고, follower는 숨겨 같은 부모의 의도된 공유를 실제
+// 잉크 하나로 표현한다. 논리 간선/데이터/hover 판정은 flowEdges에 그대로 남는다(ADR-0083).
+export const EdgeBusVisualsContext = createContext<ReadonlyMap<string, BusVisual>>(new Map());

@@ -10,30 +10,21 @@ import { useEffect } from 'react';
 // 쓰면 "지도 모드 배지"와 "실제로 접힌 그룹"이 어긋나 보이므로 반드시 하나로 공유한다.
 export const MAP_MODE_THRESHOLD = 0.55;
 
-// 간선 단계형 LOD(ADR-0029 결정 #4, 연구문서 7절 b). 현행 이진(지도=전부 숨김 ↔ 상세=전부
-// 표시)을 3단으로 나눈다: 상세 모드(노드가 보이는 구간) 안에서도, 아직 덜 줌인한 "중간 줌"
-// 에선 구조 간선만 두고 깊은(detail) 간선을 숨겼다가, 이 값 이상으로 더 줌인하면 페이드인한다.
-// "멀리선 고속도로만"이라는 지도 은유의 간선 확장. MAP_MODE_THRESHOLD보다 커야 의미가 있다
-// (노드가 이미 보이는 구간을 세분하는 것이므로).
-export const EDGE_DETAIL_THRESHOLD = 0.9;
-
 export function SemanticZoomController({ targetRef }: { targetRef: React.RefObject<HTMLDivElement | null> }) {
   const zoom = useStore((s) => s.transform[2]);
   const isMapMode = zoom < MAP_MODE_THRESHOLD;
-  // 상세 모드지만 아직 덜 줌인한 중간 구간 — 깊은 간선을 숨기는 LOD 대역.
-  const isMidDetail = !isMapMode && zoom < EDGE_DETAIL_THRESHOLD;
 
   useEffect(() => {
     const el = targetRef.current;
     if (!el) return;
     el.classList.toggle('zoom-far', isMapMode);
     el.classList.toggle('zoom-near', !isMapMode);
-    el.classList.toggle('zoom-mid', isMidDetail);
-  }, [isMapMode, isMidDetail, targetRef]);
+  }, [isMapMode, targetRef]);
 
   return (
     <Panel position="top-right" className="zoom-badge">
-      {isMapMode ? '지도 모드 (영역만)' : '상세 모드 (컴포넌트 표시)'} · {Math.round(zoom * 100)}%
+      {isMapMode ? '지도 모드 (영역만)' : '상세 모드 (컴포넌트 관계)'}{' '}
+      · {Math.round(zoom * 100)}%
     </Panel>
   );
 }

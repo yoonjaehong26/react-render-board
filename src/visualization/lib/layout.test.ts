@@ -345,6 +345,35 @@ describe('computeLayout parent-anchored placement', () => {
     expect(groups.map((g) => g.group)).toEqual(['A', 'B', 'C']);
   });
 
+  it('orders child groups by the actual parent-component render anchors, not their first-seen group order', () => {
+    // Parent 파일 안에서 LeftSource가 먼저, RightSource가 나중에 렌더된다. 자식 그룹의 첫 등장은
+    // 반대로 RightChild → LeftChild지만, waterfall은 실제 출발 컴포넌트 순서대로 놓아야 교차하지 않는다.
+    const engine = createLayoutEngine();
+    const { groups, nodePositions } = engine.computeLayout([
+      vnode(1, 'Parent'),
+      vnode(2, 'Parent', 1), // LeftSource (파일 내부 왼쪽)
+      vnode(3, 'Parent', 1), // RightSource (파일 내부 오른쪽)
+      vnode(4, 'RightChild', 3), // 의도적으로 먼저 등장
+      vnode(5, 'LeftChild', 2),
+    ]);
+    const frame = (group: string) => groups.find((g) => g.group === group)!.frame;
+    const center = (group: string) => {
+      const f = frame(group);
+      return f.x + f.width / 2;
+    };
+    const parent = frame('Parent');
+    const leftSource = parent.x + nodePositions.get(2)!.x + 80;
+    const rightSource = parent.x + nodePositions.get(3)!.x + 80;
+
+    expect(center('LeftChild')).toBeLessThan(center('RightChild'));
+    expect(Math.abs(center('LeftChild') - leftSource)).toBeLessThan(
+      Math.abs(center('LeftChild') - rightSource),
+    );
+    expect(Math.abs(center('RightChild') - rightSource)).toBeLessThan(
+      Math.abs(center('RightChild') - leftSource),
+    );
+  });
+
   it('moves a shared (multi-parent) group to the shared lane below the tree (pillar ②)', () => {
     const engine = createLayoutEngine();
     // C는 P1과 P2 둘 다 렌더(공유 컴포넌트) → 다중 부모. 공유 UI 레인(pillar ②)은 이걸 트리에서
@@ -416,5 +445,83 @@ describe('computeLayout parent-anchored placement', () => {
     expect(cP).toBeGreaterThan(center('C1'));
     expect(cP).toBeLessThan(center('C3'));
     expect(cP).toBeCloseTo(center('C2'), 0); // 가운데 자식과 거의 정렬
+  });
+
+  it('reserves direct-child width for upper parents while resolving the child-band collision', () => {
+    const engine = createLayoutEngine();
+    // A의 자식 C는 파일 내부에 넓은 형제 행을 가진다. B를 A 바로 옆에 붙이면 C의 폭/후손이
+    // B 가지 아래로 파고들어 서로 다른 부모 간선이 다시 교차할 수 있다. B는 A의 *프레임*이
+    // 아니라 C까지 포함한 서브트리 폭 뒤에 배치되어야 한다.
+    const { groups } = engine.computeLayout([
+      vnode(1, 'A'),
+      vnode(2, 'B'),
+      vnode(3, 'C', 1),
+      vnode(4, 'C', 3),
+      vnode(5, 'C', 3),
+      vnode(6, 'C', 3),
+      vnode(7, 'D', 2),
+    ]);
+    const frame = (group: string) => groups.find((g) => g.group === group)!.frame;
+    const c = frame('C');
+    const b = frame('B');
+    const d = frame('D');
+
+    // B는 직접 자식 D의 폭만큼, A는 직접 자식 C의 폭만큼 예약한다. 따라서 넓은 C가 있는
+    // A와 B는 처음부터 분리돼 각 parent→child 관계가 자기 수직 corridor를 갖는다.
+    expect(b.x).toBeGreaterThanOrEqual(c.x + c.width);
+    expect(d.x).toBeGreaterThanOrEqual(c.x + c.width);
+  });
+
+  it('spreads sibling parent components by the widths of the files they directly render', () => {
+    const engine = createLayoutEngine();
+    // Parent 안의 SourceWide와 SourceNarrow는 둘 다 leaf지만, 전자가 직접 렌더하는 Wide 파일은
+    // 내부 형제 3개로 넓다. 읽기 우선 기본값에서는 그 직접 자식 frame 폭을 source 슬롯에
+    // 반영해 두 source 사이에 처음부터 수직 corridor를 만든다.
+    const { groups, nodePositions } = engine.computeLayout([
+      vnode(1, 'Parent'),
+      vnode(2, 'Parent', 1),
+      vnode(3, 'Parent', 1),
+      vnode(4, 'Wide', 2),
+      vnode(5, 'Wide', 4),
+      vnode(6, 'Wide', 4),
+      vnode(7, 'Wide', 4),
+      vnode(8, 'Narrow', 3),
+    ]);
+    const wide = groups.find((g) => g.group === 'Wide')!;
+    const narrow = groups.find((g) => g.group === 'Narrow')!;
+    const parent = groups.find((g) => g.group === 'Parent')!;
+    const sourceWide = nodePositions.get(2)!;
+    const sourceNarrow = nodePositions.get(3)!;
+
+    expect(wide.frame.width).toBeGreaterThan(narrow.frame.width);
+    expect(sourceNarrow.x - sourceWide.x).toBeGreaterThan(NODE_WIDTH + 100);
+    expect(narrow.frame.x).toBeGreaterThanOrEqual(wide.frame.x + wide.frame.width);
+    // strict waterfall: 자식 파일이 하나인 source는 자식 frame 중심과 정확히 같은 x를 쓴다.
+    expect(wide.frame.x + wide.frame.width / 2).toBeCloseTo(parent.frame.x + sourceWide.x + NODE_WIDTH / 2, 6);
+    expect(narrow.frame.x + narrow.frame.width / 2).toBeCloseTo(parent.frame.x + sourceNarrow.x + NODE_WIDTH / 2, 6);
+  });
+
+  it('does not propagate a grandchild file width into an ancestor source slot', () => {
+    const engine = createLayoutEngine();
+    // Parent의 두 source는 Child와 Peer를 직접 렌더한다. Child 안쪽에서 Grand가 매우 넓어져도
+    // Parent는 Grand가 아니라 Child의 기본 frame 폭만 예약해야 재귀적 가로 폭 폭발을 막는다.
+    const { groups, nodePositions } = engine.computeLayout([
+      vnode(1, 'Parent'),
+      vnode(2, 'Parent', 1),
+      vnode(3, 'Parent', 1),
+      vnode(4, 'Child', 2),
+      vnode(5, 'Child', 4),
+      vnode(6, 'Grand', 5),
+      vnode(7, 'Grand', 6),
+      vnode(8, 'Grand', 6),
+      vnode(9, 'Grand', 6),
+      vnode(10, 'Peer', 3),
+    ]);
+    const grand = groups.find((g) => g.group === 'Grand')!;
+    const nestedSource = nodePositions.get(2)!;
+    const peerSource = nodePositions.get(3)!;
+
+    expect(grand.frame.width).toBeGreaterThan(NODE_WIDTH * 2);
+    expect(peerSource.x - nestedSource.x).toBeLessThan(grand.frame.width);
   });
 });

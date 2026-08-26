@@ -36,8 +36,13 @@ import { paletteHex, colorIndexForGroup } from './lib/groupColor';
 import { getStoredColorMode, setStoredColorMode } from './lib/colorModePreference';
 import { loadStickyNotes, saveStickyNotes, createStickyNoteId, type StickyNote } from './lib/stickyNotes';
 import { OrthoEdge } from './components/OrthoEdge';
-import { EdgeObstaclesContext, EdgeLanesContext, EdgeBusPathsContext } from './components/edgeObstaclesContext';
-import { routeCrossGroupBuses, laneOffsetForKey, assignGutterTracks, type RoutingRect, type Pt, type BusEdgeInput } from './lib/edgeRouting';
+import {
+  EdgeObstaclesContext,
+  EdgeLanesContext,
+  EdgeBusPathsContext,
+  EdgeBusVisualsContext,
+} from './components/edgeObstaclesContext';
+import { routeCrossGroupBuses, laneOffsetForKey, assignGutterTracks, type RoutingRect, type BusEdgeInput } from './lib/edgeRouting';
 import { GroupNode } from './components/GroupNode';
 import { FolderNode } from './components/FolderNode';
 import { ComponentNode } from './components/ComponentNode';
@@ -926,14 +931,10 @@ function BoardContent({
     return rects;
   }, [flowNodes]);
 
-  // v3 중앙 coordination Phase 3(ADR-0060): corridor-local sticky 트랙. 크로스-그룹 간선의 출발을
-  // "소스 그룹 프레임의 y-층(gutter)"별로 묶고, 각 층 안에서 출발 x 순으로 정렬해 트랙(barY 슬롯)을
-  // 실제 간격(TRACK_GAP)으로 스택한다. → 같은 층의 여러 버스 바가 한 barY에 겹치지 않고 층층이 쌓여
-  // (예: ProductSection.tsx의 ShopProductCard×5 버스), 좌→우 정렬로 교차를 줄인다. 워터풀(tidy-tree,
-  // ADR-0058)이 층을 깨끗한 가로 밴드로 만들어, "거터별 1D 트랙 순서" 문제로 쪼개진 덕이다. 층 y·
-  // 소스 x는 레이아웃에서 안정 → 결정적(sticky, ADR-0008 상속). 오프셋은 아래쪽(거터)으로만 키워
-  // 프레임 안으로 안 들어가고(항상 barY = frameBottom+GUTTER+offset > frameBottom), 거터를 넘치면
-  // 버스 폴백이 A*로 잡아 관통 0을 유지한다. 전역 pass라 flowNodes 불변 시 memoize.
+  // v3 중앙 coordination Phase 3(ADR-0082): span-aware corridor-local sticky 트랙. 같은 거터의
+  // 서로 다른 부모 버스는 수평 span이 겹칠 때만 11px 간격 트랙으로 분리하고, 안 겹치면 같은 y를
+  // 재사용한다. 이전 44px clamp가 밀집 버스를 다시 같은 경로로 포개던 결함을 제거한다. 전역 pass라
+  // flowNodes 불변 시 memoize되고, span 순서가 레이아웃에서 안정적이라 live commit에도 흔들리지 않는다.
   const edgeLanes = useMemo<ReadonlyMap<string, number>>(() => {
     const byId = new Map(flowNodes.map((n) => [n.id, n]));
     const absCache = new Map<string, { x: number; y: number } | undefined>();
@@ -957,25 +958,41 @@ function BoardContent({
       absCache.set(id, r);
       return r;
     };
-    const sources = new Set<string>();
+    // 출발 노드별 버스의 실제 수평 span(source 중심→모든 target 중심)을 모은다. 부모가 다른
+    // 버스라도 span이 안 닿으면 같은 y 트랙을 재사용하고, 닿을 때만 여백을 둬 선 길이와 빈 공간을
+    // 불필요하게 키우지 않는다(ADR-0082).
+    const sourceInfo = new Map<string, { layer: number; spanStart: number; spanEnd: number }>();
     for (const e of flowEdges) {
-      if (typeof e.className === 'string' && e.className.includes('edge-cross-group')) sources.add(e.source);
-    }
-    // 각 출발의 층(소스 그룹 프레임 바닥 y = 거터 위치)과 중심 x를 구한다. 소스가 그룹 프레임(프레임
-    // 폴백)이면 자기 자신, 컴포넌트면 그 부모 그룹(parentId).
-    const info: Array<{ s: string; layer: number; x: number }> = [];
-    for (const s of sources) {
-      const sn = byId.get(s);
-      if (!sn) continue;
-      const frameId = sn.type === 'group' ? s : (sn.parentId ?? s);
+      if (typeof e.className !== 'string' || !e.className.includes('edge-cross-group')) continue;
+      const sn = byId.get(e.source);
+      const tn = byId.get(e.target);
+      if (!sn || !tn) continue;
+      const frameId = sn.type === 'group' ? e.source : (sn.parentId ?? e.source);
       const fn = byId.get(frameId);
       const fp = absPos(frameId);
       const fh = fn && typeof fn.style?.height === 'number' ? fn.style.height : 0;
-      const sp = absPos(s);
+      const sp = absPos(e.source);
+      const tp = absPos(e.target);
       const sw = typeof sn.style?.width === 'number' ? sn.style.width : 0;
-      info.push({ s, layer: Math.round((fp?.y ?? 0) + fh), x: (sp?.x ?? 0) + sw / 2 });
+      const tw = typeof tn.style?.width === 'number' ? tn.style.width : 0;
+      const sourceKey = e.source;
+      const sourceX = (sp?.x ?? 0) + sw / 2;
+      const targetX = (tp?.x ?? 0) + tw / 2;
+      const existing = sourceInfo.get(sourceKey);
+      if (existing) {
+        existing.spanStart = Math.min(existing.spanStart, sourceX, targetX);
+        existing.spanEnd = Math.max(existing.spanEnd, sourceX, targetX);
+      } else {
+        sourceInfo.set(sourceKey, {
+          layer: Math.round((fp?.y ?? 0) + fh),
+          spanStart: Math.min(sourceX, targetX),
+          spanEnd: Math.max(sourceX, targetX),
+        });
+      }
     }
-    return assignGutterTracks(info.map((it) => ({ id: it.s, layer: it.layer, x: it.x })));
+    return assignGutterTracks(
+      [...sourceInfo].map(([id, info]) => ({ id, ...info })),
+    );
   }, [flowNodes, flowEdges]);
 
   // v3 중앙 coordination Phase 2(ADR-0054): 크로스-그룹 간선을 출발별로 묶어 버스(트렁크+바+스텁)
@@ -983,7 +1000,7 @@ function BoardContent({
   // 한다(결정2 아키텍처 전환). 끝점은 노드의 절대 좌표에서 핸들 위치(소스=바닥 중앙, 타깃=상단
   // 중앙)로 구한다 — parentId 체인을 걸어 폴더 2단 중첩(ADR-0053)까지 정확히 절대화한다. 레이아웃
   // (flowNodes/장애물/레인)이 안 바뀌면 memoize돼 커밋마다 재배선하지 않는다(ADR-0017/0008).
-  const edgeBusPaths = useMemo<ReadonlyMap<string, Pt[]>>(() => {
+  const crossGroupRoutes = useMemo(() => {
     const byId = new Map(flowNodes.map((n) => [n.id, n]));
     const absCache = new Map<string, { x: number; y: number } | undefined>();
     const absPos = (id: string): { x: number; y: number } | undefined => {
@@ -1021,11 +1038,20 @@ function BoardContent({
       if (!sp || !tp) continue;
       const ss = sizeOf(sn);
       const ts = sizeOf(tn);
-      // 소스 = 바닥 중앙 핸들(Position.Bottom), 타깃 = 상단 중앙 핸들(Position.Top).
-      inputs.push({ id: e.id, source: e.source, sx: sp.x + ss.w / 2, sy: sp.y + ss.h, tx: tp.x + ts.w / 2, ty: tp.y });
+      // 모든 상세 확대율에서 같은 실제 parent→child 간선을 바닥 중앙→상단 중앙으로 배선한다.
+      inputs.push({
+        id: e.id,
+        source: e.source,
+        sx: sp.x + ss.w / 2,
+        sy: sp.y + ss.h,
+        tx: tp.x + ts.w / 2,
+        ty: tp.y,
+      });
     }
     return routeCrossGroupBuses(inputs, edgeObstacles, (s) => edgeLanes.get(s) ?? laneOffsetForKey(s));
   }, [flowNodes, flowEdges, edgeObstacles, edgeLanes]);
+  const edgeBusPaths = crossGroupRoutes.paths;
+  const edgeBusVisuals = crossGroupRoutes.visuals;
 
   const afterglowVersion = useSyncExternalStore(afterglowStore.subscribe, afterglowStore.getVersion);
   const flowEdgesDecorated = useMemo(() => {
@@ -1093,6 +1119,7 @@ function BoardContent({
           <EdgeObstaclesContext.Provider value={edgeObstacles}>
           <EdgeLanesContext.Provider value={edgeLanes}>
           <EdgeBusPathsContext.Provider value={edgeBusPaths}>
+          <EdgeBusVisualsContext.Provider value={edgeBusVisuals}>
         <div className="board">
       <header className={`toolbar${compactToolbar ? ' toolbar--compact' : ''}`}>
         {(() => {
@@ -1291,6 +1318,7 @@ function BoardContent({
       </div>
       <ContextMenu state={contextMenu} onClose={() => setContextMenu(null)} />
         </div>
+          </EdgeBusVisualsContext.Provider>
           </EdgeBusPathsContext.Provider>
           </EdgeLanesContext.Provider>
           </EdgeObstaclesContext.Provider>

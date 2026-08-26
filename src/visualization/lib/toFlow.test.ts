@@ -179,26 +179,22 @@ describe('toFlow', () => {
 
   it('draws node→node when both endpoints expand, and falls back to the parent GROUP FRAME when the parent node is culled (cross-group connection stays visible on zoom-in)', () => {
     const nodes = [vnode(1, 'A'), vnode(2, 'B', 1)];
-    // ADR-0034 adds an aggregated group->group edge regardless of expansion, so this test
-    // filters to node-level edges (everything except edge-group-link).
-    const nodeEdges = (r: ReturnType<typeof toFlow>) =>
-      r.flowEdges.filter((e) => !(e.className ?? '').includes('edge-group-link'));
 
     // 부모(A)만 펼침 → 자식(2)이 flowNodes에 없으니 어떤 노드 간선도 안 생긴다.
     const onlyParent = toFlow(nodes, createLayoutEngine(), { shouldExpandGroup: (_f, group) => group === 'A' });
-    expect(nodeEdges(onlyParent)).toHaveLength(0);
+    expect(onlyParent.flowEdges).toHaveLength(0);
 
     // 자식(B)만 펼침 → 부모 노드는 뷰포트 컬링됐지만, 크로스-그룹이라 연결을 버리지 않고 부모의
     // 그룹 프레임(group:A)으로 폴백 간선을 만든다. 예전엔 여기서 0개라 확대 시 연결이 사라졌다.
     const onlyChild = toFlow(nodes, createLayoutEngine(), { shouldExpandGroup: (_f, group) => group === 'B' });
-    const childEdges = nodeEdges(onlyChild);
+    const childEdges = onlyChild.flowEdges;
     expect(childEdges).toHaveLength(1);
     expect(childEdges[0].source).toBe('group:A'); // 부모 그룹 프레임
     expect(childEdges[0].target).toBe('2');
     expect(childEdges[0].className).toContain('edge-cross-group-frame');
 
     // 둘 다 펼침 → 정확한 노드↔노드 간선(프레임 폴백 아님).
-    const both = nodeEdges(toFlow(nodes, createLayoutEngine(), { shouldExpandGroup: () => true }));
+    const both = toFlow(nodes, createLayoutEngine(), { shouldExpandGroup: () => true }).flowEdges;
     expect(both).toHaveLength(1);
     expect(both[0].id).toBe('1->2');
     expect(both[0].source).toBe('1');
@@ -218,7 +214,7 @@ describe('toFlow', () => {
     const sameGroupNodes = [vnode(1, 'A'), vnode(2, 'A', 1)];
     const engine2 = createLayoutEngine();
     const { flowEdges: sameEdges } = toFlow(sameGroupNodes, engine2, { shouldExpandGroup: () => true });
-    // 그룹 내 간선: 깊이 감쇠 클래스(7절 a) + 부모 도메인 색. 깊이 1은 구조 간선이라 detail 아님.
+    // 그룹 내 간선: 깊이 감쇠 클래스(7절 a) + 부모 도메인 색.
     expect(sameEdges[0].className).toContain('edge-same-group');
     expect(sameEdges[0].className).toContain('edge-depth-1');
     expect(sameEdges[0].className).not.toContain('edge-detail');
@@ -226,22 +222,19 @@ describe('toFlow', () => {
     expect(sameEdges[0].zIndex).toBe(1);
   });
 
-  it('tags same-group edges with a group-depth bucket and marks deep edges as edge-detail (ADR-0029 clutter LOD)', () => {
+  it('keeps same-group edge identity stable while bucketing only its visual depth attenuation', () => {
     // A 그룹 안의 사슬: 1 → 2 → 3 → 4 → 5 (전부 같은 그룹). 그룹 내 깊이 1,2,3,4로 증가.
     const nodes = [vnode(1, 'A'), vnode(2, 'A', 1), vnode(3, 'A', 2), vnode(4, 'A', 3), vnode(5, 'A', 4)];
     const engine = createLayoutEngine();
     const { flowEdges } = toFlow(nodes, engine, { shouldExpandGroup: () => true });
     const byId = new Map(flowEdges.map((e) => [e.id, e.className ?? '']));
 
-    // 깊이 1·2는 구조 간선(detail 아님), 깊이 3부터 detail(중간 줌에서 숨김). 버킷은 3에서 포화.
+    // 깊이 3부터도 별도 LOD 의미를 붙이지 않고, opacity용 버킷만 3에서 포화한다.
     expect(byId.get('1->2')).toContain('edge-depth-1');
-    expect(byId.get('1->2')).not.toContain('edge-detail');
     expect(byId.get('2->3')).toContain('edge-depth-2');
-    expect(byId.get('2->3')).not.toContain('edge-detail');
     expect(byId.get('3->4')).toContain('edge-depth-3');
-    expect(byId.get('3->4')).toContain('edge-detail');
     expect(byId.get('4->5')).toContain('edge-depth-3');
-    expect(byId.get('4->5')).toContain('edge-detail');
+    expect([...byId.values()].every((className) => !className.includes('edge-detail'))).toBe(true);
   });
 
   it('resets group depth at group boundaries so a child entering a new group starts shallow', () => {
@@ -255,53 +248,11 @@ describe('toFlow', () => {
     expect(byId.get('2->3')).toContain('edge-depth-1');
   });
 
-  // ADR-0034: node-level edges only render when both endpoint nodes are expanded, so map
-  // mode (all groups collapsed) shows no hierarchy. An aggregated group->group edge is
-  // emitted per cross-group pair, drawn only in map mode via the edge-group-link class.
-  it('emits an aggregated group->group edge for each cross-group parent relationship, even when groups are collapsed', () => {
-    // A renders B renders C — three groups in a chain, all collapsed (map mode).
+  it('does not replace collapsed parent→child relations with file-level aggregate edges', () => {
     const nodes = [vnode(1, 'A'), vnode(2, 'B', 1), vnode(3, 'C', 2)];
-    const engine = createLayoutEngine();
-    const { flowEdges } = toFlow(nodes, engine, { shouldExpandGroup: () => false });
+    const { flowEdges } = toFlow(nodes, createLayoutEngine(), { shouldExpandGroup: () => false });
 
-    const groupEdges = flowEdges.filter((e) => e.className === 'edge-group-link');
-    expect(groupEdges).toHaveLength(2);
-    const ids = groupEdges.map((e) => e.id).sort();
-    expect(ids).toEqual(['group:A->group:B', 'group:B->group:C']);
-    const ab = groupEdges.find((e) => e.id === 'group:A->group:B')!;
-    expect(ab.source).toBe('group:A');
-    expect(ab.target).toBe('group:B');
-  });
-
-  it('deduplicates the aggregated group edge when many nodes cross the same two groups', () => {
-    // Two separate A-nodes each parent a B-node: one aggregated A->B edge, not two.
-    const nodes = [vnode(1, 'A'), vnode(2, 'A'), vnode(3, 'B', 1), vnode(4, 'B', 2)];
-    const engine = createLayoutEngine();
-    const { flowEdges } = toFlow(nodes, engine, { shouldExpandGroup: () => false });
-    const groupEdges = flowEdges.filter((e) => e.className === 'edge-group-link');
-    expect(groupEdges).toHaveLength(1);
-    expect(groupEdges[0].id).toBe('group:A->group:B');
-  });
-
-  it('does not emit an aggregated edge to a group whose frame was filtered out', () => {
-    // A renders B, but filter to only A's node — B's frame is not rendered, so no dangling edge.
-    const nodes = [vnode(1, 'A'), vnode(2, 'B', 1)];
-    const engine = createLayoutEngine();
-    const { flowEdges } = toFlow(nodes, engine, {
-      shouldExpandGroup: () => false,
-      matchedIds: new Set([1]),
-      filterToMatches: true,
-    });
-    const groupEdges = flowEdges.filter((e) => e.className === 'edge-group-link');
-    expect(groupEdges).toHaveLength(0);
-  });
-
-  it('does not emit aggregated group edges touching the PENDING group', () => {
-    const nodes = [vnode(1, 'A'), vnode(2, PENDING_GROUP, 1)];
-    const engine = createLayoutEngine();
-    const { flowEdges } = toFlow(nodes, engine, { shouldExpandGroup: () => false });
-    const groupEdges = flowEdges.filter((e) => e.className === 'edge-group-link');
-    expect(groupEdges).toHaveLength(0);
+    expect(flowEdges).toEqual([]);
   });
 
   it('marks the PENDING_GROUP frame and its expanded members as pending, with the expected label', () => {

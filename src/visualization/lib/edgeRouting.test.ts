@@ -105,7 +105,7 @@ describe('routeCrossGroupBuses (버스 병합, ADR-0054 Phase 2)', () => {
       { id: 'a', source: 'S', sx: 100, sy: 100, tx: 50, ty: 300 },
       { id: 'b', source: 'S', sx: 100, sy: 100, tx: 300, ty: 300 },
     ];
-    const paths = routeCrossGroupBuses(edges, []);
+    const { paths, visuals } = routeCrossGroupBuses(edges, []);
     const a = paths.get('a')!;
     const b = paths.get('b')!;
     // 둘 다 소스 바닥에서 시작해 (트렁크 x, 바 y)에서 갈라진다.
@@ -115,13 +115,17 @@ describe('routeCrossGroupBuses (버스 병합, ADR-0054 Phase 2)', () => {
     expect(b[1].x).toBe(100);
     expect(a[1].y).toBe(b[1].y); // 같은 바 y = 한 줄기(버스)
     expect(a[1].y).toBeGreaterThan(100); // 바는 소스 아래 거터
+    // 공유 구간은 edge 두 개가 겹쳐 그리지 않는다. leader(a) 하나가 trunk+bar+두 stub을 그리고
+    // follower(b)는 논리 edge만 남겨 gradient/굵기가 섞이지 않는다.
+    expect(visuals.get('a')?.branches).toHaveLength(4);
+    expect(visuals.get('b')?.hidden).toBe(true);
     // 끝점은 각자 타깃.
     expect(a[a.length - 1]).toEqual({ x: 50, y: 300 });
     expect(b[b.length - 1]).toEqual({ x: 300, y: 300 });
   });
 
   it('단일 타깃 출발은 버스가 아니라 개별 배선으로 낸다(끝점만 검증)', () => {
-    const paths = routeCrossGroupBuses([{ id: 'x', source: 'S', sx: 100, sy: 100, tx: 200, ty: 300 }], []);
+    const { paths } = routeCrossGroupBuses([{ id: 'x', source: 'S', sx: 100, sy: 100, tx: 200, ty: 300 }], []);
     const x = paths.get('x')!;
     expect(x[0]).toEqual({ x: 100, y: 100 });
     expect(x[x.length - 1]).toEqual({ x: 200, y: 300 });
@@ -135,8 +139,21 @@ describe('routeCrossGroupBuses (버스 병합, ADR-0054 Phase 2)', () => {
       { id: 'c', source: 'S2', sx: 400, sy: 100, tx: 350, ty: 300 },
       { id: 'd', source: 'S2', sx: 400, sy: 100, tx: 450, ty: 300 },
     ];
-    const paths = routeCrossGroupBuses(edges, [], laneOf);
+    const { paths } = routeCrossGroupBuses(edges, [], laneOf);
     expect(paths.get('a')![1].y).not.toBe(paths.get('c')![1].y); // 다른 출발 = 다른 바 y
+  });
+
+  it('서로 다른 부모 버스가 같은 레인을 요구해도 경로를 예약해 수평 바를 공유하지 않는다', () => {
+    const edges: BusEdgeInput[] = [
+      { id: 'a', source: 'S1', sx: 100, sy: 100, tx: 20, ty: 300 },
+      { id: 'b', source: 'S1', sx: 100, sy: 100, tx: 500, ty: 300 },
+      { id: 'c', source: 'S2', sx: 300, sy: 100, tx: 60, ty: 300 },
+      { id: 'd', source: 'S2', sx: 300, sy: 100, tx: 540, ty: 300 },
+    ];
+    const { paths } = routeCrossGroupBuses(edges, [], () => 0);
+    // 둘의 수평 span은 크게 겹치지만, S2는 예약된 S1 바보다 아래의 다음 트랙으로 이동한다.
+    expect(paths.get('a')![1].y).toBe(120);
+    expect(paths.get('c')![1].y).toBeGreaterThan(paths.get('a')![1].y);
   });
 
   it('병합이 프레임을 관통하는 간선만 개별 A*로 폴백하고, 나머지는 버스로 남는다 — 관통 0', () => {
@@ -145,7 +162,7 @@ describe('routeCrossGroupBuses (버스 병합, ADR-0054 Phase 2)', () => {
       { id: 'a', source: 'S', sx: 100, sy: 100, tx: 50, ty: 300 }, // 깨끗 → 버스
       { id: 'b', source: 'S', sx: 100, sy: 100, tx: 300, ty: 300 }, // 스텁 막힘 → 폴백
     ];
-    const paths = routeCrossGroupBuses(edges, [blocker]);
+    const { paths } = routeCrossGroupBuses(edges, [blocker]);
     const a = paths.get('a')!;
     const b = paths.get('b')!;
     // a는 버스: 트렁크 아래 바에서 갈라진다.
@@ -160,26 +177,35 @@ describe('routeCrossGroupBuses (버스 병합, ADR-0054 Phase 2)', () => {
   });
 });
 
-describe('assignGutterTracks (corridor-local 트랙, ADR-0060)', () => {
-  it('같은 층은 x 순으로 겹치지 않게 스택한다(0, gap, 2*gap…)', () => {
+describe('assignGutterTracks (span-aware corridor-local 트랙, ADR-0082)', () => {
+  it('같은 층이라도 수평 span이 닿지 않으면 같은 트랙을 재사용한다', () => {
     const src: TrackSource[] = [
-      { id: 'c', layer: 100, x: 30 },
-      { id: 'a', layer: 100, x: 10 },
-      { id: 'b', layer: 100, x: 20 },
+      { id: 'c', layer: 100, spanStart: 240, spanEnd: 320 },
+      { id: 'a', layer: 100, spanStart: 0, spanEnd: 80 },
+      { id: 'b', layer: 100, spanStart: 120, spanEnd: 200 },
     ];
     const t = assignGutterTracks(src);
-    // x 오름차순: a(10)→0, b(20)→11, c(30)→22. 서로 다른 오프셋(겹침 없음).
+    // 12px 이상 비어 있으므로 a/b/c 모두 같은 y 트랙(0)을 재사용한다.
     expect(t.get('a')).toBe(0);
-    expect(t.get('b')).toBe(11);
-    expect(t.get('c')).toBe(22);
+    expect(t.get('b')).toBe(0);
+    expect(t.get('c')).toBe(0);
+  });
+
+  it('서로 다른 부모 버스의 span이 겹치면 작은 여백을 두고 별도 트랙으로 보낸다', () => {
+    const t = assignGutterTracks([
+      { id: 'left', layer: 100, spanStart: 0, spanEnd: 200 },
+      { id: 'right', layer: 100, spanStart: 80, spanEnd: 280 },
+    ]);
+    expect(t.get('left')).toBe(0);
+    expect(t.get('right')).toBe(11);
   });
 
   it('다른 층은 독립 — 각 층이 0부터 다시 시작한다', () => {
     const src: TrackSource[] = [
-      { id: 'a', layer: 100, x: 10 },
-      { id: 'b', layer: 100, x: 20 },
-      { id: 'c', layer: 300, x: 5 },
-      { id: 'd', layer: 300, x: 50 },
+      { id: 'a', layer: 100, spanStart: 0, spanEnd: 100 },
+      { id: 'b', layer: 100, spanStart: 20, spanEnd: 120 },
+      { id: 'c', layer: 300, spanStart: 0, spanEnd: 100 },
+      { id: 'd', layer: 300, spanStart: 20, spanEnd: 120 },
     ];
     const t = assignGutterTracks(src);
     expect(t.get('a')).toBe(0);
@@ -188,23 +214,24 @@ describe('assignGutterTracks (corridor-local 트랙, ADR-0060)', () => {
     expect(t.get('d')).toBe(11);
   });
 
-  it('오프셋은 아래(거터)로만 커지고 상한(44)에서 클램프된다', () => {
-    const src: TrackSource[] = Array.from({ length: 7 }, (_, i) => ({ id: `s${i}`, layer: 0, x: i }));
+  it('겹치는 버스가 5개를 넘어도 clamp로 같은 트랙에 되돌아가지 않는다', () => {
+    const src: TrackSource[] = Array.from({ length: 7 }, (_, i) => ({
+      id: `s${i}`,
+      layer: 0,
+      spanStart: 0,
+      spanEnd: 100,
+    }));
     const t = assignGutterTracks(src);
-    for (const v of t.values()) {
-      expect(v).toBeGreaterThanOrEqual(0);
-      expect(v).toBeLessThanOrEqual(44);
-    }
     expect(t.get('s0')).toBe(0);
     expect(t.get('s4')).toBe(44); // 4*11
-    expect(t.get('s5')).toBe(44); // 클램프
-    expect(t.get('s6')).toBe(44);
+    expect(t.get('s5')).toBe(55);
+    expect(t.get('s6')).toBe(66);
   });
 
   it('결정적(sticky) — 같은 입력은 같은 결과, x 동률은 id로 정렬', () => {
     const src: TrackSource[] = [
-      { id: 'z', layer: 0, x: 10 },
-      { id: 'a', layer: 0, x: 10 }, // 같은 x → id로 a가 먼저
+      { id: 'z', layer: 0, spanStart: 10, spanEnd: 100 },
+      { id: 'a', layer: 0, spanStart: 10, spanEnd: 100 }, // 같은 span → id로 a가 먼저
     ];
     const t1 = assignGutterTracks(src);
     const t2 = assignGutterTracks([...src].reverse());

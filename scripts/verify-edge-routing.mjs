@@ -22,9 +22,12 @@ async function main() {
   await page.getByRole('button', { name: 'render-board 열기' }).click();
   await page.waitForSelector('.react-flow__node', { timeout: 5000 });
   await page.waitForTimeout(1000);
-  // 상세 모드로 확대(컴포넌트 노드 + 그룹 프레임이 함께 보이는 줌).
+  // 컴포넌트 상세 모드로 확대한다. 초기 fitView 배율은 트리 폭에 따라 달라 최소 지도 임계값을
+  // 넘길 때까지 확인한다. 상세 확대율에서는 항상 같은 실제 관계선을 쓴다(ADR-0090).
   const zi = page.locator('.react-flow__controls-zoomin');
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 15; i++) {
+    const canvasClass = (await page.locator('.canvas').getAttribute('class')) ?? '';
+    if (canvasClass.includes('zoom-near')) break;
     if (await zi.isEnabled().catch(() => false)) {
       await zi.click();
       await page.waitForTimeout(160);
@@ -56,7 +59,11 @@ async function main() {
       }
       if (!L) continue;
       tot++;
-      if ((path.getAttribute('d') || '').includes('Q')) ortho++; // 라운드 코너 = OrthoEdge 경로
+      const d = path.getAttribute('d') || '';
+      // 일반 OrthoEdge는 라운드 코너(Q)를, same-source single-ink 버스(ADR-0083)는 trunk/bar/stub을
+      // 여러 SVG subpath(M)로 표현한다. 단일 parent→child가 정확히 수직이면 단순 M→L 한 선분이
+      // 되므로 Q·복수 M이 없어도 직교 경로다. Bézier(C/S)·호(A)가 없는지를 검사한다(H/V도 직교다).
+      if (!/[CSA]/.test(d)) ortho++;
       const p0 = path.getPointAtLength(0);
       const p1 = path.getPointAtLength(L);
       const own = frames.filter((f) => contains(f.r, p0.x, p0.y) || contains(f.r, p1.x, p1.y)).map((f) => f.id);

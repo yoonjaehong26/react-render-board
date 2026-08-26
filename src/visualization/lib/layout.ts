@@ -84,7 +84,11 @@ const GROUP_H_GAP = 80;
 const GROUP_V_GAP = 80;
 const MAX_ROW_WIDTH = 3400;
 
-function layoutForest(nodeIds: number[], parentOf: Map<number, number | null>) {
+function layoutForest(
+  nodeIds: number[],
+  parentOf: Map<number, number | null>,
+  leafSlotWidthOf: (id: number) => number = () => NODE_WIDTH,
+) {
   const children = new Map<number, number[]>();
   const nodeSet = new Set(nodeIds);
   const roots: number[] = [];
@@ -102,13 +106,18 @@ function layoutForest(nodeIds: number[], parentOf: Map<number, number | null>) {
 
   const positions = new Map<number, { x: number; y: number }>();
   let leafCursor = 0;
+  let reservedRight = 0;
 
   function assign(id: number, depth: number): number {
     const kids = children.get(id) ?? [];
     let x: number;
     if (kids.length === 0) {
-      x = leafCursor * (NODE_WIDTH + H_GAP);
-      leafCursor++;
+      const slotWidth = Math.max(NODE_WIDTH, leafSlotWidthOf(id));
+      // 노드 폭은 고정한다. 추가 폭은 이 컴포넌트가 직접 렌더한 파일로 내려가는 수직선과
+      // fan-out rail을 위한 읽기 우선 여백이다.
+      x = leafCursor + (slotWidth - NODE_WIDTH) / 2;
+      reservedRight = Math.max(reservedRight, leafCursor + slotWidth);
+      leafCursor += slotWidth + H_GAP;
     } else {
       const childXs = kids.map((c) => assign(c, depth + 1));
       x = (Math.min(...childXs) + Math.max(...childXs)) / 2;
@@ -119,7 +128,7 @@ function layoutForest(nodeIds: number[], parentOf: Map<number, number | null>) {
 
   for (const r of roots) assign(r, 0);
 
-  let maxX = 0;
+  let maxX = reservedRight;
   let maxY = 0;
   for (const { x, y } of positions.values()) {
     maxX = Math.max(maxX, x + NODE_WIDTH);
@@ -252,6 +261,9 @@ function packUnits(
 export function createLayoutEngine() {
   const groupOrder: string[] = [];
   const groupOrderSet = new Set<string>();
+  // 기본(외부 자식 폭 미반영) 프레임은 direct-child demand를 계산하는 기준이다. 이를 따로
+  // 캐시해야 손자의 확장 폭이 조상 슬롯으로 재귀 전파되지 않는다.
+  const baseInternalCache = new Map<string, GroupInternalLayout>();
   const internalCache = new Map<string, GroupInternalLayout>();
 
   function ensureOrder(groupNames: Iterable<string>) {
@@ -298,19 +310,56 @@ export function createLayoutEngine() {
     const nodePositions = new Map<number, { x: number; y: number }>();
     const groups: GroupLayout[] = [];
 
-    // 1단계: 그룹별 내부 배치(캐시) + 노드 상대좌표 + 프레임 크기. 노드 위치는 그룹 프레임
-    // 상대좌표이므로(toFlow가 parentId+extent로 렌더) 층 배치와 무관하게 여기서 확정한다.
+    // 1단계: 읽기 우선의 부모 간격. 먼저 외부 자식 폭을 전혀 반영하지 않은 기본 frame을 얻고,
+    // 각 leaf source가 *직접* 렌더하는 파일들의 기본 frame 폭만 합산해 슬롯으로 예약한다.
+    // 손자의 확장 폭은 이 계산에 쓰지 않으므로, 방어적 여백은 확보하되 재귀적으로 캔버스 폭이
+    // 폭발하지 않는다. 노드 위치는 그룹 프레임 상대좌표다.
     const frameDims = new Map<string, { width: number; height: number; ids: number[] }>();
+    const baseFrameDims = new Map<string, { width: number; height: number }>();
+    const structureSignatureByGroup = new Map<string, string>();
     for (const group of orderedGroups) {
       const ids = byGroup.get(group)!;
       const signature = ids
         .map((id) => `${id}:${parentOf.get(id) ?? ''}`)
         .sort()
         .join(',');
+      structureSignatureByGroup.set(group, signature);
+      let base = baseInternalCache.get(group);
+      if (!base || base.signature !== signature) {
+        const { positions, width, height } = layoutForest(ids, parentOf);
+        base = { signature, positions, width, height };
+        baseInternalCache.set(group, base);
+      }
+      baseFrameDims.set(group, { width: base.width + GROUP_PADDING * 2, height: base.height + GROUP_PADDING_TOP + GROUP_PADDING });
+    }
 
+    // 같은 source가 같은 파일의 여러 인스턴스를 렌더해도 한 파일 폭만 예약한다. 서로 다른 직접
+    // 자식 파일은 fan-out이므로 폭+group gap을 더한다. `baseFrameDims`만 참조하는 것이 핵심이다.
+    const nodeById = new Map(nodes.map((n) => [n.id, n]));
+    const directTargetsBySource = new Map<number, Set<string>>();
+    for (const child of nodes) {
+      if (child.parentId === null) continue;
+      const parent = nodeById.get(child.parentId);
+      if (!parent || parent.group === child.group) continue;
+      const targets = directTargetsBySource.get(parent.id) ?? new Set<string>();
+      targets.add(child.group);
+      directTargetsBySource.set(parent.id, targets);
+    }
+    const directSlotWidth = new Map<number, number>();
+    for (const [sourceId, targets] of directTargetsBySource) {
+      const width = [...targets].reduce((sum, target) => sum + (baseFrameDims.get(target)?.width ?? NODE_WIDTH), 0) +
+        Math.max(0, targets.size - 1) * GROUP_H_GAP;
+      directSlotWidth.set(sourceId, Math.max(NODE_WIDTH, width));
+    }
+
+    for (const group of orderedGroups) {
+      const ids = byGroup.get(group)!;
+      const structureSignature = structureSignatureByGroup.get(group)!;
+      const slotSignature = ids.map((id) => `${id}:${directSlotWidth.get(id) ?? NODE_WIDTH}`).sort().join(',');
+      const signature = `${structureSignature}|direct:${slotSignature}`;
       let internal = internalCache.get(group);
       if (!internal || internal.signature !== signature) {
-        const { positions, width, height } = layoutForest(ids, parentOf);
+        const { positions, width, height } = layoutForest(ids, parentOf, (id) => directSlotWidth.get(id) ?? NODE_WIDTH);
         internal = { signature, positions, width, height };
         internalCache.set(group, internal);
       }
@@ -318,7 +367,6 @@ export function createLayoutEngine() {
       for (const [id, pos] of internal.positions) {
         nodePositions.set(id, { x: pos.x + GROUP_PADDING, y: pos.y + GROUP_PADDING_TOP });
       }
-
       frameDims.set(group, {
         width: internal.width + GROUP_PADDING * 2,
         height: internal.height + GROUP_PADDING_TOP + GROUP_PADDING,
@@ -338,12 +386,11 @@ export function createLayoutEngine() {
     const folders: FolderLayout[] = [];
 
     if (!opts?.nestFolders) {
-      // ── 평면 배치(ADR-0034) + downfall tidy-tree 중앙 정렬(ADR-0058) — y는 깊이(밴드), x는
-      //    "부모를 자식 스팬 중앙 위에" 놓는 tidy-tree(Reingold–Tilford/Walker의 단순형). 자식을
-      //    부모 왼쪽 끝이 아니라 가운데에 두어 우측 치우침을 없애고 트리를 대칭으로 만든다.
-      //    좌→우는 렌더 순서(groupOrder) 유지. 공유 컴포넌트(다중 부모)는 대표 부모(깊이-1 중
-      //    groupOrder 최소) 하나로 스패닝 트리를 만들어 배치하고, 나머지 부모 연결은 간선으로만
-      //    그린다(전부 중앙에 못 놓으므로 — 공유 레인은 후속). 캔버스는 pan/zoom이라 줄바꿈은 없음. ──
+      // ── 평면 배치(ADR-0034) + render-anchor waterfall(ADR-0085) — y는 깊이(밴드), x는
+      //    실제로 자식 그룹을 렌더한 부모 컴포넌트의 파일 내부 x를 앵커로 쓴다. 따라서 JSX의
+      //    좌→우 렌더 순서는 유지하면서도 자식 파일이 자기 출발 컴포넌트 바로 아래로 내려가
+      //    크로스-그룹 간선의 수평 이동·교차를 배치 단계에서 먼저 줄인다. 같은 출발의 fan-out은
+      //    출발 앵커 아래 한 묶음으로 중앙 정렬한다. 공유 컴포넌트(DAG)는 기존 공유 레인 유지. ──
       const orderIndex = new Map(orderedGroups.map((g, i) => [g, i]));
       const nonPending = orderedGroups.filter((g) => g !== PENDING_GROUP);
       const widthOf = (g: string) => frameDims.get(g)!.width;
@@ -363,11 +410,9 @@ export function createLayoutEngine() {
       const primaryOf = new Map<string, string | null>();
       const primaryChildren = new Map<string, string[]>();
       for (const g of nonPending) primaryChildren.set(g, []);
-      const roots: string[] = [];
       for (const g of nonPending) {
         const d = groupDepthOf(g);
         if (d === 0) {
-          roots.push(g);
           primaryOf.set(g, null);
           continue;
         }
@@ -377,14 +422,8 @@ export function createLayoutEngine() {
           if (primary === null || (orderIndex.get(p) ?? 0) < (orderIndex.get(primary) ?? 0)) primary = p;
         }
         primaryOf.set(g, primary);
-        if (primary === null) roots.push(g);
-        else primaryChildren.get(primary)!.push(g);
+        if (primary !== null) primaryChildren.get(primary)!.push(g);
       }
-      for (const kids of primaryChildren.values()) {
-        kids.sort((a, b) => (orderIndex.get(a) ?? 0) - (orderIndex.get(b) ?? 0));
-      }
-      roots.sort((a, b) => (orderIndex.get(a) ?? 0) - (orderIndex.get(b) ?? 0));
-
       // 레인 소속(증분2): 공유 그룹이거나 primary 부모가 레인이면 레인 = 공유 컨테이너의 서브트리 전체.
       const lanedCache = new Map<string, boolean>();
       const isLaned = (g: string): boolean => {
@@ -396,10 +435,130 @@ export function createLayoutEngine() {
         return res;
       };
 
+      // Strict waterfall(ADR-0089): 파일 그룹이 아니라 "실제 source 컴포넌트 → 자식 그룹
+      // 서브트리" 단위로 폭을 아래에서 위로 예약한다. 각 child 그룹은 대표 parent group 안의
+      // 첫 실제 source를 선택한다. 다중 부모/공유 그룹은 기존 레인 예외로 남긴다.
+      const nodeById = new Map(nodes.map((n) => [n.id, n]));
+      const sameGroupChildren = new Set<number>();
+      for (const n of nodes) {
+        if (n.parentId === null) continue;
+        const parent = nodeById.get(n.parentId);
+        if (parent?.group === n.group) sameGroupChildren.add(parent.id);
+      }
+      const primarySourceOf = new Map<string, number>();
+      for (const child of nodes) {
+        if (child.parentId === null || primarySourceOf.has(child.group)) continue;
+        const parent = nodeById.get(child.parentId);
+        if (!parent || parent.group === child.group) continue;
+        if (primaryOf.get(child.group) !== parent.group || isLaned(child.group)) continue;
+        // leaf source만 자체 슬롯을 넓힐 수 있다. non-leaf source는 기존 tidy-tree 중심을
+        // 유지하며, 관계선은 그 source 중심을 fallback anchor로 쓴다.
+        if (!sameGroupChildren.has(parent.id)) primarySourceOf.set(child.group, parent.id);
+      }
+      const strictChildrenBySource = new Map<number, string[]>();
+      for (const [parentGroup, children] of primaryChildren) {
+        for (const childGroup of children) {
+          if (isLaned(childGroup)) continue;
+          const source = primarySourceOf.get(childGroup);
+          if (source === undefined || nodeById.get(source)?.group !== parentGroup) continue;
+          const list = strictChildrenBySource.get(source) ?? [];
+          list.push(childGroup);
+          strictChildrenBySource.set(source, list);
+        }
+      }
+
+      const strictChildrenForGroup = (g: string) => (primaryChildren.get(g) ?? []).filter((c) => !isLaned(c));
+      let strictSpan = new Map<string, number>();
+      const computeStrictSpans = (): Map<string, number> => {
+        const spans = new Map<string, number>();
+        const visiting = new Set<string>();
+        const spanOf = (g: string): number => {
+          const cached = spans.get(g);
+          if (cached !== undefined) return cached;
+          if (visiting.has(g)) return widthOf(g); // cycle은 공유 레인/대표 트리에서 방어적으로 끊는다.
+          visiting.add(g);
+          const kids = strictChildrenForGroup(g);
+          const childrenWidth = kids.reduce((sum, child) => sum + spanOf(child), 0) +
+            Math.max(0, kids.length - 1) * GROUP_H_GAP;
+          const width = Math.max(widthOf(g), childrenWidth);
+          visiting.delete(g);
+          spans.set(g, width);
+          return width;
+        };
+        for (const g of nonPending) if (!isLaned(g)) spanOf(g);
+        return spans;
+      };
+      let strictSlotWidth = new Map<number, number>();
+      // frame 폭과 child subtree 폭은 서로 의존한다. 소규모 그룹에서만 실행되는 결정적 4회
+      // 수렴으로 final source 슬롯을 얻는다. 후처리 압축은 하지 않는다.
+      for (let pass = 0; pass < 4; pass++) {
+        strictSpan = computeStrictSpans();
+        strictSlotWidth = new Map<number, number>();
+        for (const [source, children] of strictChildrenBySource) {
+          const width = children.reduce((sum, child) => sum + (strictSpan.get(child) ?? widthOf(child)), 0) +
+            Math.max(0, children.length - 1) * GROUP_H_GAP;
+          strictSlotWidth.set(source, Math.max(NODE_WIDTH, width));
+        }
+        nodePositions.clear();
+        for (const group of orderedGroups) {
+          const ids = byGroup.get(group)!;
+          const structureSignature = structureSignatureByGroup.get(group)!;
+          const slotSignature = ids.map((id) => `${id}:${strictSlotWidth.get(id) ?? NODE_WIDTH}`).sort().join(',');
+          const signature = `${structureSignature}|strict:${slotSignature}`;
+          let internal = internalCache.get(group);
+          if (!internal || internal.signature !== signature) {
+            const { positions, width, height } = layoutForest(ids, parentOf, (id) => strictSlotWidth.get(id) ?? NODE_WIDTH);
+            internal = { signature, positions, width, height };
+            internalCache.set(group, internal);
+          }
+          for (const [id, pos] of internal.positions) {
+            nodePositions.set(id, { x: pos.x + GROUP_PADDING, y: pos.y + GROUP_PADDING_TOP });
+          }
+          frameDims.set(group, {
+            width: internal.width + GROUP_PADDING * 2,
+            height: internal.height + GROUP_PADDING_TOP + GROUP_PADDING,
+            ids,
+          });
+        }
+      }
+      strictSpan = computeStrictSpans();
+
+      // strict 수렴 뒤의 실제 source x로 앵커를 다시 만든다. 공유 레인 정렬에도 이 순서를 쓴다.
+      const anchorsByPair = new Map<string, number[]>();
+      for (const child of nodes) {
+        if (child.parentId === null) continue;
+        const parent = nodeById.get(child.parentId);
+        if (!parent || parent.group === child.group) continue;
+        const parentPos = nodePositions.get(parent.id);
+        if (!parentPos) continue;
+        const key = `${parent.group}\n${child.group}`;
+        const anchors = anchorsByPair.get(key) ?? [];
+        anchors.push(parentPos.x + NODE_WIDTH / 2);
+        anchorsByPair.set(key, anchors);
+      }
+      const median = (values: readonly number[]): number | undefined => {
+        if (values.length === 0) return undefined;
+        const sorted = [...values].sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+      };
+      const renderAnchorOf = (parentGroup: string, childGroup: string): number | undefined =>
+        median(anchorsByPair.get(`${parentGroup}\n${childGroup}`) ?? []);
+      for (const [parent, kids] of primaryChildren) {
+        kids.sort((a, b) => {
+          const anchorA = renderAnchorOf(parent, a);
+          const anchorB = renderAnchorOf(parent, b);
+          if (anchorA !== undefined && anchorB !== undefined && anchorA !== anchorB) return anchorA - anchorB;
+          if (anchorA !== undefined && anchorB === undefined) return -1;
+          if (anchorA === undefined && anchorB !== undefined) return 1;
+          return (orderIndex.get(a) ?? 0) - (orderIndex.get(b) ?? 0);
+        });
+      }
+
       // tidy-tree x 배정(재사용 함수): post-order로 자식 먼저 놓고 부모를 자식 스팬 중앙에. 겹치면
       // 서브트리째 오른쪽으로 민다(Walker subtree shift). depth별 cur로 왼→오 패킹. 메인 트리와
       // 레인 포레스트 양쪽에 쓴다.
-      const layoutForest = (rootList: string[], childrenFor: (g: string) => string[]): Map<string, number> => {
+      const layoutGroupForest = (rootList: string[], childrenFor: (g: string) => string[]): Map<string, number> => {
         const x = new Map<string, number>();
         const cur = new Map<number, number>();
         const shift = (node: string, delta: number, depth: number): void => {
@@ -433,11 +592,41 @@ export function createLayoutEngine() {
         return x;
       };
 
-      // 메인 트리 = 레인 아닌 그룹. 레인 자식은 배치에서 건너뛴다(레인으로 감).
-      const xOf = layoutForest(
-        roots.filter((g) => !isLaned(g)),
-        (g) => (primaryChildren.get(g) ?? []).filter((c) => !isLaned(c)),
-      );
+      // 메인 strict waterfall: 부모 source의 예약 슬롯 안에서 자식 서브트리 span을 직접
+      // 배정한다. 단일 자식은 source bottom과 target frame center가 같은 x라 직선이고, 여러
+      // 자식만 source 중앙 rail에서 갈라진다. 밴드별 compact block으로 다시 밀지 않는다.
+      const xOf = new Map<string, number>();
+      const sourceChildCenter = (source: number, child: string): number | undefined => {
+        const pos = nodePositions.get(source);
+        const children = strictChildrenBySource.get(source);
+        if (!pos || !children) return undefined;
+        const slot = strictSlotWidth.get(source) ?? NODE_WIDTH;
+        let left = pos.x - (slot - NODE_WIDTH) / 2;
+        for (const candidate of children) {
+          const width = strictSpan.get(candidate) ?? widthOf(candidate);
+          if (candidate === child) return left + width / 2;
+          left += width + GROUP_H_GAP;
+        }
+        return undefined;
+      };
+      const placeStrict = (group: string, left: number): void => {
+        xOf.set(group, left);
+        for (const child of strictChildrenForGroup(group)) {
+          const source = primarySourceOf.get(child);
+          const localCenter = source === undefined ? undefined : sourceChildCenter(source, child);
+          const center = localCenter === undefined ? left + widthOf(group) / 2 : left + localCenter;
+          placeStrict(child, center - widthOf(child) / 2);
+        }
+      };
+      const mainRoots = nonPending
+        .filter((g) => !isLaned(g) && primaryOf.get(g) === null)
+        .sort((a, b) => (orderIndex.get(a) ?? 0) - (orderIndex.get(b) ?? 0));
+      let strictCursor = 0;
+      for (const root of mainRoots) {
+        const span = strictSpan.get(root) ?? widthOf(root);
+        placeStrict(root, strictCursor + (span - widthOf(root)) / 2);
+        strictCursor += span + GROUP_H_GAP;
+      }
 
       // 밴드별 y(메인) = 깊이별 최대 높이 누적. 레인 그룹은 제외(아래 레인 밴드). PENDING은 pendingBand.
       const bandGroups = new Map<number, string[]>();
@@ -475,7 +664,7 @@ export function createLayoutEngine() {
           return p == null || !isLaned(p);
         })
         .sort((a, b) => (orderIndex.get(a) ?? 0) - (orderIndex.get(b) ?? 0));
-      const laneLocalX = layoutForest(laneRoots, laneChildrenFor);
+      const laneLocalX = layoutGroupForest(laneRoots, laneChildrenFor);
       // 레인 로컬 깊이(y 밴드용): 레인 루트=0.
       const laneDepth = new Map<string, number>();
       const walkDepth = (g: string, d: number): void => {
@@ -678,6 +867,9 @@ export function createLayoutEngine() {
     }
 
     // 이번 커밋에 없는 그룹(도메인이 통째로 언마운트된 경우)의 캐시는 정리한다.
+    for (const key of [...baseInternalCache.keys()]) {
+      if (!byGroup.has(key)) baseInternalCache.delete(key);
+    }
     for (const key of [...internalCache.keys()]) {
       if (!byGroup.has(key)) internalCache.delete(key);
     }

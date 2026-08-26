@@ -2,7 +2,7 @@ import { useContext, useMemo } from 'react';
 import { BaseEdge, type EdgeProps } from '@xyflow/react';
 import { routeOrthogonal, pointsToPath, laneOffsetForKey } from '../lib/edgeRouting';
 import { paletteHex, type ColorMode } from '../lib/groupColor';
-import { EdgeObstaclesContext, EdgeLanesContext, EdgeBusPathsContext } from './edgeObstaclesContext';
+import { EdgeObstaclesContext, EdgeLanesContext, EdgeBusPathsContext, EdgeBusVisualsContext } from './edgeObstaclesContext';
 
 interface CrossEdgeData {
   sourceColorIndex?: number;
@@ -30,25 +30,29 @@ export function OrthoEdge({ id, source, sourceX, sourceY, targetX, targetY, mark
   const obstacles = useContext(EdgeObstaclesContext);
   const lanes = useContext(EdgeLanesContext);
   const busPaths = useContext(EdgeBusPathsContext);
+  const busVisual = useContext(EdgeBusVisualsContext).get(id);
   // 레인 오프셋: 중앙 테이블(ADR-0054 Phase 1) 우선, 없으면 출발 id 해시 폴백. 중앙 맵에 이 간선이
   // 없을 때(이론상 없음)의 자체 배선에만 쓰인다.
   const laneOffset = lanes.get(source) ?? laneOffsetForKey(source);
   const path = useMemo(() => {
+    if (busVisual?.branches) return busVisual.branches.map((branch) => pointsToPath(branch, 8)).join(' ');
     // 중앙 pass가 낸 점열(버스 병합 또는 개별 폴백)을 우선 쓴다. 맵에 없으면 자기 좌표로 폴백 배선.
     const points =
       busPaths.get(id) ??
       routeOrthogonal({ x: sourceX, y: sourceY }, { x: targetX, y: targetY }, obstacles, { laneOffset });
     return pointsToPath(points, 8);
-  }, [id, busPaths, sourceX, sourceY, targetX, targetY, obstacles, laneOffset]);
+  }, [id, busVisual, busPaths, sourceX, sourceY, targetX, targetY, obstacles, laneOffset]);
 
   // 그라데이션: 출발·타깃 도메인 색이 둘 다 있을 때만. 하나라도 pending이면 CSS 상시 색(단색) 유지.
   const d = (data ?? {}) as CrossEdgeData;
   const mode: ColorMode = d.colorMode === 'dark' ? 'dark' : 'light';
   const grad =
-    d.sourceColorIndex !== undefined && d.targetColorIndex !== undefined
+    !busVisual?.branches && d.sourceColorIndex !== undefined && d.targetColorIndex !== undefined
       ? { id: gradientId(id), from: paletteHex(d.sourceColorIndex, mode), to: paletteHex(d.targetColorIndex, mode) }
       : null;
   const edgeStyle = grad ? { ...style, stroke: `url(#${grad.id})` } : style;
+
+  if (busVisual?.hidden) return null;
 
   return (
     <>

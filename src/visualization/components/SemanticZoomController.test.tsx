@@ -58,4 +58,15 @@ describe('SemanticZoomController', () => {
     expect(screen.getByText(/지도 모드/)).toBeInTheDocument();
     expect(screen.getByText(`${Math.round(belowThreshold * 100)}%`, { exact: false })).toBeInTheDocument();
   });
+
+  it('keeps component relation mode at every zoom at or above the map threshold', async () => {
+    const detailZoom = MAP_MODE_THRESHOLD + 0.1;
+    renderController(detailZoom);
+    const target = screen.getByTestId('target');
+
+    await waitFor(() => expect(target).toHaveClass('zoom-near'));
+    expect(target).not.toHaveClass('zoom-far');
+    expect(target).not.toHaveClass('zoom-mid');
+    expect(screen.getByText(/상세 모드 \(컴포넌트 관계\)/)).toBeInTheDocument();
+  });
 });

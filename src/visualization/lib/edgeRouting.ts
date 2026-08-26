@@ -251,9 +251,77 @@ export interface BusEdgeInput {
   ty: number;
 }
 
+/** 같은 부모의 fan-out을 한 번만 그리기 위한 시각적 버스 골격. branches는 서로 독립 SVG subpath다. */
+export interface BusVisual {
+  /** 이 edge id만 골격을 실제로 그린다. 나머지 같은-source edge는 논리 연결로만 남긴다. */
+  hidden?: boolean;
+  branches?: Pt[][];
+}
+
+export interface CrossGroupRouteResult {
+  paths: Map<string, Pt[]>;
+  visuals: Map<string, BusVisual>;
+}
+
 // 바(수평 줄기)를 소스 프레임 바닥에서 이만큼 아래 거터에 놓는다. routeOrthogonal의 EXIT_GAP(8)+
 // collideMargin(10)과 같은 수준이라 바가 v2 탈출 거터와 같은 빈 띠에 앉는다.
 const BUS_GUTTER = 20;
+// 서로 다른 부모 버스가 같은 거터를 지나야 할 때의 최소 중심선 간격. 일반 트랙 11px보다
+// 1px 넓게 잡아 1.75px stroke와 라운드 코너가 시각적으로 붙지 않게 한다.
+const BUS_ROUTE_GAP = 12;
+const EDGE_RESERVATION_HALF_WIDTH = 5;
+const EDGE_ENDPOINT_TRIM = 8;
+
+/**
+ * 이미 확정된 다른 부모 경로를 다음 경로가 피할 수 있는 얇은 장애물 띠로 바꾼다.
+ *
+ * 시작/끝점 바로 앞은 trim해, 같은 target으로 들어가는 특수 경우에는 노드 핸들에서만 합류할
+ * 수 있게 한다. 그 외 구간은 10px 폭으로 예약하므로 다른 부모의 수평 바·수직 스텁·교차가
+ * 모두 A* 후보에서 배제된다.
+ */
+function reservePathCorridors(points: Pt[]): RoutingRect[] {
+  const out: RoutingRect[] = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    if (a.x === b.x) {
+      const lo = Math.min(a.y, b.y);
+      const hi = Math.max(a.y, b.y);
+      const trim = Math.min(EDGE_ENDPOINT_TRIM, (hi - lo) / 3);
+      if (hi - lo <= trim * 2) continue;
+      out.push({
+        x: a.x - EDGE_RESERVATION_HALF_WIDTH,
+        y: lo + trim,
+        width: EDGE_RESERVATION_HALF_WIDTH * 2,
+        height: hi - lo - trim * 2,
+      });
+    } else if (a.y === b.y) {
+      const lo = Math.min(a.x, b.x);
+      const hi = Math.max(a.x, b.x);
+      const trim = Math.min(EDGE_ENDPOINT_TRIM, (hi - lo) / 3);
+      if (hi - lo <= trim * 2) continue;
+      out.push({
+        x: lo + trim,
+        y: a.y - EDGE_RESERVATION_HALF_WIDTH,
+        width: hi - lo - trim * 2,
+        height: EDGE_RESERVATION_HALF_WIDTH * 2,
+      });
+    }
+  }
+  return out;
+}
+
+function pathHitsReservedCorridor(points: Pt[], reserved: RoutingRect[]): boolean {
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    for (const rect of reserved) {
+      if (a.y === b.y && hSegHitsRect(a.y, a.x, b.x, rect)) return true;
+      if (a.x === b.x && vSegHitsRect(a.x, a.y, b.y, rect)) return true;
+    }
+  }
+  return false;
+}
 
 /**
  * 크로스-그룹 간선들을 출발별로 묶어 버스(트렁크+바+스텁) 경로를, 병합이 프레임을 관통하는
@@ -263,79 +331,130 @@ export function routeCrossGroupBuses(
   edges: BusEdgeInput[],
   obstacles: RoutingRect[],
   laneOf: (source: string) => number = () => 0,
-): Map<string, Pt[]> {
+): CrossGroupRouteResult {
   const out = new Map<string, Pt[]>();
+  const visuals = new Map<string, BusVisual>();
   const bySource = new Map<string, BusEdgeInput[]>();
   for (const e of edges) {
     const arr = bySource.get(e.source);
     if (arr) arr.push(e);
     else bySource.set(e.source, [e]);
   }
-  for (const [, group] of bySource) {
+  // 부모별로 하나의 버스를 만드는 건 유지하되, 다른 부모가 먼저 쓴 경로는 이후 부모에게
+  // 장애물로 예약한다. source id 정렬은 live commit의 입력 배열 순서가 달라도 동일한 지도를
+  // 만들기 위한 결정적 tie-breaker다.
+  const reservedCorridors: RoutingRect[] = [];
+  const sourceGroups = [...bySource.entries()].sort(([a], [b]) => a.localeCompare(b));
+  for (const [, group] of sourceGroups) {
     const laneOffset = laneOf(group[0].source);
     const fallback = (e: BusEdgeInput): void => {
-      out.set(e.id, routeOrthogonal({ x: e.sx, y: e.sy }, { x: e.tx, y: e.ty }, obstacles, { laneOffset }));
+      out.set(
+        e.id,
+        routeOrthogonal(
+          { x: e.sx, y: e.sy },
+          { x: e.tx, y: e.ty },
+          [...obstacles, ...reservedCorridors],
+          { laneOffset },
+        ),
+      );
     };
     // 단일 타깃은 합칠 대상이 없으니 개별 배선(기존 v2와 동일).
     if (group.length < 2) {
       fallback(group[0]);
+      reservedCorridors.push(...reservePathCorridors(out.get(group[0].id)!));
       continue;
     }
     const s0 = group[0];
     const sourceFrame = obstacles.find((r) => rectContains(r, { x: s0.sx, y: s0.sy }));
     const trunkX = s0.sx; // 같은 출발이라 sx 공유 = 트렁크 x
-    const barY = (sourceFrame ? sourceFrame.y + sourceFrame.height : s0.sy) + BUS_GUTTER + laneOffset;
-    // 트렁크(공유): 소스 바닥 → barY. 자기 소스 프레임만 빼고 관통 검사(자기 프레임 탈출은 정상).
-    const trunkClear =
-      barY > s0.sy &&
-      !obstacles.some((r) => r !== sourceFrame && vSegHitsRect(trunkX, s0.sy, barY, r));
-    for (const e of group) {
-      const targetFrame = obstacles.find((r) => rectContains(r, { x: e.tx, y: e.ty }));
-      // 바(수평)·스텁(수직)은 자기 소스·타깃 프레임을 뺀 다른 프레임만 관통 검사한다.
-      const barClear = !obstacles.some(
-        (r) => r !== sourceFrame && r !== targetFrame && hSegHitsRect(barY, trunkX, e.tx, r),
-      );
-      const stubClear =
-        e.ty > barY &&
-        !obstacles.some((r) => r !== sourceFrame && r !== targetFrame && vSegHitsRect(e.tx, barY, e.ty, r));
-      if (trunkClear && barClear && stubClear) {
-        out.set(
-          e.id,
-          simplifyCollinear([
-            { x: trunkX, y: e.sy },
-            { x: trunkX, y: barY },
-            { x: e.tx, y: barY },
-            { x: e.tx, y: e.ty },
-          ]),
+    const baseBarY = (sourceFrame ? sourceFrame.y + sourceFrame.height : s0.sy) + BUS_GUTTER + laneOffset;
+    let busPaths: { barY: number; paths: Array<[string, Pt[]]> } | null = null;
+    // span-aware lane은 대부분 첫 시도에서 해결한다. 다른 층의 경로와 만나면 조금 더 아래의
+    // 동일 거터 트랙을 차례로 시도해, 부모가 다른 선끼리는 어떠한 선분도 공유하지 않게 한다.
+    for (let attempt = 0; attempt < 8 && !busPaths; attempt++) {
+      const barY = baseBarY + attempt * BUS_ROUTE_GAP;
+      const trunkClear =
+        barY > s0.sy &&
+        !obstacles.some((r) => r !== sourceFrame && vSegHitsRect(trunkX, s0.sy, barY, r));
+      if (!trunkClear) continue;
+      const candidates: Array<[string, Pt[]]> = [];
+      let clear = true;
+      for (const e of group) {
+        const targetFrame = obstacles.find((r) => rectContains(r, { x: e.tx, y: e.ty }));
+        const barClear = !obstacles.some(
+          (r) => r !== sourceFrame && r !== targetFrame && hSegHitsRect(barY, trunkX, e.tx, r),
         );
-      } else {
-        fallback(e); // 병합이 프레임을 뚫으면 이 간선만 개별 A*로.
+        const stubClear =
+          e.ty > barY &&
+          !obstacles.some((r) => r !== sourceFrame && r !== targetFrame && vSegHitsRect(e.tx, barY, e.ty, r));
+        const path = simplifyCollinear([
+          { x: trunkX, y: e.sy },
+          { x: trunkX, y: barY },
+          { x: e.tx, y: barY },
+          { x: e.tx, y: e.ty },
+        ]);
+        if (!barClear || !stubClear || pathHitsReservedCorridor(path, reservedCorridors)) {
+          clear = false;
+          break;
+        }
+        candidates.push([e.id, path]);
       }
+      if (clear) busPaths = { barY, paths: candidates };
     }
+    if (busPaths) {
+      for (const [id, path] of busPaths.paths) out.set(id, path);
+      // 같은 source의 모든 edge에 동일한 트렁크+바를 각각 그리면 SVG가 N겹으로 쌓이고 타깃별
+      // gradient까지 섞여 굵기·색이 불규칙해진다. leader 하나가 통일된 source 색의 버스 골격을
+      // 한 번만 그리고, follower는 논리 edge만 유지한다(hover/선택 data는 그대로).
+      const leader = [...group].sort((a, b) => a.id.localeCompare(b.id))[0];
+      const minX = Math.min(trunkX, ...group.map((e) => e.tx));
+      const maxX = Math.max(trunkX, ...group.map((e) => e.tx));
+      visuals.set(leader.id, {
+        branches: [
+          [{ x: trunkX, y: s0.sy }, { x: trunkX, y: busPaths.barY }],
+          [{ x: minX, y: busPaths.barY }, { x: maxX, y: busPaths.barY }],
+          ...group.map((e) => [{ x: e.tx, y: busPaths.barY }, { x: e.tx, y: e.ty }]),
+        ],
+      });
+      for (const e of group) if (e.id !== leader.id) visuals.set(e.id, { hidden: true });
+    } else {
+      // 같은 부모 버스가 다른 부모의 예약 경로까지 피할 충분한 거터를 못 찾은 경우에만, 각
+      // 간선을 edge-aware A*로 우회한다. 프레임만 피하던 기존 폴백과 달리 예약 띠도 장애물이다.
+      for (const e of group) fallback(e);
+    }
+    for (const e of group) reservedCorridors.push(...reservePathCorridors(out.get(e.id)!));
   }
-  return out;
+  return { paths: out, visuals };
 }
 
-// --- Phase 3: corridor-local sticky 트랙 배정 (ADR-0060) ---
-// 크로스-그룹 간선의 출발을 "소스 그룹 프레임의 y-층(gutter)"별로 묶고, 각 층 안에서 출발 x 순으로
-// 정렬해 트랙(barY 슬롯)을 실제 간격으로 스택한다. → 같은 층의 여러 버스 바가 한 barY에 겹치지
-// 않고 층층이 쌓이고, 좌→우 정렬로 교차를 줄인다(metro-line/VLSI left-edge 휴리스틱). 오프셋은
-// 아래(거터)로만 커져(0..MAX) 프레임 안으로 안 들어가고, 거터를 넘치면 버스가 A*로 폴백(관통 0).
-// 층 y·x는 레이아웃에서 안정 → 결정적(sticky, ADR-0008). 순수 함수(전역 상태 없음).
+// --- Phase 3: span-aware corridor-local sticky 트랙 배정 (ADR-0082) ---
+// 크로스-그룹 간선의 출발을 "소스 그룹 프레임의 y-층(gutter)"별로 묶는다. 같은 층 안에서는
+// 버스의 실제 수평 span이 닿을 때만 다른 barY 슬롯을 배정하고, 닿지 않으면 한 트랙을 재사용한다.
+// 따라서 다른 부모의 겹치는 버스에는 여백이 생기되, 멀리 떨어진 버스까지 불필요하게 아래로
+// 밀리지 않는다. span 순서가 레이아웃에서 안정적이므로 결과도 결정적(sticky, ADR-0008)이다.
 
 export interface TrackSource {
   /** 출발 노드/프레임 id */
   id: string;
   /** 소스 그룹 프레임 바닥 y(거터 위치). 같은 값 = 같은 거터를 공유하는 층. */
   layer: number;
-  /** 출발 중심 x(트랙 순서 정렬 기준). */
-  x: number;
+  /** 버스 바가 차지하는 수평 구간의 왼쪽 끝. source→모든 target의 x 범위다. */
+  spanStart: number;
+  /** 버스 바가 차지하는 수평 구간의 오른쪽 끝. */
+  spanEnd: number;
 }
 
 const TRACK_GAP = 11; // 트랙(바) 간 세로 간격 px
-const MAX_TRACK_OFFSET = 44; // 거터 넘침 방지 상한(넘으면 버스 폴백)
+const TRACK_SPAN_GAP = 12; // 다른 부모 버스가 같은 y를 재사용하려면 이만큼 수평 여백이 필요
 
-/** 층별로 묶어 x-순 트랙 오프셋(0..MAX)을 배정한다. 같은 층은 겹치지 않게 스택, 다른 층은 독립. */
+/**
+ * 층별로 버스의 실제 수평 span을 interval-partitioning한다.
+ *
+ * 예전에는 출발 x 순서만 보고 무조건 새 y 트랙을 줬다가 44px에서 clamp했다. 그래서 5개가
+ * 넘는 서로 다른 부모 버스가 같은 barY로 되돌아가, 정확히 구별해야 할 선이 포개졌다. 이제
+ * span이 닿지 않는 버스만 같은 트랙을 재사용하고, 닿는 버스는 항상 다음 트랙으로 보낸다.
+ * 트랙 수가 거터를 넘으면 routeCrossGroupBuses의 프레임 관통 검사에서 해당 간선만 A* 폴백한다.
+ */
 export function assignGutterTracks(sources: TrackSource[]): Map<string, number> {
   const byLayer = new Map<number, TrackSource[]>();
   for (const s of sources) {
@@ -345,8 +464,20 @@ export function assignGutterTracks(sources: TrackSource[]): Map<string, number> 
   }
   const out = new Map<string, number>();
   for (const [, arr] of byLayer) {
-    arr.sort((a, b) => a.x - b.x || (a.id < b.id ? -1 : 1)); // 좌→우, 동률은 id로 결정적
-    arr.forEach((s, i) => out.set(s.id, Math.min(MAX_TRACK_OFFSET, i * TRACK_GAP)));
+    arr.sort((a, b) => a.spanStart - b.spanStart || a.spanEnd - b.spanEnd || (a.id < b.id ? -1 : 1));
+    // trackEnds[n] = n번 트랙에서 마지막으로 끝난 버스의 오른쪽 x. 현재 span이 이 값보다
+    // TRACK_SPAN_GAP만큼 오른쪽에서 시작할 때만 같은 y를 재사용한다.
+    const trackEnds: number[] = [];
+    for (const source of arr) {
+      let track = trackEnds.findIndex((end) => source.spanStart >= end + TRACK_SPAN_GAP);
+      if (track < 0) {
+        track = trackEnds.length;
+        trackEnds.push(source.spanEnd);
+      } else {
+        trackEnds[track] = source.spanEnd;
+      }
+      out.set(source.id, track * TRACK_GAP);
+    }
   }
   return out;
 }
