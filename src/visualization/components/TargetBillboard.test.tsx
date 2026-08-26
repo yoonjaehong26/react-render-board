@@ -67,4 +67,24 @@ describe('TargetBillboard', () => {
     fireEvent.click(screen.getByRole('button', { name: '선택한 요소 닫기' }));
     expect(onClear).toHaveBeenCalledOnce();
   });
+
+  it('moves a pinned billboard through its dedicated drag handle', () => {
+    const onPositionChange = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get: () => 400 });
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => 100 });
+    render(
+      <TargetBillboard
+        target={target}
+        preview={false}
+        position={{ x: 0.5, y: 0 }}
+        onPositionChange={onPositionChange}
+      />,
+    );
+
+    const handle = screen.getByRole('button', { name: '전광판 위치 이동' });
+    fireEvent.pointerDown(handle, { pointerId: 1, button: 0, clientX: 300, clientY: 30 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 360, clientY: 80 });
+
+    expect(onPositionChange).toHaveBeenCalledWith(expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) }));
+  });
 });

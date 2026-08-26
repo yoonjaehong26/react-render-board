@@ -20,6 +20,11 @@ import {
   type FloatingButtonPosition,
 } from './lib/floatingButtonPreference';
 import { leastObstructiveDock, shouldUseFocusRail } from './lib/panelPlacement';
+import {
+  getStoredBillboardPreference,
+  setStoredBillboardPreference,
+  type BillboardPreference,
+} from './lib/billboardPreference';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 
 const FLOATING_BUTTON_MARGIN = 16;
@@ -89,6 +94,14 @@ export function BoardOverlay({ store, interactionStore, layoutTarget = null }: B
   // 픽 모드를 끄면 hoverTarget이 비워져 마지막 고정 선택 카드가 다시 드러난다.
   const billboardTarget = hoverTarget ?? selectedTarget;
   const billboardPreview = hoverTarget !== null;
+  const [billboardPreference, setBillboardPreference] = useState(getStoredBillboardPreference);
+  const billboardPreferenceRef = useRef(billboardPreference);
+  billboardPreferenceRef.current = billboardPreference;
+
+  const commitBillboardPreference = useCallback((next: BillboardPreference) => {
+    setBillboardPreference(next);
+    setStoredBillboardPreference(next);
+  }, []);
 
   // 패널 도킹 위치(하단/좌/우) + 크기(화면 비율). localStorage로 새로고침 후에도 유지(ADR-0040).
   const [layout, setLayout] = useState(getStoredPanelLayout);
@@ -407,6 +420,23 @@ export function BoardOverlay({ store, interactionStore, layoutTarget = null }: B
         </button>
         <button
           type="button"
+          className={`board-fab board-fab--billboard rrb-rough-chrome${billboardPreference.visible ? ' board-fab--pick-active' : ''}`}
+          style={{ backgroundImage: CHROME_CIRCLE.light }}
+          onClick={(event) => {
+            if (ignoreClickAfterFloatingButtonDrag(event)) return;
+            commitBillboardPreference({ ...billboardPreferenceRef.current, visible: !billboardPreferenceRef.current.visible });
+          }}
+          aria-pressed={billboardPreference.visible}
+          aria-label={billboardPreference.visible ? '전광판 끄기' : '전광판 켜기'}
+          title={billboardPreference.visible ? '전광판 끄기' : '전광판 켜기'}
+        >
+          <svg className="board-fab__icon" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3.5" y="5" width="17" height="12" rx="2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+            <path d="M8 20h8M12 17v3M7 9h10M7 13h6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+        </button>
+        <button
+          type="button"
           className={`board-fab board-fab--main rrb-rough-chrome${boardOpen ? ' board-fab--open' : ''}`}
           style={
             { '--fab-circle': CHROME_CIRCLE.light, '--fab-pill': CHROME_BORDER.light } as CSSProperties
@@ -431,11 +461,14 @@ export function BoardOverlay({ store, interactionStore, layoutTarget = null }: B
           <span className="rrb-wordmark board-fab__wordmark">render-board</span>
         </button>
       </div>
-      {billboardTarget && (
+      {billboardPreference.visible && billboardTarget && (
         <TargetBillboard
           target={billboardTarget}
           preview={billboardPreview}
           onClear={billboardPreview ? undefined : () => resolvedInteractionStore.clearSelectedTarget()}
+          position={billboardPreference.position}
+          onPositionChange={(position) => setBillboardPreference((current) => ({ ...current, position }))}
+          onPositionCommit={() => setStoredBillboardPreference(billboardPreferenceRef.current)}
         />
       )}
       {pipWindow ? createPortal(panel, pipWindow.document.body) : panel}

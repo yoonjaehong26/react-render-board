@@ -784,6 +784,13 @@ body.rrb-dark-mode .component-node--highlighted::after {
   height: 36px;
 }
 
+/* 전광판 토글도 픽 위성과 같은 작은 크롬으로 둔다. 켜짐 상태는 같은 강조색을 공유해
+   "선택 보조 정보가 현재 표시되는가"만 짧게 전달한다. */
+.board-fab--billboard {
+  width: 36px;
+  height: 36px;
+}
+
 .board-fab__icon {
   width: 17px;
   height: 17px;
@@ -817,6 +824,13 @@ body.rrb-dark-mode .component-node--highlighted::after {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+.target-billboard__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .target-billboard--preview {
   pointer-events: none;
   border-color: #bfdbfe;
@@ -830,6 +844,30 @@ body.rrb-dark-mode .component-node--highlighted::after {
   font-size: 11px;
   font-weight: 750;
   letter-spacing: 0.03em;
+}
+
+.target-billboard__drag {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #64748b;
+  cursor: grab;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.target-billboard__drag:active {
+  cursor: grabbing;
+}
+
+.target-billboard__drag:hover,
+.target-billboard__drag:focus-visible {
+  border-color: #818cf8;
+  color: #4338ca;
 }
 
 .target-billboard__target {
@@ -927,7 +965,8 @@ body.rrb-dark-mode .target-billboard--preview {
 }
 
 body.rrb-dark-mode .target-billboard__hint,
-body.rrb-dark-mode .target-billboard__clear {
+body.rrb-dark-mode .target-billboard__clear,
+body.rrb-dark-mode .target-billboard__drag {
   color: #94a3b8;
 }
 
@@ -942,6 +981,11 @@ body.rrb-dark-mode .target-billboard__identification--ambiguous {
 }
 
 body.rrb-dark-mode .target-billboard__clear {
+  border-color: #475569;
+  background: #1e293b;
+}
+
+body.rrb-dark-mode .target-billboard__drag {
   border-color: #475569;
   background: #1e293b;
 }
