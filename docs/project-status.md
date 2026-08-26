@@ -36,7 +36,7 @@
 | 데이터 | `src/data/{serialize,sourceHints,store,types}.ts` | Fiber → 정규화 노드, groupHint 비동기 해석(+폴더 그룹핑용 전체 경로 groupPath는 `_debugStack` 파싱, ADR-0053), 구독 가능한 store(+id→Fiber 보조 조회) |
 | 시각화 | `src/visualization/` | React Flow 기반 그룹 프레임+노드, 그룹 경계 횡단 엣지, semantic zoom(지도↔상세), host 노드 기본 숨김, 도킹 패널 셸(`BoardOverlay.tsx`) |
 
-보드에서 실제로 되는 것: 실시간 렌더 트리 관찰, 도메인별 그룹 프레임, 줌아웃 시 지도 모드/줌인 시 상세 모드 전환("지도에서도 상세" 토글로 줌아웃해도 내부 유지, ADR-0049), host 노드 토글, 수천 개 노드까지 안 뭉개짐(P0~P4 반영 후), 리스트(같은 종류 형제 ≥5)는 대표 하나 + "×N"으로 접어 구조 안정화(ADR-0046), **"폴더로 묶기" 토글로 파일 그룹을 상위 폴더 프레임으로 2단 중첩(folder>file>component, ADR-0053)**, **그룹 간 배치는 downfall tidy-tree 중앙 정렬(부모를 자식 스팬 중앙 위에, 대칭 트리; ADR-0058이 ADR-0056 부모 앵커의 우측 치우침을 대체)**, **공유 UI 레인(pillar ②, ADR-0061): 다중 부모(groupParents≥2) 컨테이너를 트리에서 빼 아래 별도 "공유" 밴드(부모 centroid 아래)로(남은 트리 순수화·요동 0) — 상시 긴 선 대신 사용처에 "↘X 공유" 인라인 칩(전체 연결은 호버 점등 예정)+"×N 사용" 배지, Dialog fixture로 실증, 증분2(자식 있는 공유 컨테이너 — 레인 안 미니 tidy-tree)까지 완료** — 남은 안정성 설계(슬롯 예약 "학습·동결 지도", pillar ③)는 [설계 확정 문서](research/2026-07-18-stable-skeleton-shared-ui-lane.md)로 동결(지터 통증 검증 후). 고빈도 앱(60~240Hz)에서도 store notify 스로틀(~30Hz 캡) + 안 바뀐 노드 참조 재사용으로 과도한 재렌더/깜빡임을 줄임(ADR-0050).
+보드에서 실제로 되는 것: 실시간 렌더 트리 관찰, 도메인별 그룹 프레임, 줌아웃 시 지도 모드/줌인 시 상세 모드 전환("지도에서도 상세" 토글로 줌아웃해도 내부 유지, ADR-0049), **지도 모드에서 실제 화면 좌표 충돌을 제거해 대표 라벨만 남기는 declutter(검색·선택·추적 대상은 항상 유지, ADR-0081)**, host 노드 토글, 수천 개 노드까지 안 뭉개짐(P0~P4 반영 후), 리스트(같은 종류 형제 ≥5)는 대표 하나 + "×N"으로 접어 구조 안정화(ADR-0046), **"폴더로 묶기" 토글로 파일 그룹을 상위 폴더 프레임으로 2단 중첩(folder>file>component, ADR-0053)**, **그룹 간 배치는 downfall tidy-tree 중앙 정렬(부모를 자식 스팬 중앙 위에, 대칭 트리; ADR-0058이 ADR-0056 부모 앵커의 우측 치우침을 대체)**, **공유 UI 레인(pillar ②, ADR-0061): 다중 부모(groupParents≥2) 컨테이너를 트리에서 빼 아래 별도 "공유" 밴드(부모 centroid 아래)로(남은 트리 순수화·요동 0) — 상시 긴 선 대신 사용처에 "↘X 공유" 인라인 칩(전체 연결은 호버 점등 예정)+"×N 사용" 배지, Dialog fixture로 실증, 증분2(자식 있는 공유 컨테이너 — 레인 안 미니 tidy-tree)까지 완료** — 남은 안정성 설계(슬롯 예약 "학습·동결 지도", pillar ③)는 [설계 확정 문서](research/2026-07-18-stable-skeleton-shared-ui-lane.md)로 동결(지터 통증 검증 후). 고빈도 앱(60~240Hz)에서도 store notify 스로틀(~30Hz 캡) + 안 바뀐 노드 참조 재사용으로 과도한 재렌더/깜빡임을 줄임(ADR-0050).
 
 ### 🟢 보드 ↔ 실제 DOM 양방향 인터랙션 — 구현됨 (ADR-0024/0025/0026, hover 프리뷰 ADR-0038)
 
@@ -171,9 +171,9 @@
 
 ### ✅ P2 — 지도 모드 붕괴 (`minZoom=0.05` 하드코딩) — 해소됨
 - **증상이었던 것:** 1,500~2,000노드 또는 그룹 100개+부터 `fitView`가 전체를 못 담아 지도 모드 화면이 사실상 백지.
-- **수정:** `minZoom`을 0.001로 낮춰 `fitView`가 바닥에 막히지 않게 했고, 그 결과 드러난 "라벨이 안 보이는" 문제는 캔버스 줌의 역수를 라벨에 곱하는 counter-scale로 해결했다.
+- **수정:** `minZoom`을 0.001로 낮춰 `fitView`가 바닥에 막히지 않게 했고, 그 결과 드러난 "라벨이 안 보이는" 문제는 캔버스 줌의 역수를 라벨에 곱하는 counter-scale로 해결했다. counter-scale이 만든 라벨 상호 충돌은 후속 ADR-0081의 screen-space declutter로 해소했다.
 - **결과:** shadcn-admin 지도 모드 줌 배지가 5%(바닥에 막힘) → 1%(진짜 필요한 값)로 내려가고, 화면이 백지에서 "전체 콘텐츠가 보이고 라벨을 읽을 수 있는" 상태로 바뀌었다.
-- **남은 한계:** 그룹이 아주 많을 때(수십~수백 개) 라벨끼리 겹치는 declutter 문제는 완전히 풀지 않았다(P4가 그룹 수를 줄여 상당히 완화하긴 했다) — 후속 과제.
+- **결과:** 그룹이 아주 많아도 화면 좌표에서 충돌하는 일반 라벨은 큰 그룹 우선으로 숨고, 검색·선택·추적 라벨은 계속 남는다. 프레임·색·집계 엣지는 유지돼 지도 구조는 잃지 않는다.
 - 근거: [ADR-0018](decisions/0018-map-mode-lod-and-camera-refit.md)
 
 ### ✅ P3 — 카메라 정체 (stale viewport) (`Canvas.tsx` / `layout.ts`) — 해소됨
@@ -226,7 +226,7 @@ roadmap.md의 "대규모 스케일은 처음부터 설계에 반영" 원칙이 �
 
 1. **직렬화 순회의 depth/형제 카운터 분리** (P0, [ADR-0016](decisions/0016-max-depth-sibling-counting-fix.md)) — ✅ 해소.
 2. **Canvas의 뷰포트 기반 부분 재계산** (P1, [ADR-0017](decisions/0017-viewport-based-partial-recompute.md)) — ✅ 해소. "접기/펼치기·검색·부분 렌더링"(roadmap 원안)이 여기 묶였다.
-3. **지도 모드의 LOD 렌더링** (P2, [ADR-0018](decisions/0018-map-mode-lod-and-camera-refit.md)) — ✅ 해소(라벨 declutter는 부분 완화, 후속 과제로 남음).
+3. **지도 모드의 LOD 렌더링** (P2, [ADR-0018](decisions/0018-map-mode-lod-and-camera-refit.md)) — ✅ 해소(라벨 declutter까지 [ADR-0081](decisions/0081-map-mode-screen-space-label-declutter.md)로 완료).
 4. **카메라 정책 + `groupOrder` 생명주기** (P3, [ADR-0018](decisions/0018-map-mode-lod-and-camera-refit.md)) — ✅ 해소.
 5. **라이브러리 경로 판별의 화이트리스트 반전** (P4, [ADR-0019](decisions/0019-library-hint-whitelist-inversion.md)) — ✅ 해소.
 

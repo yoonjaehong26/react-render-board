@@ -45,6 +45,7 @@ import { BoundaryFrame } from './components/BoundaryFrame';
 import { StickyNoteNode, type StickyNoteNodeData } from './components/StickyNoteNode';
 import { ContextMenu, type ContextMenuState } from './components/ContextMenu';
 import { SemanticZoomController, MAP_MODE_THRESHOLD } from './components/SemanticZoomController';
+import { GroupLabelDeclutter } from './components/GroupLabelDeclutter';
 import { shouldSuppressMapModeDetail } from './lib/mapModeDetail';
 // props 흐름 추적 + 변경 잔상 (ADR-0032) — 아래 "ADR-0032" 주석이 붙은 코드 조각들이 이 기능이다.
 import { PropsPanel } from './components/PropsPanel';
@@ -317,7 +318,18 @@ function BoardContent({
     return deriveBoundaryMemberships(sample);
   }, [snapshot, store]);
 
-  const { flowNodes, flowEdges, visibleCount, totalCount, groupNames, visibleIds, matchedIds, visibleNodes } =
+  const {
+    flowNodes,
+    flowEdges,
+    visibleCount,
+    totalCount,
+    groupNames,
+    visibleIds,
+    matchedIds,
+    visibleNodes,
+    pinnedGroupKey,
+    labelVersion,
+  } =
     useMemo(() => {
     // 리스트 접기(ADR-0045): normalize가 만든 화면 노드 위에서 같은 종류 형제 N개(리스트)를
     // 대표 하나 + "×N"으로 접는다. 데이터/인터랙션은 그대로(대표는 실제 fiber id 유지).
@@ -399,6 +411,23 @@ function BoardContent({
       new Map(visible.map((n) => [n.id, n.group])),
     );
     const finalNodes = withGroupBoundaryKinds(nodesWithBoundaries, groupBoundaryKinds);
+    // map 모드 declutter에서 검색/선택/추적이 가리키는 그룹 이름은 절대 숨기지 않는다.
+    // 문자열 키로 내리는 이유: Set은 매 라이브 commit마다 새 참조가 되어, 라벨 구성에 변화가
+    // 없어도 DOM 측정 effect를 다시 일으킬 수 있기 때문이다.
+    const pinnedGroupKey = [...new Set([...matchedGroups, ...trackedGroups, highlightedGroup].filter(Boolean))]
+      .map((group) => `group:${group}`)
+      .sort()
+      .join('\u0001');
+    // DOM label 자체가 바뀔 때만 declutter의 rAF 측정을 다시 예약한다. 다른 커밋의 props 변화는
+    // GroupNode/header의 픽셀 크기에 영향이 없으므로 이 expensive pass를 건너뛴다.
+    const labelVersion = finalNodes
+      .filter((node) => node.type === 'group')
+      .map((node) => {
+        const data = node.data as GroupNodeData;
+        return `${node.id}:${data.label}:${data.count}`;
+      })
+      .sort()
+      .join('\u0001');
     return {
       flowNodes: finalNodes,
       flowEdges,
@@ -408,6 +437,8 @@ function BoardContent({
       visibleIds,
       matchedIds,
       visibleNodes: visible, // ADR-0032 Q2: 지도 모드 그룹 흐름 집계용(id+group)
+      pinnedGroupKey,
+      labelVersion,
     };
   }, [
     snapshot,
@@ -1241,6 +1272,11 @@ function BoardContent({
             }}
           />
           <SemanticZoomController targetRef={canvasRef} />
+          <GroupLabelDeclutter
+            targetRef={canvasRef}
+            pinnedGroupKey={pinnedGroupKey}
+            labelsVersion={labelVersion}
+          />
         </ReactFlow>
         {/* ADR-0032: 노드 선택 시 뜨는 props 패널. .canvas 기준 우측에 절대 배치(flow.css). */}
         {selectedNodeId !== null && (

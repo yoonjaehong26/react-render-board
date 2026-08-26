@@ -120,6 +120,28 @@ async function main() {
   console.log('[verify] 줌 아웃 후 배지:', zoomBadge);
   const isMapMode = await page.locator('.canvas.zoom-far').count();
   console.log(`[verify] 지도 모드 클래스 적용 여부: ${isMapMode > 0}`);
+  // ADR-0081: counter-scale 때문에 그룹 프레임보다 큰 화면 라벨끼리 겹치던 문제. DOM의 실제
+  // screen-space rect를 기준으로 검증한다. 여기서는 검색/선택 고정 라벨이 없는 상태라 일반
+  // 라벨끼리 겹치면 안 되고, 밀집한 기본 fixture에서는 적어도 하나 이상이 숨겨져야 한다.
+  const declutter = await page.locator('[data-declutter-header]').evaluateAll((headers) => {
+    const visible = headers.filter((header) => getComputedStyle(header).opacity !== '0');
+    let overlaps = 0;
+    for (let i = 0; i < visible.length; i++) {
+      const a = visible[i].querySelector('.group-node__label')?.getBoundingClientRect();
+      if (!a) continue;
+      for (let j = i + 1; j < visible.length; j++) {
+        const b = visible[j].querySelector('.group-node__label')?.getBoundingClientRect();
+        if (!b) continue;
+        if (a.left < b.right + 4 && a.right + 4 > b.left && a.top < b.bottom + 4 && a.bottom + 4 > b.top) overlaps++;
+      }
+    }
+    return { total: headers.length, visible: visible.length, overlaps };
+  });
+  console.log(`[verify] 지도 라벨 declutter: ${declutter.visible} / ${declutter.total}개 표시, 충돌 ${declutter.overlaps}건`);
+  if (declutter.total > 1 && declutter.visible >= declutter.total) {
+    throw new Error('지도 모드 declutter가 밀집한 그룹 라벨을 하나도 숨기지 않았습니다');
+  }
+  if (declutter.overlaps > 0) throw new Error(`지도 모드 라벨 충돌 ${declutter.overlaps}건이 남았습니다`);
   await page.screenshot({ path: outPath('06-zoomed-out.png') });
 
   // 5. lazy+Suspense 경계 검증 (ReportsPanel — React.lazy + Suspense, ADR-0011)

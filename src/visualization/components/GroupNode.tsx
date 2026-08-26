@@ -129,7 +129,12 @@ export function GroupNode({ id, data }: NodeProps) {
           {manuallyCollapsed ? '▸' : '▾'}
         </button>
       </NodeToolbar>
-      <div className="group-node__header">
+      <div
+        className="group-node__header"
+        data-declutter-header
+        data-declutter-id={id}
+        data-declutter-priority={count}
+      >
         <span className="group-node__label" style={labelStyle}>
           {label}
         </span>

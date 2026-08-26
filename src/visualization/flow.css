@@ -122,6 +122,14 @@
   gap: 8px;
   padding: 8px 12px;
   font-family: ui-monospace, monospace;
+  transition: opacity 100ms ease;
+}
+
+/* 지도 모드에서는 counter-scale된 라벨의 실제 화면 사각형이 충돌하면, GroupLabelDeclutter가
+   우선순위가 낮은 헤더만 숨긴다. 프레임/색/집계 엣지는 남겨 '영역 지도' 자체는 보존한다. */
+.group-node__header--decluttered {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* 그룹 접기/펼치기 셰브런(ADR-0029) — 라벨/개수와 같은 counter-scale 위치에 있어 어느 줌
