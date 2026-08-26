@@ -278,4 +278,5 @@ vision.md가 던진 성공 질문("완성 후에도 계속 붙잡을 동기가 �
 - 선행 프로젝트 조사: [`research/prior-art.md`](research/prior-art.md)(요약) · [`research/2026-07-17-prior-art-survey.md`](research/2026-07-17-prior-art-survey.md) · [`research/2026-07-17-prior-art-causes-and-legacy.md`](research/2026-07-17-prior-art-causes-and-legacy.md)
 - 기술 옵션 조사(훅킹·시각화 레이어 후보): [`research/technical-options.md`](research/technical-options.md)
 - React Flow UX 확장 가능 범위 조사(미구현): [`research/2026-07-17-react-flow-ux-capabilities.md`](research/2026-07-17-react-flow-ux-capabilities.md)
+- VS Code 연동(코드 점프/활성 파일 하이라이트) 기술 타당성 스파이크(미착수, 하드 블로커 없음 확인): [`research/2026-07-31-vscode-editor-sync-feasibility-spike.md`](research/2026-07-31-vscode-editor-sync-feasibility-spike.md)
 - 간선 직교/버스 배선 + 클러터 조사(배선 보류, ADR-0029): [`research/2026-07-18-orthogonal-edge-routing.md`](research/2026-07-18-orthogonal-edge-routing.md)
