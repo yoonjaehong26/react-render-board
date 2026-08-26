@@ -20,6 +20,7 @@
 //    shouldExpandGroup이 highlightedNodeId의 그룹을 강제로 펼치지 않으면, 지도 모드에서
 //    Alt+클릭해도 fitView가 flowNodes에 존재하지 않는 노드 id를 대상으로 호출돼 조용히
 //    실패한다(카메라가 안 움직인다).
+// 5. (ADR-0080) 선택한 DOM 요소는 같은 Fiber 경로를 짧은 AI target card로도 보여야 한다.
 import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -143,6 +144,16 @@ async function main() {
 
   const highlightBoxAfterAltClick = await page.locator('.dom-highlight-overlay__box').count();
   console.log(`[verify-dom] 역방향(Alt+클릭): 클릭한 실제 요소에도 하이라이트 박스 표시: ${highlightBoxAfterAltClick > 0}`);
+
+  const selectedTargetCard = page.locator('.target-billboard:not(.target-billboard--preview)');
+  const selectedTargetText = await selectedTargetCard.textContent().catch(() => '');
+  const selectedTargetHasButtonName = selectedTargetText?.includes('button "알림 패널 보이기"') ?? false;
+  const selectedTargetHasCopy = (await selectedTargetCard.getByRole('button', { name: 'AI용 복사' }).count()) > 0;
+  console.log(`[verify-dom] AI target card: 선택한 button의 역할·이름을 짧게 표시: ${selectedTargetHasButtonName}`);
+  console.log(`[verify-dom] AI target card: 고정 선택에서만 AI용 복사 버튼 표시: ${selectedTargetHasCopy}`);
+  if (!selectedTargetHasButtonName || !selectedTargetHasCopy) {
+    throw new Error('AI target card did not expose the selected button with a copy action');
+  }
   await page.screenshot({ path: outPath('02-reverse-altclick-navigate.png') });
 
   // --- 4. "요소 선택" 토글 모드 — Alt 없이도 픽, 성공 후 자동으로 꺼짐 ---
@@ -161,6 +172,11 @@ async function main() {
   await page.waitForTimeout(150);
   const hoverPreviewCount = await page.locator('.dom-highlight-overlay__hover').count();
   console.log(`[verify-dom] hover-follow: 픽 모드에서 마우스 아래 요소에 프리뷰 박스 표시: ${hoverPreviewCount > 0}`);
+  const targetCardPreview = await page.locator('.target-billboard--preview').count();
+  console.log(`[verify-dom] AI target card: hover 중에는 복사 없는 미리보기 전광판 표시: ${targetCardPreview > 0}`);
+  if (targetCardPreview === 0) {
+    throw new Error('AI target card preview did not appear during pick-mode hover');
+  }
   await page.screenshot({ path: outPath('04-pick-hover-preview.png') });
 
   await page.getByRole('button', { name: '알림 패널 보이기' }).click(); // Alt 없이, 픽 모드로만

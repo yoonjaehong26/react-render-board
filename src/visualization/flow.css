@@ -829,6 +829,155 @@ body.rrb-dark-mode .component-node--highlighted::after {
   color: #eef2ff;
 }
 
+/* 선택 요소 전광판(ADR-0080): hover 중에는 "무엇을 고를지"만, 클릭으로 고정된 뒤에는
+   AI용 복사를 제공한다. 패널/FAB 위치와 독립된 상단 중앙이라 이동 가능한 FAB의 측정·드래그
+   범위를 오염시키지 않고, 호스트 앱 레이아웃에는 전혀 참여하지 않는다. */
+.target-billboard {
+  position: fixed;
+  z-index: 2147483001;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(460px, calc(100vw - 32px));
+  box-sizing: border-box;
+  padding: 11px 12px 10px;
+  border: 1px solid #c7d2fe;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+  color: #182033;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.target-billboard--preview {
+  pointer-events: none;
+  border-color: #bfdbfe;
+  background: rgba(239, 246, 255, 0.96);
+}
+
+.target-billboard__eyebrow {
+  margin-bottom: 4px;
+  color: #6366f1;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.03em;
+}
+
+.target-billboard__target {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.target-billboard__hint {
+  margin-top: 7px;
+  color: #64748b;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 11px;
+}
+
+.target-billboard__identification {
+  display: grid;
+  gap: 2px;
+  margin-top: 8px;
+  padding: 6px 7px;
+  border-radius: 6px;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.target-billboard__identification--assisted {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.target-billboard__identification--ambiguous {
+  background: #fff7ed;
+  color: #b45309;
+}
+
+.target-billboard__actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.target-billboard__copy,
+.target-billboard__clear {
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+.target-billboard__copy {
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: #4f46e5;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.target-billboard__copy:hover,
+.target-billboard__copy:focus-visible {
+  background: #4338ca;
+}
+
+.target-billboard__clear {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-color: #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #64748b;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.target-billboard__clear:hover,
+.target-billboard__clear:focus-visible {
+  border-color: #818cf8;
+  color: #4338ca;
+}
+
+body.rrb-dark-mode .target-billboard {
+  border-color: #475569;
+  background: rgba(15, 23, 42, 0.97);
+  color: #e2e8f0;
+}
+
+body.rrb-dark-mode .target-billboard--preview {
+  border-color: #334155;
+  background: rgba(15, 23, 42, 0.97);
+}
+
+body.rrb-dark-mode .target-billboard__hint,
+body.rrb-dark-mode .target-billboard__clear {
+  color: #94a3b8;
+}
+
+body.rrb-dark-mode .target-billboard__identification--assisted {
+  background: #172554;
+  color: #bfdbfe;
+}
+
+body.rrb-dark-mode .target-billboard__identification--ambiguous {
+  background: #431407;
+  color: #fed7aa;
+}
+
+body.rrb-dark-mode .target-billboard__clear {
+  border-color: #475569;
+  background: #1e293b;
+}
+
 /* 픽 모드 중에는 계측 대상 앱 전체(패널 제외)에서 커서를 바꿔 "지금 클릭하면 요소가
    선택된다"는 걸 알려준다 — 브라우저 네이티브 "요소 검사"와 같은 관례. */
 body.rrb-pick-mode {

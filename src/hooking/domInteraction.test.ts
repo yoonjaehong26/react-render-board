@@ -2,9 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Fiber } from 'bippy';
 
 vi.mock('bippy', () => ({
+  getDisplayName: vi.fn(),
   getFiberFromHostInstance: vi.fn(),
   getFiberId: vi.fn(),
   getNearestHostFibers: vi.fn(),
+  isCompositeFiber: vi.fn(() => false),
 }));
 
 // isDevEnvironment을 모킹한다(ADR-0067) — vitest는 이미 트랜스파일된 모듈을 거쳐 참조하는
@@ -31,6 +33,8 @@ function fakeInteractionStore(overrides: Partial<InteractionSnapshot> = {}): Int
     highlightedElements: [],
     hoverElements: [],
     hoverNodeId: null,
+    hoverTarget: null,
+    selectedTarget: null,
     navigateToNodeId: null,
     navigateRequestId: 0,
     pickModeActive: false,
@@ -42,6 +46,8 @@ function fakeInteractionStore(overrides: Partial<InteractionSnapshot> = {}): Int
     setBoardOpen: vi.fn(),
     highlight: vi.fn(),
     setHoverElements: vi.fn(),
+    selectTarget: vi.fn(),
+    clearSelectedTarget: vi.fn(),
     requestNavigate: vi.fn(),
     consumeNavigate: vi.fn(),
     setPickMode: vi.fn((active: boolean) => {
@@ -156,6 +162,9 @@ describe('startDomClickBridge', () => {
 
     expect(interactionStore.requestNavigate).toHaveBeenCalledWith(7);
     expect(interactionStore.highlight).toHaveBeenCalledWith([child]);
+    expect(interactionStore.selectTarget).toHaveBeenCalledWith(
+      expect.objectContaining({ tagName: 'button', role: 'button' }),
+    );
     expect(clickEvent.defaultPrevented).toBe(true);
     expect(interactionStore.setPickMode).not.toHaveBeenCalled(); // Alt+click never touches pick mode
 
@@ -177,6 +186,9 @@ describe('startDomClickBridge', () => {
     child.dispatchEvent(clickEvent);
 
     expect(interactionStore.requestNavigate).toHaveBeenCalledWith(9);
+    expect(interactionStore.selectTarget).toHaveBeenCalledWith(
+      expect.objectContaining({ tagName: 'button', role: 'button' }),
+    );
     expect(clickEvent.defaultPrevented).toBe(true);
     expect(interactionStore.setPickMode).toHaveBeenCalledWith(false);
     expect(interactionStore.getSnapshot().pickModeActive).toBe(false);
@@ -198,6 +210,9 @@ describe('startDomClickBridge', () => {
 
     expect(interactionStore.requestNavigate).not.toHaveBeenCalled();
     expect(interactionStore.highlight).not.toHaveBeenCalled();
+    expect(interactionStore.selectTarget).toHaveBeenCalledWith(
+      expect.objectContaining({ tagName: 'button', role: 'button' }),
+    );
     expect(clickEvent.defaultPrevented).toBe(true);
     expect(interactionStore.setPickMode).toHaveBeenCalledWith(false);
   });

@@ -4,6 +4,8 @@
 // 쉬움"으로 분류하는 영역과 일치). 훅킹 레이어(DOM 클릭 브리지)와 시각화 레이어(Canvas,
 // BoardOverlay, DomHighlightOverlay) 양쪽에서 참조된다 — data/store.ts가 이미 훅킹→시각화
 // 경계를 넘어 참조되는 것과 같은 전례라 새로운 계층은 아니다.
+import type { AiTarget } from '../../hooking/targetContext';
+
 export type InteractionListener = () => void;
 
 export interface InteractionSnapshot {
@@ -23,6 +25,10 @@ export interface InteractionSnapshot {
    * 햇칭으로 밝히기 위한 값 — hoverElements와 함께 갱신되고 함께 비워진다. 없으면 null.
    */
   hoverNodeId: number | null;
+  /** hover-follow 중인 요소의 Fiber 기반 짧은 설명. 전광판의 일시 프리뷰 전용이다. */
+  hoverTarget: AiTarget | null;
+  /** Alt+click/픽 클릭으로 고정한 AI target card. 새로고침 전까지 UI에 남는다. */
+  selectedTarget: AiTarget | null;
   /**
    * 역방향(DOM 클릭)이 보드에 남기는 "이 raw id로 이동해줘" 요청. bippy가 돌려주는 raw id라
    * host 노드일 수 있고, 지금 보드에 안 보일 수도 있다 — 실제로 보이는 id로 바꾸는 건
@@ -54,7 +60,9 @@ export interface InteractionStore {
   highlight(elements: Element[]): void;
   /** 픽/Alt-held hover-follow 프리뷰(ADR-0038 + 후속). 같은 (요소, 노드) 조합이면 무시(재렌더
    * 방지), 타이머 없음. nodeId는 그 요소에 대응하는 노드 id(다이어그램 동시 하이라이트용). */
-  setHoverElements(elements: Element[], nodeId?: number | null): void;
+  setHoverElements(elements: Element[], nodeId?: number | null, target?: AiTarget | null): void;
+  selectTarget(target: AiTarget): void;
+  clearSelectedTarget(): void;
   requestNavigate(rawId: number): void;
   consumeNavigate(): void;
   setPickMode(active: boolean): void;
@@ -68,6 +76,8 @@ export function createInteractionStore(): InteractionStore {
     highlightedElements: [],
     hoverElements: [],
     hoverNodeId: null,
+    hoverTarget: null,
+    selectedTarget: null,
     navigateToNodeId: null,
     navigateRequestId: 0,
     pickModeActive: false,
@@ -105,13 +115,20 @@ export function createInteractionStore(): InteractionStore {
         patch({ highlightedElements: [] });
       }, HIGHLIGHT_DURATION_MS);
     },
-    setHoverElements(elements, nodeId = null) {
+    setHoverElements(elements, nodeId = null, target = null) {
       // 같은 (요소 집합, 노드 id)이면 알림을 보내지 않는다 — mousemove가 한 요소 위에서 수없이
       // 발생해도 실제로 바뀔 때만 재렌더가 일어나게 한다.
       const current = snapshot.hoverElements;
       const sameEls = current.length === elements.length && current.every((el, i) => el === elements[i]);
-      if (sameEls && snapshot.hoverNodeId === nodeId) return;
-      patch({ hoverElements: elements, hoverNodeId: nodeId });
+      if (sameEls && snapshot.hoverNodeId === nodeId && sameTarget(snapshot.hoverTarget, target)) return;
+      patch({ hoverElements: elements, hoverNodeId: nodeId, hoverTarget: target });
+    },
+    selectTarget(target) {
+      patch({ selectedTarget: target });
+    },
+    clearSelectedTarget() {
+      if (snapshot.selectedTarget === null) return;
+      patch({ selectedTarget: null });
     },
     requestNavigate(rawId) {
       patch({ boardOpen: true, navigateToNodeId: rawId, navigateRequestId: snapshot.navigateRequestId + 1 });
@@ -123,7 +140,29 @@ export function createInteractionStore(): InteractionStore {
     setPickMode(active) {
       // 픽 모드를 끄면 hover 프리뷰도 즉시 비운다 — 모드가 꺼졌는데 마지막 hover 박스가
       // 화면에 남아 있으면 안 된다.
-      patch(active ? { pickModeActive: true } : { pickModeActive: false, hoverElements: [], hoverNodeId: null });
+      patch(
+        active
+          ? { pickModeActive: true }
+          : { pickModeActive: false, hoverElements: [], hoverNodeId: null, hoverTarget: null },
+      );
     },
   };
+}
+
+function sameTarget(a: AiTarget | null, b: AiTarget | null): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.tagName !== b.tagName || a.role !== b.role || a.name !== b.name) return false;
+  const samePath = a.componentPath.length === b.componentPath.length && a.componentPath.every((name, i) => name === b.componentPath[i]);
+  if (!samePath) return false;
+  const aInstance = a.instance ?? null;
+  const bInstance = b.instance ?? null;
+  return (
+    aInstance === bInstance ||
+    (aInstance !== null &&
+      bInstance !== null &&
+      aInstance.componentName === bInstance.componentName &&
+      aInstance.label === bInstance.label &&
+      aInstance.position === bInstance.position &&
+      aInstance.total === bInstance.total)
+  );
 }

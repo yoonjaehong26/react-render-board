@@ -19,6 +19,7 @@
 import { getFiberFromHostInstance, getFiberId, getNearestHostFibers, type Fiber } from 'bippy';
 import type { InteractionStore } from '../visualization/lib/interactionStore';
 import { isDevEnvironment } from './devEnvironment';
+import { createAiTarget } from './targetContext';
 
 /** 실제 DOM 요소 → 그 요소를 그린 fiber의 id(RenderNode.id와 같은 채번 체계). 못 찾으면 null. */
 export function findFiberIdForElement(el: Element): number | null {
@@ -76,7 +77,9 @@ export function startDomClickBridge(subjectContainer: Element, interactionStore:
     event.stopPropagation();
 
     try {
-      const id = findFiberIdForElement(target);
+      const fiber = getFiberFromHostInstance(target);
+      const id = fiber ? getFiberId(fiber) : null;
+      interactionStore.selectTarget(createAiTarget(target, fiber));
       if (id !== null) {
         interactionStore.requestNavigate(id);
         interactionStore.highlight([target]);
@@ -109,12 +112,14 @@ export function startDomClickBridge(subjectContainer: Element, interactionStore:
       if (!lastTarget) return;
       // 커서 아래 요소 + 그 요소를 그린 노드 id를 함께 올린다(다이어그램 동시 하이라이트).
       let id: number | null = null;
+      let fiber: Fiber | null = null;
       try {
-        id = findFiberIdForElement(lastTarget);
+        fiber = getFiberFromHostInstance(lastTarget);
+        id = fiber ? getFiberId(fiber) : null;
       } catch {
         id = null;
       }
-      interactionStore.setHoverElements([lastTarget], id);
+      interactionStore.setHoverElements([lastTarget], id, createAiTarget(lastTarget, fiber));
     });
   }
 
@@ -124,7 +129,7 @@ export function startDomClickBridge(subjectContainer: Element, interactionStore:
       rafId = null;
     }
     lastTarget = null;
-    interactionStore.setHoverElements([], null);
+    interactionStore.setHoverElements([], null, null);
   }
 
   let hoverAttached = false;

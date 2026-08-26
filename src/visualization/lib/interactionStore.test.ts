@@ -13,6 +13,8 @@ describe('createInteractionStore', () => {
       highlightedElements: [],
       hoverElements: [],
       hoverNodeId: null,
+      hoverTarget: null,
+      selectedTarget: null,
       navigateToNodeId: null,
       navigateRequestId: 0,
       pickModeActive: false,
@@ -64,6 +66,33 @@ describe('createInteractionStore', () => {
       store.setPickMode(false);
 
       expect(store.getSnapshot().hoverElements).toEqual([]);
+    });
+  });
+
+  describe('AI target card', () => {
+    const target = {
+      componentPath: ['OrderSummary', 'CheckoutButton'],
+      tagName: 'button',
+      role: 'button',
+      name: '결제하기',
+    };
+
+    it('keeps a selected target after hover preview is cleared', () => {
+      const store = createInteractionStore();
+      store.setHoverElements([{} as Element], null, target);
+      store.selectTarget(target);
+      store.setPickMode(false);
+
+      expect(store.getSnapshot()).toMatchObject({ hoverTarget: null, selectedTarget: target });
+    });
+
+    it('clears a selected target explicitly without changing the board', () => {
+      const store = createInteractionStore();
+      store.setBoardOpen(true);
+      store.selectTarget(target);
+      store.clearSelectedTarget();
+
+      expect(store.getSnapshot()).toMatchObject({ boardOpen: true, selectedTarget: null });
     });
   });
 

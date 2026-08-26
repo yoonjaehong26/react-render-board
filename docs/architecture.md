@@ -18,7 +18,7 @@
 
 | 위치 | 레이어 | 하는 일 | 이 버그면 여기부터 |
 |---|---|---|---|
-| [`src/hooking/`](../src/hooking/) | 1. 훅킹 | 훅 가로채기는 **bippy에 위임**(직접 구현 안 함 — ADR-0002/0022). `fiberInspector.ts`가 커밋 구독, `domInteraction.ts`가 DOM↔Fiber 양방향 매핑, `devEnvironment.ts`가 dev 판별(`__RRB_DEV__`) | "보드가 아예 안 뜸 / 0 노드 / 대상 앱이 죽음 / 다른 도구(react-scan, DevTools 확장)와 충돌" |
+| [`src/hooking/`](../src/hooking/) | 1. 훅킹 | 훅 가로채기는 **bippy에 위임**(직접 구현 안 함 — ADR-0002/0022). `fiberInspector.ts`가 커밋 구독, `domInteraction.ts`가 DOM↔Fiber 양방향 매핑, `targetContext.ts`가 선택 순간의 Fiber를 짧은 AI target card로 축약, `devEnvironment.ts`가 dev 판별(`__RRB_DEV__`) | "보드가 아예 안 뜸 / 0 노드 / 대상 앱이 죽음 / 다른 도구(react-scan, DevTools 확장)와 충돌" |
 | [`src/data/`](../src/data/) | 2. 데이터 | `serialize.ts`(Fiber→`RenderNode` 트리), `sourceHints.ts`(그룹핑 힌트 비동기 해석), `store.ts`(스냅샷 store + `fibersById`), `types.ts`(**스키마 — 헌법**) | "노드가 사라짐/중복됨, 그룹이 이상하게 묶임, '그룹 확인 중…'에서 멈춤" |
 | [`src/visualization/`](../src/visualization/) | 3. 시각화 | React Flow 기반. `Canvas.tsx`(진입점), `BoardOverlay.tsx`(도킹 패널 셸), `lib/`(레이아웃·배선·검색 등 순수 로직 — 파일당 테스트 1개), `components/`(커스텀 노드·엣지·패널) | "그려지는 게 이상함: 배치, 선, 색, 줌, 검색, 패널" |
 | [`cli/`](../cli/) | 배포/주입 | `postinstall.mjs`→`init-core.mjs`가 번들러를 감지해 사용자 설정을 자동 패치(Vite 플러그인 / webpack 래퍼 / Next layout 스크립트). `early-hook-script.cjs`는 런타임 로드 전 커밋을 버퍼링하는 조기 `<head>` 스크립트 | "특정 번들러/프레임워크에서만 설치·주입이 깨짐" — **사용자 머신의 파일을 수정하는 유일한 코드이므로 가장 보수적으로 다룬다** |
@@ -38,6 +38,7 @@
 6. **레이아웃은 순수 함수로, 라이브 안정성은 입력 안정성에서 상속받는다.** `layout.ts`·`edgeRouting.ts`는 같은 입력이면 같은 출력이고, 렌더 순서·그룹 순서가 안정적이라 결과도 요동치지 않는다. 시간·난수에 의존하는 레이아웃 코드는 넣지 않는다.
 7. **"고쳤다"는 주장은 실측으로 증명한다.** 버그 수정에는 그 버그를 재현하는 fixture나 `verify:*` 스크립트가 따라온다. 지금까지의 중대 결함(ADR-0065~0071)은 전부 유닛 테스트가 아니라 실사용/Playwright 실측으로 잡혔다.
 8. **관찰 도구는 관찰 대상을 바꾸지 않는다.** 오버레이는 대상 앱의 레이아웃/CSS/라우터를 건드리지 않고 위에 뜨기만 한다(ADR-0040). 평상시 클릭 같은 정상 조작을 가로채지 않는다(ADR-0026의 회귀 교훈).
+9. **AI 전달용 target card는 선택 순간의 사이드채널이다.** `targetContext.ts`는 DOM→Fiber에서 이름 있는 composite 경로(최대 3개)+host 역할/이름만 만들며, `RenderNode` 스키마·대상 앱 DOM·소스 코드를 바꾸지 않는다. CSS selector는 복사 기본값이 아니다(ADR-0080).
 
 ## 검증 방법 (기여 전 체크리스트)
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import type { RenderStore } from '../data/store';
 import { Canvas } from './Canvas';
 import { DomHighlightOverlay } from './components/DomHighlightOverlay';
+import { TargetBillboard } from './components/TargetBillboard';
 import { createInteractionStore, type InteractionStore } from './lib/interactionStore';
 import { CHROME_CIRCLE, CHROME_BORDER, HIGHLIGHT_RING } from './lib/roughStyle';
 import {
@@ -71,10 +72,14 @@ export function BoardOverlay({ store, interactionStore }: BoardOverlayProps) {
   if (!interactionStoreRef.current) interactionStoreRef.current = interactionStore ?? createInteractionStore();
   const resolvedInteractionStore = interactionStoreRef.current;
 
-  const { boardOpen, pickModeActive } = useSyncExternalStore(
+  const { boardOpen, pickModeActive, hoverTarget, selectedTarget } = useSyncExternalStore(
     resolvedInteractionStore.subscribe,
     resolvedInteractionStore.getSnapshot,
   );
+  // hover는 "클릭하면 이게 선택된다"는 일시 프리뷰로 pinned 선택보다 우선한다. Alt를 놓거나
+  // 픽 모드를 끄면 hoverTarget이 비워져 마지막 고정 선택 카드가 다시 드러난다.
+  const billboardTarget = hoverTarget ?? selectedTarget;
+  const billboardPreview = hoverTarget !== null;
 
   // 패널 도킹 위치(하단/좌/우) + 크기(화면 비율). localStorage로 새로고침 후에도 유지(ADR-0040).
   const [layout, setLayout] = useState(getStoredPanelLayout);
@@ -131,7 +136,6 @@ export function BoardOverlay({ store, interactionStore }: BoardOverlayProps) {
       startY: event.clientY,
       startPosition: floatingButtonPosition,
     };
-    event.currentTarget.setPointerCapture(event.pointerId);
   }, [floatingButtonPosition]);
 
   const onFloatingButtonPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
@@ -140,6 +144,9 @@ export function BoardOverlay({ store, interactionStore }: BoardOverlayProps) {
     const dx = event.clientX - drag.startX;
     const dy = event.clientY - drag.startY;
     if (!floatingButtonDidDragRef.current && Math.hypot(dx, dy) < DRAG_START_DISTANCE_PX) return;
+    // pointerdown에서 곧바로 capture하면 pointerup 뒤의 click target이 부모 div로 바뀌어
+    // 내부 FAB 버튼의 onClick이 사라진다. 실제 드래그 임계값을 넘긴 뒤에만 capture한다.
+    if (!floatingButtonDidDragRef.current) event.currentTarget.setPointerCapture(event.pointerId);
     floatingButtonDidDragRef.current = true;
     setDraggingFloatingButton(true);
     event.preventDefault();
@@ -298,6 +305,13 @@ export function BoardOverlay({ store, interactionStore }: BoardOverlayProps) {
           <span className="rrb-wordmark board-fab__wordmark">render-board</span>
         </button>
       </div>
+      {billboardTarget && (
+        <TargetBillboard
+          target={billboardTarget}
+          preview={billboardPreview}
+          onClear={billboardPreview ? undefined : () => resolvedInteractionStore.clearSelectedTarget()}
+        />
+      )}
       {boardOpen && (
         <div
           className={`board-panel board-panel--${layout.dock}`}
