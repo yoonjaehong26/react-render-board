@@ -7,9 +7,9 @@ import { useGroupAfterglowHeat } from './AfterglowContext';
 
 // 경계 wideview 링 색(라이트/다크) — 경계 프레임(flow.css .boundary-frame--*)과 같은 팔레트.
 const RING_COLOR: Record<RoleMarker, { light: string; dark: string }> = {
-  portal: { light: '#0d9488', dark: '#2dd4bf' },
-  suspense: { light: '#7c3aed', dark: '#a78bfa' },
-  errorBoundary: { light: '#e11d48', dark: '#fb7185' },
+  portal: { light: '#0d9488', dark: '#83c9ae' },
+  suspense: { light: '#7c3aed', dark: '#b89ad9' },
+  errorBoundary: { light: '#e11d48', dark: '#d89383' },
 };
 // 경계 wideview 링은 안쪽 경계 프레임(.boundary-frame, 점선)과 같은 "점선" 언어로 통일한다.
 // box-shadow는 점선이 안 되므로 점선 outline을 쓴다(한 겹). 여러 종류면 우선순위 하나로 요약한다.
@@ -18,6 +18,10 @@ const RING_WIDTH = 2.5; // 화면 기준 링 두께(px)
 const RING_OFFSET = 3; // 그룹 테두리 바깥으로 띄우는 거리(px, 화면 기준)
 // 링 크기 배율(counterScale)의 상한 — 극단적 줌아웃에서 링이 폭발해 이웃 그룹과 뭉치는 걸 막는다.
 const RING_MAX_SCALE = 8;
+// rough SVG는 실제 프레임 비율로 생성해도 CSS background-size 전환 중 다시 맞춰 그려진다. 노드처럼
+// 고정 비율인 대상과 달리 지나치게 넓은 그룹에서는 모서리의 손떨림이 긴 변을 따라 늘어나 중앙까지
+// 내려온 선처럼 읽힌다. 이 한계를 넘으면 화면 두께 고정 연필 실선으로 전환한다(ADR-0095).
+const MAX_ROUGH_FRAME_WIDTH_TO_HEIGHT = 8;
 
 // ui-philosophy.md의 "영역(region) 기반 그룹핑" — 뭉쳐서 숨기지 않고 회색 박스 경계만 그어준다.
 // 실제 컴포넌트 노드는 이 프레임 "안에" 그대로 남아 있다(React Flow parentId/extent:'parent').
@@ -58,13 +62,17 @@ export function GroupNode({ id, data }: NodeProps) {
   if (shared) classes.push('group-node--shared'); // 공유 UI 레인(pillar ②)
   if (colorIndex !== undefined) classes.push(`group-node--palette-${colorIndex}`);
 
-  // 손그림 프레임 테두리(ADR-0030 축3) — 펼쳐진(상세) 그룹에만. 접힌/지도 모드/pending 그룹은
-  // CSS 대시 테두리를 그대로 둔다(지도에서 프레임 수백 개여도 rough 계산 안 함). 크기는 4px
-  // 버킷으로 메모이즈되므로(roughStyle.groupFrameImage) 커밋마다 재계산하지 않는다.
-  const showRough = !collapsed && !pending;
+  // 손그림 프레임 테두리(ADR-0030 축3) — 펼쳐진(상세) 그룹 중 비율이 안정적인 것에만. 접힌/
+  // 지도 모드/pending/매우 넓은 그룹은 CSS 대시 테두리를 그대로 둔다. 후자는 rough SVG를 가로로
+  // 늘릴 때 모서리 선이 중앙까지 처지는 시각 결함을 피하기 위한 의도적인 hybrid frame이다.
+  // 크기는 4px 버킷으로 메모이즈되므로(roughStyle.groupFrameImage) 커밋마다 재계산하지 않는다.
+  const showRough =
+    !collapsed && !pending && width / Math.max(height, 1) <= MAX_ROUGH_FRAME_WIDTH_TO_HEIGHT;
   if (showRough) classes.push('group-node--rough');
+  const wideFrameFallback = !collapsed && !pending && !showRough;
+  if (wideFrameFallback) classes.push('group-node--rough-fallback');
   const roughStroke =
-    colorIndex !== undefined ? paletteHex(colorIndex, colorMode) : colorMode === 'dark' ? '#475569' : '#9aa3b5';
+    colorIndex !== undefined ? paletteHex(colorIndex, colorMode) : colorMode === 'dark' ? '#706d65' : '#9aa3b5';
 
   // zoom은 minZoom(0.001) 아래로 내려가지 않지만, 짧은 전환 애니메이션 도중 관측치가
   // 그보다 살짝 흔들릴 수 있어 0으로 나누는 사고를 막는 하한을 둔다.
@@ -84,9 +92,19 @@ export function GroupNode({ id, data }: NodeProps) {
   const ringScale = Math.min(counterScale, RING_MAX_SCALE);
 
   const frameStyle =
-    showRough || ringKind || heatColor
+    showRough || wideFrameFallback || ringKind || heatColor
       ? {
           ...(showRough ? { backgroundImage: groupFrameImage(width, height, roughStroke) } : {}),
+          // CSS border는 캔버스 transform과 함께 가늘어져 줌아웃에서 거의 사라진다. 긴 프레임
+          // 폴백은 counter-scale한 outline을 한 번 더 얹어, 화면 기준 1.8px 연필 실선이 항상
+          // 남게 한다. 반복 rough 덧선은 타일 이음새가 더 눈에 띄어 채택하지 않는다. 접힌 그룹의
+          // boundary ring과도 상태가 배타적이다.
+          ...(wideFrameFallback
+            ? {
+                outline: `${1.8 * counterScale}px solid ${roughStroke}`,
+                outlineOffset: `${-1 * counterScale}px`,
+              }
+            : {}),
           ...(ringKind
             ? {
                 outline: `${RING_WIDTH * ringScale}px dashed ${RING_COLOR[ringKind][colorMode]}`,

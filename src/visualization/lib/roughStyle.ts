@@ -30,11 +30,11 @@ const INSET = 2; // 선이 노드 경계에 걸쳐 잘리지 않도록 살짝 �
 // `.component-node--route` clip-path 폴리곤 %와 반드시 일치해야 한다(하나 바꾸면 둘 다).
 export const HEX_CUT_RATIO = 0.18;
 
-// 다크 변형 색은 groupColor.ts/flow.css가 이미 검증한 다크 인디고(#818cf8, 대비 5.5:1)를
-// 재사용한다(ADR-0030). host는 라이트/다크 모두 중립 슬레이트.
+// 다크 변형은 Charcoal Sketchbook의 인디고 연필색(#9ca9e8)을 재사용한다(ADR-0094).
+// host는 도메인색 대신 종이 위의 중립 연필선으로 남긴다.
 const STROKE: Record<BorderMode, { composite: string; host: string; route: string }> = {
   light: { composite: '#6366f1', host: '#94a3b8', route: '#6366f1' },
-  dark: { composite: '#818cf8', host: '#64748b', route: '#818cf8' },
+  dark: { composite: '#9ca9e8', host: '#aaa69b', route: '#9ca9e8' },
 };
 
 // rough drawable → SVG data URI. rough가 돌려준 각 경로를 그 자신의 stroke/fill 속성 그대로
@@ -174,7 +174,7 @@ function buildRing(stroke: string): string {
 /** 역방향 착지 강조 링(라이트/다크). flow.css의 `.component-node--highlighted::after`가 쓴다. */
 export const HIGHLIGHT_RING: Record<BorderMode, string> = {
   light: buildRing('#4f46e5'),
-  dark: buildRing('#a5b4fc'),
+  dark: buildRing('#b8c2ff'),
 };
 
 /**
@@ -233,7 +233,7 @@ function buildChromeBorder(stroke: string): string {
 /** 크롬 볼펜 테두리(라이트/다크). 모듈 로드 시 2회 계산. */
 export const CHROME_BORDER: Record<BorderMode, string> = {
   light: buildChromeBorder('#6366f1'),
-  dark: buildChromeBorder('#818cf8'),
+  dark: buildChromeBorder('#9ca9e8'),
 };
 
 // 원형 플로팅 버튼(ADR-0037)용 볼펜 세기 rough 원. 사각 CHROME_BORDER와 같은 손그림 언어를
@@ -263,7 +263,7 @@ function buildChromeCircle(stroke: string): string {
 /** 원형 크롬 볼펜 테두리(원형 플로팅 버튼용, ADR-0037). 모듈 로드 시 2회 계산. */
 export const CHROME_CIRCLE: Record<BorderMode, string> = {
   light: buildChromeCircle('#6366f1'),
-  dark: buildChromeCircle('#818cf8'),
+  dark: buildChromeCircle('#9ca9e8'),
 };
 
 // --- 그룹 프레임 손그림 테두리 (ADR-0030 축3 — 사용자 피드백으로 유보 해제) ---

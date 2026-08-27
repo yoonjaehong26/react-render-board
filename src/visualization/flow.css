@@ -1582,13 +1582,23 @@ body.rrb-dark-mode .context-menu__item:hover {
 }
 
 /* 펼쳐진 그룹의 손그림 프레임(ADR-0030 축3, roughStyle.groupFrameImage) — CSS 실선/대시 대신
-   rough 이미지가 테두리를 그리므로 CSS border를 지운다. 접힌/지도 모드 그룹엔 이 클래스가 안
-   붙어 기존 대시 테두리를 유지한다(GroupNode.tsx showRough 참고). 배경 틴트(fill)는 그대로 둔다. */
+   rough 이미지가 테두리를 그리므로 CSS border를 지운다. 접힌/지도 모드와 가로:세로 비율이 8을
+   넘는 프레임엔 이 클래스가 안 붙어 기존 대시 테두리를 유지한다. 특히 긴 프레임은 SVG를 억지로
+   늘리지 않아 모서리 스케치가 중앙까지 내려오는 현상을 막는다(ADR-0095). */
 .group-node--rough {
   border-color: transparent;
   background-repeat: no-repeat;
   background-position: center;
   background-size: 100% 100%;
+}
+
+/* 긴 그룹은 손그림 rectangle 대신 명확한 연필 실선으로 전환한다. 실제 화면 두께는 GroupNode의
+   역-zoom outline이 맡고, 이 border는 outline 아래의 보조선으로 남긴다. rough 선 조각의 반복은
+   이음새가 인공적으로 보여 채택하지 않는다. 점선은 캔버스의 점 격자와 섞여 프레임이 사라진 듯
+   보이므로 접힌 그룹에만 남긴다. */
+.group-node--rough-fallback {
+  border-style: solid;
+  border-width: 1.5px;
 }
 
 /* 손글씨 워드마크(ADR-0030 축1) — "render-board" 로고에만 손글씨체를 쓴다(다이어그램 라벨은
@@ -2069,3 +2079,152 @@ body.rrb-dark-mode .toolbar__afterglow-pause--on {
   border-color: #2563eb;
   color: #bfdbfe;
 }
+
+/* Charcoal Sketchbook (ADR-0094) -------------------------------------------------
+   다크 화면을 차가운 blue-black UI가 아니라 밤의 스케치북으로 만든다. 도메인색은
+   색연필/마커처럼, 기본 크롬은 흑연·종이색처럼 읽히게 하고, 노드 tint는 11%만 사용해
+   큰 트리에서도 색 안개가 생기지 않게 한다. 검색(초록)·추적(청록)·오류(산호)는 아래
+   도메인 팔레트와 별도 상태 언어로 유지한다. */
+.react-flow.dark {
+  background: #171716;
+}
+.react-flow.dark .react-flow__background pattern {
+  stroke: #30302c;
+}
+.react-flow.dark .react-flow__controls,
+.react-flow.dark .react-flow__minimap {
+  background: #1e1e1c;
+  border-color: #403f39;
+}
+.react-flow.dark .react-flow__controls-button {
+  background: #24231f;
+  border-bottom-color: #403f39;
+  color: #e8e2d5;
+}
+.react-flow.dark .react-flow__controls-button:hover {
+  background: #302f2a;
+}
+
+.react-flow.dark .group-node {
+  border-color: #706d65;
+  background: rgba(184, 180, 168, 0.07);
+}
+.react-flow.dark .group-node--pending {
+  border-color: #4c4a44;
+  background: rgba(184, 180, 168, 0.035);
+}
+.react-flow.dark .group-node--collapsed {
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(184, 180, 168, 0.07),
+    rgba(184, 180, 168, 0.07) 8px,
+    rgba(184, 180, 168, 0.12) 8px,
+    rgba(184, 180, 168, 0.12) 16px
+  );
+}
+.react-flow.dark .group-node__label { color: #e8e2d5; }
+.react-flow.dark .group-node--pending .group-node__label,
+.react-flow.dark .group-node__count,
+.react-flow.dark .group-node__toggle { color: #aaa69b; }
+
+.react-flow.dark .group-node--palette-0 { border-color: #9ca9e8; }
+.react-flow.dark .group-node--palette-1 { border-color: #83c5d6; }
+.react-flow.dark .group-node--palette-2 { border-color: #83c9ae; }
+.react-flow.dark .group-node--palette-3 { border-color: #a9bd7c; }
+.react-flow.dark .group-node--palette-4 { border-color: #b89ad9; }
+.react-flow.dark .group-node--palette-5 { border-color: #d99bb5; }
+.react-flow.dark .group-node--palette-6 { border-color: #d89383; }
+.react-flow.dark .group-node--palette-7 { border-color: #d6b36a; }
+
+.react-flow.dark .component-node { background-color: #272622; color: #e8e2d5; }
+.react-flow.dark .component-node--host { background-color: #24231f; color: #aaa69b; }
+.react-flow.dark .component-node--palette-0 { background-color: #9ca9e81c; }
+.react-flow.dark .component-node--palette-1 { background-color: #83c5d61c; }
+.react-flow.dark .component-node--palette-2 { background-color: #83c9ae1c; }
+.react-flow.dark .component-node--palette-3 { background-color: #a9bd7c1c; }
+.react-flow.dark .component-node--palette-4 { background-color: #b89ad91c; }
+.react-flow.dark .component-node--palette-5 { background-color: #d99bb51c; }
+.react-flow.dark .component-node--palette-6 { background-color: #d893831c; }
+.react-flow.dark .component-node--palette-7 { background-color: #d6b36a1c; }
+
+body.rrb-dark-mode .toolbar,
+body.rrb-dark-mode .board-panel__dock,
+body.rrb-dark-mode .context-menu,
+body.rrb-dark-mode .toolbar__menu,
+body.rrb-dark-mode .props-panel__header,
+body.rrb-dark-mode .props-panel__footer {
+  background: #1e1e1c;
+  border-color: #403f39;
+  color: #e8e2d5;
+}
+body.rrb-dark-mode .board-panel,
+body.rrb-dark-mode .props-panel {
+  background: #171716;
+  border-color: #403f39;
+}
+body.rrb-dark-mode .toolbar__count,
+body.rrb-dark-mode .toolbar__search-count,
+body.rrb-dark-mode .board-panel__dock-btn,
+body.rrb-dark-mode .props-panel__grip,
+body.rrb-dark-mode .props-panel__close,
+body.rrb-dark-mode .props-panel__footer { color: #aaa69b; }
+body.rrb-dark-mode .toolbar__search,
+body.rrb-dark-mode .toolbar__menu-btn,
+body.rrb-dark-mode .toolbar__afterglow,
+body.rrb-dark-mode .toolbar__afterglow-pause,
+body.rrb-dark-mode .props-panel__footer code {
+  background: #2a2925;
+  border-color: #4c4a44;
+  color: #e8e2d5;
+}
+body.rrb-dark-mode .toolbar__theme-toggle {
+  background: #393a57;
+  border-color: #9ca9e8;
+  color: #f1efff;
+}
+body.rrb-dark-mode .board-panel__dock-btn:hover,
+body.rrb-dark-mode .context-menu__item:hover,
+body.rrb-dark-mode .props-panel__close:hover {
+  background: #302f2a;
+  color: #e8e2d5;
+}
+body.rrb-dark-mode .context-menu__item,
+body.rrb-dark-mode .props-panel__title,
+body.rrb-dark-mode .props-row__key { color: #e8e2d5; }
+body.rrb-dark-mode .props-row { color: #d1cdc1; }
+body.rrb-dark-mode .props-row:hover:not(:disabled) {
+  background: #2a2925;
+  border-color: #4c4a44;
+}
+body.rrb-dark-mode .props-row--tracked {
+  background: #1e3533;
+  border-color: #83c9ae;
+}
+body.rrb-dark-mode .props-panel__resize {
+  background: linear-gradient(45deg, transparent 0 6px, #706d65 6px 7px, transparent 7px 9px, #706d65 9px 10px, transparent 10px);
+}
+body.rrb-dark-mode .props-panel__resize:hover {
+  background: linear-gradient(45deg, transparent 0 6px, #9ca9e8 6px 7px, transparent 7px 9px, #9ca9e8 9px 10px, transparent 10px);
+}
+
+.react-flow.dark .boundary-frame__label { background: #171716; }
+.react-flow.dark .boundary-frame--portal { color: #83c9ae; }
+.react-flow.dark .boundary-frame--suspense { color: #b89ad9; }
+.react-flow.dark .boundary-frame--errorBoundary { color: #d89383; }
+
+body.rrb-dark-mode .react-flow__edge.edge-parent-palette-0 .react-flow__edge-path { stroke: #9ca9e8; }
+body.rrb-dark-mode .react-flow__edge.edge-parent-palette-1 .react-flow__edge-path { stroke: #83c5d6; }
+body.rrb-dark-mode .react-flow__edge.edge-parent-palette-2 .react-flow__edge-path { stroke: #83c9ae; }
+body.rrb-dark-mode .react-flow__edge.edge-parent-palette-3 .react-flow__edge-path { stroke: #a9bd7c; }
+body.rrb-dark-mode .react-flow__edge.edge-parent-palette-4 .react-flow__edge-path { stroke: #b89ad9; }
+body.rrb-dark-mode .react-flow__edge.edge-parent-palette-5 .react-flow__edge-path { stroke: #d99bb5; }
+body.rrb-dark-mode .react-flow__edge.edge-parent-palette-6 .react-flow__edge-path { stroke: #d89383; }
+body.rrb-dark-mode .react-flow__edge.edge-parent-palette-7 .react-flow__edge-path { stroke: #d6b36a; }
+.canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-0 .react-flow__edge-path { stroke: #9ca9e8 !important; }
+.canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-1 .react-flow__edge-path { stroke: #83c5d6 !important; }
+.canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-2 .react-flow__edge-path { stroke: #83c9ae !important; }
+.canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-3 .react-flow__edge-path { stroke: #a9bd7c !important; }
+.canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-4 .react-flow__edge-path { stroke: #b89ad9 !important; }
+.canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-5 .react-flow__edge-path { stroke: #d99bb5 !important; }
+.canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-6 .react-flow__edge-path { stroke: #d89383 !important; }
+.canvas.lineage-active .react-flow__edge.edge-lineage.edge-parent-palette-7 .react-flow__edge-path { stroke: #d6b36a !important; }

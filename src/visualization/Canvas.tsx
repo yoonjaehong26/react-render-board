@@ -1324,10 +1324,14 @@ function BoardContent({
             nodeColor={(n) => {
               if (n.type === 'group') {
                 const idx = (n.data as GroupNodeData).colorIndex;
-                return idx !== undefined ? `${paletteHex(idx, colorMode)}20` : '#33415520';
+                return idx !== undefined
+                  ? `${paletteHex(idx, colorMode)}20`
+                  : colorMode === 'dark'
+                    ? '#706d6520'
+                    : '#33415520';
               }
               const idx = (n.data as ComponentNodeData).colorIndex;
-              return idx !== undefined ? paletteHex(idx, colorMode) : '#6366f1';
+              return idx !== undefined ? paletteHex(idx, colorMode) : colorMode === 'dark' ? '#aaa69b' : '#6366f1';
             }}
           />
           <SemanticZoomController targetRef={canvasRef} />

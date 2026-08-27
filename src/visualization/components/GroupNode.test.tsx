@@ -109,6 +109,24 @@ describe('GroupNode', () => {
     expect([...el.classList].some((c) => c.startsWith('group-node--palette-'))).toBe(false);
   });
 
+  it('uses the rough frame for an ordinary expanded group', () => {
+    const { container } = renderGroupNode(baseData({ width: 400, height: 200 }));
+    const el = container.querySelector('.group-node') as HTMLElement;
+    expect(el).toHaveClass('group-node--rough');
+    expect(el).not.toHaveClass('group-node--rough-fallback');
+    expect(el.style.backgroundImage).not.toBe('');
+  });
+
+  it('falls back to a stable solid pencil frame instead of stretching rough SVG for a very wide group', () => {
+    const { container } = renderGroupNode(baseData({ width: 1600, height: 100, colorIndex: 0 }));
+    const el = container.querySelector('.group-node') as HTMLElement;
+    expect(el).not.toHaveClass('group-node--rough');
+    expect(el).toHaveClass('group-node--rough-fallback');
+    expect(el.style.backgroundImage).toBe('');
+    expect(el.style.outline).toContain('solid');
+    expect(el.style.outline).toContain('#6366f1');
+  });
+
   // 그룹 접기/펼치기 셰브런(ADR-0029)은 <NodeToolbar>로 렌더된다 — xyflow가 자신의 nodeId를
   // store.nodeLookup에서 실제로 찾아야 콘텐츠를 그리므로(그렇지 않으면 조용히 null), 이
   // ReactFlowProvider만 있고 실제 <ReactFlow nodes={[...]}> 트리는 없는 단위 테스트 환경에서는
@@ -134,16 +152,20 @@ describe('GroupNode', () => {
 
   // --- 경계 wideview 링 (도형 어휘, ADR-0028) — 접힌 그룹에만, 점선 outline, 우선순위 색 ---
   it('renders a dashed boundary-color outline on a collapsed group with boundaryKinds', () => {
-    const { container } = renderGroupNode(baseData({ collapsed: true, boundaryKinds: ['portal', 'suspense'] }));
+    const { container } = renderGroupNode(
+      baseData({ collapsed: true, boundaryKinds: ['portal', 'suspense'], colorMode: 'dark' }),
+    );
     const el = container.querySelector('.group-node') as HTMLElement;
     expect(el.style.outline).toContain('dashed');
-    expect(el.style.outline).toContain('#7c3aed'); // suspense > portal 우선순위
+    expect(el.style.outline).toContain('#b89ad9'); // suspense > portal 우선순위(dark)
   });
 
   it('uses the highest-priority kind color (errorBoundary > suspense > portal)', () => {
-    const { container } = renderGroupNode(baseData({ collapsed: true, boundaryKinds: ['portal', 'errorBoundary'] }));
+    const { container } = renderGroupNode(
+      baseData({ collapsed: true, boundaryKinds: ['portal', 'errorBoundary'], colorMode: 'dark' }),
+    );
     const el = container.querySelector('.group-node') as HTMLElement;
-    expect(el.style.outline).toContain('#e11d48'); // errorBoundary rose
+    expect(el.style.outline).toContain('#d89383'); // errorBoundary coral(dark)
   });
 
   it('does not ring an expanded group (inner boundary frames show instead)', () => {

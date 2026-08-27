@@ -19,14 +19,14 @@ interface PaletteEntry {
 }
 
 const PALETTE: readonly PaletteEntry[] = [
-  { light: '#6366f1', dark: '#818cf8' }, // indigo — 기존 기본 accent와 같은 계열
-  { light: '#2563eb', dark: '#60a5fa' }, // blue
-  { light: '#0e7490', dark: '#22d3ee' }, // cyan
-  { light: '#0f766e', dark: '#2dd4bf' }, // teal
-  { light: '#7c3aed', dark: '#a78bfa' }, // violet
-  { light: '#a21caf', dark: '#e879f9' }, // fuchsia
-  { light: '#db2777', dark: '#f472b6' }, // pink
-  { light: '#e11d48', dark: '#fb7185' }, // rose
+  { light: '#6366f1', dark: '#9ca9e8' }, // indigo pencil
+  { light: '#2563eb', dark: '#83c5d6' }, // sky crayon
+  { light: '#0e7490', dark: '#83c9ae' }, // mint marker
+  { light: '#0f766e', dark: '#a9bd7c' }, // sage pencil
+  { light: '#7c3aed', dark: '#b89ad9' }, // violet pencil
+  { light: '#a21caf', dark: '#d99bb5' }, // rose crayon
+  { light: '#db2777', dark: '#d89383' }, // coral pencil
+  { light: '#e11d48', dark: '#d6b36a' }, // ochre sticky-note
 ];
 
 export const PALETTE_SIZE = PALETTE.length;

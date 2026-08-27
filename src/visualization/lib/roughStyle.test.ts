@@ -111,4 +111,5 @@ describe('roughStyle', () => {
       expect(groupFrameImage(400, 200, '#6366f1')).not.toBe(groupFrameImage(800, 200, '#6366f1'));
     });
   });
+
 });
