@@ -122,6 +122,7 @@ export function BoardOverlay({ store, interactionStore, layoutTarget = null }: B
   const floatingButtonDragRef = useRef<FloatingButtonDrag | null>(null);
   const floatingButtonDidDragRef = useRef(false);
   const [draggingFloatingButton, setDraggingFloatingButton] = useState(false);
+  const [floatingToolsOpen, setFloatingToolsOpen] = useState(false);
 
   useEffect(() => {
     const updateViewport = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
@@ -362,14 +363,16 @@ export function BoardOverlay({ store, interactionStore, layoutTarget = null }: B
       ) : (
         <>
           <div className="board-panel__resize" onPointerDown={onResizePointerDown} role="separator" aria-orientation={layout.dock === 'bottom' || layout.dock === 'top' ? 'horizontal' : 'vertical'} aria-label="패널 크기 조절 (드래그)" />
-          <div className="board-panel__dock" role="group" aria-label="패널 위치">
-            {(['left', 'top', 'bottom', 'right'] as const).map((d) => {
-              const label = d === 'bottom' ? '하단 도킹' : d === 'top' ? '상단 도킹' : d === 'left' ? '왼쪽 사이드바' : '오른쪽 사이드바';
-              return <button key={d} type="button" className={`board-panel__dock-btn${layout.dock === d ? ' board-panel__dock-btn--active' : ''}`} aria-pressed={layout.dock === d} aria-label={label} title={label} onClick={() => setDock(d)}><DockIcon side={d} /></button>;
-            })}
-            {layoutTarget && <button type="button" className={`board-panel__dock-btn${layout.mode === 'reserve-space' ? ' board-panel__dock-btn--active' : ''}`} aria-pressed={layout.mode === 'reserve-space'} aria-label="대상 앱 공간 확보" title="대상 앱 공간 확보" onClick={() => setMode(layout.mode === 'reserve-space' ? 'overlay' : 'reserve-space')}>↔</button>}
-            {!pipWindow && 'documentPictureInPicture' in window && <button type="button" className="board-panel__dock-btn" aria-label="별도 항상 위 창으로 분리" title="별도 항상 위 창으로 분리" onClick={openPictureInPicture}>↗</button>}
-            {pipWindow && <button type="button" className="board-panel__dock-btn" aria-label="도킹 패널로 돌아가기" title="도킹 패널로 돌아가기" onClick={closePictureInPicture}>↙</button>}
+          <div className="board-panel__chrome">
+            <div className="board-panel__dock" role="group" aria-label="패널 위치">
+              {(['left', 'top', 'bottom', 'right'] as const).map((d) => {
+                const label = d === 'bottom' ? '하단 도킹' : d === 'top' ? '상단 도킹' : d === 'left' ? '왼쪽 사이드바' : '오른쪽 사이드바';
+                return <button key={d} type="button" className={`board-panel__dock-btn${layout.dock === d ? ' board-panel__dock-btn--active' : ''}`} aria-pressed={layout.dock === d} aria-label={label} title={label} onClick={() => setDock(d)}><DockIcon side={d} /></button>;
+              })}
+              {layoutTarget && <button type="button" className={`board-panel__dock-btn${layout.mode === 'reserve-space' ? ' board-panel__dock-btn--active' : ''}`} aria-pressed={layout.mode === 'reserve-space'} aria-label="대상 앱 공간 확보" title="대상 앱 공간 확보" onClick={() => setMode(layout.mode === 'reserve-space' ? 'overlay' : 'reserve-space')}>↔</button>}
+              {!pipWindow && 'documentPictureInPicture' in window && <button type="button" className="board-panel__dock-btn" aria-label="별도 항상 위 창으로 분리" title="별도 항상 위 창으로 분리" onClick={openPictureInPicture}>↗</button>}
+              {pipWindow && <button type="button" className="board-panel__dock-btn" aria-label="도킹 패널로 돌아가기" title="도킹 패널로 돌아가기" onClick={closePictureInPicture}>↙</button>}
+            </div>
           </div>
           <Canvas store={store} interactionStore={resolvedInteractionStore} />
         </>
@@ -380,7 +383,7 @@ export function BoardOverlay({ store, interactionStore, layoutTarget = null }: B
   return (
     <>
       {/* 원형 플로팅 버튼(ADR-0037, TanStack Query Devtools 패턴): 큰 메인 FAB = 보드 열고 닫기,
-          바로 옆 작은 위성 = 요소 선택(픽) 모드 토글. 호스트 앱 위 크롬(O(1) 레이어, ADR-0030
+          보조 기능은 작은 도구 메뉴에 접는다. 호스트 앱 위 크롬(O(1) 레이어, ADR-0030
           성능 분석)이라 볼펜 세기 rough 원 테두리(CHROME_CIRCLE)를 입히고, 보드 내부 다크모드와
           무관한 호스트-앱 크롬이므로 항상 라이트 변형을 쓴다. 메인 FAB의 "rb"는 render-board
           워드마크를 원형에 맞춘 모노그램이라 손글씨체로 액센트한다(ADR-0030).
@@ -395,46 +398,61 @@ export function BoardOverlay({ store, interactionStore, layoutTarget = null }: B
         onPointerUp={finishFloatingButtonDrag}
         onPointerCancel={finishFloatingButtonDrag}
       >
-        <button
-          type="button"
-          className={`board-fab board-fab--pick rrb-rough-chrome${pickModeActive ? ' board-fab--pick-active' : ''}`}
-          style={{ backgroundImage: CHROME_CIRCLE.light }}
-          onClick={(event) => {
-            if (ignoreClickAfterFloatingButtonDrag(event)) return;
-            resolvedInteractionStore.setPickMode(!pickModeActive);
-          }}
-          aria-pressed={pickModeActive}
-          aria-label={pickModeActive ? '요소 선택 중 (취소)' : '요소 선택'}
-          title="요소 선택 — Alt(⌥)+클릭으로도 됩니다"
-        >
-          {/* 마우스 포인터 아이콘 — "이 상태에서 화면 요소를 골라잡는다"는 신호(ADR-0037) */}
-          <svg className="board-fab__icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="M5 3l6 15 2.2-5.6L19 10 5 3z"
-              fill="currentColor"
-              stroke="currentColor"
-              strokeWidth="1.2"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
-        <button
-          type="button"
-          className={`board-fab board-fab--billboard rrb-rough-chrome${billboardPreference.visible ? ' board-fab--pick-active' : ''}`}
-          style={{ backgroundImage: CHROME_CIRCLE.light }}
-          onClick={(event) => {
-            if (ignoreClickAfterFloatingButtonDrag(event)) return;
-            commitBillboardPreference({ ...billboardPreferenceRef.current, visible: !billboardPreferenceRef.current.visible });
-          }}
-          aria-pressed={billboardPreference.visible}
-          aria-label={billboardPreference.visible ? '전광판 끄기' : '전광판 켜기'}
-          title={billboardPreference.visible ? '전광판 끄기' : '전광판 켜기'}
-        >
-          <svg className="board-fab__icon" viewBox="0 0 24 24" aria-hidden="true">
-            <rect x="3.5" y="5" width="17" height="12" rx="2" fill="none" stroke="currentColor" strokeWidth="1.8" />
-            <path d="M8 20h8M12 17v3M7 9h10M7 13h6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
-        </button>
+        <div className="board-fab__tools">
+          <button
+            type="button"
+            className="board-fab board-fab--tools rrb-rough-chrome"
+            style={{ backgroundImage: CHROME_CIRCLE.light }}
+            onClick={(event) => {
+              if (ignoreClickAfterFloatingButtonDrag(event)) return;
+              setFloatingToolsOpen((open) => !open);
+            }}
+            aria-expanded={floatingToolsOpen}
+            aria-label="render-board 도구"
+            title="render-board 도구"
+          >
+            •••
+          </button>
+          {floatingToolsOpen && (
+            <div className="board-fab__tools-menu" role="menu" aria-label="render-board 도구">
+              <button
+                type="button"
+                className={`board-fab board-fab--pick rrb-rough-chrome${pickModeActive ? ' board-fab--pick-active' : ''}`}
+                style={{ backgroundImage: CHROME_CIRCLE.light }}
+                onClick={(event) => {
+                  if (ignoreClickAfterFloatingButtonDrag(event)) return;
+                  resolvedInteractionStore.setPickMode(!pickModeActive);
+                  setFloatingToolsOpen(false);
+                }}
+                aria-pressed={pickModeActive}
+                aria-label={pickModeActive ? '요소 선택 중 (취소)' : '요소 선택'}
+                title="요소 선택 — Alt(⌥)+클릭으로도 됩니다"
+              >
+                <svg className="board-fab__icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M5 3l6 15 2.2-5.6L19 10 5 3z" fill="currentColor" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                className={`board-fab board-fab--billboard rrb-rough-chrome${billboardPreference.visible ? ' board-fab--pick-active' : ''}`}
+                style={{ backgroundImage: CHROME_CIRCLE.light }}
+                onClick={(event) => {
+                  if (ignoreClickAfterFloatingButtonDrag(event)) return;
+                  commitBillboardPreference({ ...billboardPreferenceRef.current, visible: !billboardPreferenceRef.current.visible });
+                  setFloatingToolsOpen(false);
+                }}
+                aria-pressed={billboardPreference.visible}
+                aria-label={billboardPreference.visible ? '전광판 끄기' : '전광판 켜기'}
+                title={billboardPreference.visible ? '전광판 끄기' : '전광판 켜기'}
+              >
+                <svg className="board-fab__icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="3.5" y="5" width="17" height="12" rx="2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+                  <path d="M8 20h8M12 17v3M7 9h10M7 13h6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+          )}
+        </div>
         <button
           type="button"
           className={`board-fab board-fab--main rrb-rough-chrome${boardOpen ? ' board-fab--open' : ''}`}
