@@ -55,6 +55,23 @@ export interface GroupLayout {
   parentCount?: number;
 }
 
+/** 밀집 projection에서 실제 부모 바로 아래에 놓이는 합성 요약 카드. 좌표는 파일 그룹 상대다. */
+export interface CompactSummaryLayout {
+  id: string;
+  sourceId: number;
+  group: string;
+  position: { x: number; y: number };
+  directChildCount: number;
+  descendantCount: number;
+}
+
+/** 펼친 상태에서도 원래 source 카드에 남겨 둘 "다시 요약" 제어의 데이터. */
+export interface CompactControlLayout {
+  sourceId: number;
+  directChildCount: number;
+  descendantCount: number;
+}
+
 /** 폴더 프레임(ADR-0053) — 파일 그룹 ≥2개를 감싸는 바깥 프레임. 파일 그룹이 1개인 폴더는 만들지 않는다. */
 export interface FolderLayout {
   folder: string;
@@ -67,11 +84,19 @@ export interface LayoutResult {
   /** 폴더 그룹핑이 켜졌을 때만 채워진다. 꺼지면 항상 빈 배열(= 기존 평면 동작). */
   folders: FolderLayout[];
   nodePositions: Map<number, { x: number; y: number }>;
+  /** 원본 노드가 아닌, 밀집 모드에서만 보이는 부모별 자식 관계 요약 카드. */
+  compactSummaries: CompactSummaryLayout[];
+  /** 사용자가 펼친 뒤에도 같은 위치에서 다시 접을 수 있게 하는 source별 제어. */
+  compactControls: CompactControlLayout[];
 }
 
 export interface ComputeLayoutOptions {
   /** 폴더 단위 2단 중첩(ADR-0053). false(기본)면 기존 파일 단위 평면 배치와 바이트 단위 동일. */
   nestFolders?: boolean;
+  /** strict waterfall의 구조·방향은 유지하되, 넓은 부모 source fan-out을 국소 요약카드로 바꿔 폭을 제한한다. */
+  compact?: boolean;
+  /** 사용자가 요약카드를 열어 둔 부모 source. 이 source의 직접 자식 fan-out만 strict로 복원한다. */
+  compactExpandedSources?: ReadonlySet<number>;
 }
 
 const NODE_WIDTH = 160;
@@ -83,6 +108,10 @@ const GROUP_PADDING = 24;
 const GROUP_H_GAP = 80;
 const GROUP_V_GAP = 80;
 const MAX_ROW_WIDTH = 3400;
+const COMPACT_SUMMARY_WIDTH = 240;
+const COMPACT_SUMMARY_THRESHOLD = 680;
+const COMPACT_GROUP_WIDTH_BUDGET = 1600;
+const COMPACT_MIN_DIRECT_CHILDREN = 2;
 
 function layoutForest(
   nodeIds: number[],
@@ -293,10 +322,156 @@ export function createLayoutEngine() {
   }
 
   function computeLayout(nodes: VisibleNode[], opts?: ComputeLayoutOptions): LayoutResult {
-    const parentOf = new Map<number, number | null>(nodes.map((n) => [n.id, n.parentId]));
+    // ADR-0093: 밀집은 파일 그룹을 통째로 바꾸는 뷰가 아니라, 폭을 만드는 "부모 하나의
+    // 직접 자식 가지"를 하나의 합성 카드로 대체하는 projection이다. 같은 파일에 있는 자식도
+    // 대상이어야 DemoApp처럼 한 줄로 퍼지는 상위 컴포넌트를 실제로 줄일 수 있다.
+    const originalById = new Map(nodes.map((n) => [n.id, n]));
+    const originalChildren = new Map<number, number[]>();
+    for (const node of nodes) {
+      if (node.parentId === null) continue;
+      const children = originalChildren.get(node.parentId) ?? [];
+      children.push(node.id);
+      originalChildren.set(node.parentId, children);
+    }
+    const compactMetaByLayoutId = new Map<number, Omit<CompactSummaryLayout, 'id' | 'position'>>();
+    const compactControlBySource = new Map<number, CompactControlLayout>();
+    const hiddenOriginalIds = new Set<number>();
+    let nextSummaryLayoutId = -1;
+    const summaryNodes: VisibleNode[] = [];
+    const hideBranch = (id: number): number => {
+      hiddenOriginalIds.add(id);
+      let count = 1;
+      for (const childId of originalChildren.get(id) ?? []) count += hideBranch(childId);
+      return count;
+    };
+    const countBranch = (id: number): number =>
+      1 + (originalChildren.get(id) ?? []).reduce((count, childId) => count + countBranch(childId), 0);
+    const sourceDepth = new Map<number, number>();
+    const recordDepth = (id: number, depth: number): void => {
+      sourceDepth.set(id, depth);
+      for (const childId of originalChildren.get(id) ?? []) recordDepth(childId, depth + 1);
+    };
+    for (const node of nodes) if (node.parentId === null) recordDepth(node.id, 0);
+
+    // "몇 개냐"만으로 접지 않는다. 먼저 각 파일 프레임의 같은-파일 leaf 행 폭을 추정하고,
+    // 예산을 넘는 프레임에서 깊은 가지부터 접을 후보를 고른다. 다른 파일로 내려가는 두 큰
+    // 서브트리는 파일 폭이 작아도 개인 폭 비용이 크므로 별도 후보로 남긴다.
+    const sameGroupChildren = new Set<number>();
+    for (const node of nodes) {
+      if (node.parentId === null) continue;
+      const parent = originalById.get(node.parentId);
+      if (parent?.group === node.group) sameGroupChildren.add(parent.id);
+    }
+    const groupWidthEstimate = new Map<string, number>();
+    for (const node of nodes) {
+      if (sameGroupChildren.has(node.id)) continue;
+      groupWidthEstimate.set(node.group, (groupWidthEstimate.get(node.group) ?? GROUP_PADDING * 2) + NODE_WIDTH + H_GAP);
+    }
+    const sameGroupLeafCount = (id: number, group: string): number => {
+      const sameGroupKids = (originalChildren.get(id) ?? []).filter((childId) => originalById.get(childId)?.group === group);
+      if (sameGroupKids.length === 0) return originalById.get(id)?.group === group ? 1 : 0;
+      return sameGroupKids.reduce((count, childId) => count + sameGroupLeafCount(childId, group), 0);
+    };
+    const compactCandidates = new Map<number, {
+      sourceId: number;
+      group: string;
+      depth: number;
+      directChildCount: number;
+      descendantCount: number;
+      directDemand: number;
+      localReduction: number;
+    }>();
+    for (const source of nodes) {
+      const children = originalChildren.get(source.id) ?? [];
+      const depth = sourceDepth.get(source.id) ?? 0;
+      if (depth === 0 || children.length < COMPACT_MIN_DIRECT_CHILDREN) continue;
+      const descendantCount = children.reduce((count, childId) => count + countBranch(childId), 0);
+      const directDemand = children.length * NODE_WIDTH + Math.max(0, children.length - 1) * H_GAP;
+      const localLeafCount = children.reduce((count, childId) => count + sameGroupLeafCount(childId, source.group), 0);
+      compactCandidates.set(source.id, {
+        sourceId: source.id,
+        group: source.group,
+        depth,
+        directChildCount: children.length,
+        descendantCount,
+        directDemand,
+        localReduction: Math.max(0, localLeafCount - 1) * (NODE_WIDTH + H_GAP),
+      });
+    }
+    const plannedCompactSources = new Set<number>();
+    if (opts?.compact) {
+      const candidatesByGroup = new Map<string, typeof compactCandidates extends Map<number, infer T> ? T[] : never>();
+      for (const candidate of compactCandidates.values()) {
+        const list = candidatesByGroup.get(candidate.group) ?? [];
+        list.push(candidate);
+        candidatesByGroup.set(candidate.group, list);
+        // 두 자식뿐이어도 실제 가지가 넓거나 깊으면 그 관계 자체가 압축 후보가 된다.
+        if (candidate.directDemand > COMPACT_SUMMARY_THRESHOLD || candidate.descendantCount >= 8) {
+          plannedCompactSources.add(candidate.sourceId);
+        }
+      }
+      for (const [group, candidates] of candidatesByGroup) {
+        let remainingWidth = groupWidthEstimate.get(group) ?? 0;
+        candidates.sort((a, b) => b.depth - a.depth || b.localReduction - a.localReduction || a.sourceId - b.sourceId);
+        for (const candidate of candidates) {
+          if (remainingWidth <= COMPACT_GROUP_WIDTH_BUDGET) break;
+          if (candidate.localReduction <= 0) continue;
+          plannedCompactSources.add(candidate.sourceId);
+          remainingWidth -= candidate.localReduction;
+        }
+      }
+    }
+    const considerCompact = (sourceId: number, depth: number): void => {
+      const source = originalById.get(sourceId);
+      if (!source || hiddenOriginalIds.has(sourceId)) return;
+      const children = originalChildren.get(sourceId) ?? [];
+      const expanded = opts?.compactExpandedSources?.has(sourceId) ?? false;
+      const candidate = compactCandidates.get(sourceId);
+      const planned = opts?.compact && plannedCompactSources.has(sourceId) && candidate !== undefined;
+      if (planned) {
+        compactControlBySource.set(sourceId, {
+          sourceId,
+          directChildCount: candidate.directChildCount,
+          descendantCount: candidate.descendantCount,
+        });
+      }
+      if (planned && !expanded) {
+        const layoutId = nextSummaryLayoutId--;
+        const descendantCount = compactControlBySource.get(sourceId)!.descendantCount;
+        for (const childId of children) hideBranch(childId);
+        summaryNodes.push({
+          id: layoutId,
+          displayName: '자식 관계 요약',
+          kind: 'composite',
+          parentId: sourceId,
+          group: source.group,
+          isAnonymous: false,
+        });
+        compactMetaByLayoutId.set(layoutId, {
+          sourceId,
+          group: source.group,
+          directChildCount: children.length,
+          descendantCount,
+        });
+        return;
+      }
+      for (const childId of children) considerCompact(childId, depth + 1);
+    };
+    // 루트는 개요의 첫 구조 층이다. 여기까지 접으면 93→2처럼 전체가 사라지므로, 최상위
+    // 자식은 남기고 그 아래 넓은 가지부터 단계적으로 요약한다.
+    for (const node of nodes) if (node.parentId === null) considerCompact(node.id, 0);
+
+    const layoutNodes = opts?.compact
+      ? [...nodes.filter((node) => !hiddenOriginalIds.has(node.id)), ...summaryNodes]
+      : nodes;
+    const layoutNodeIds = new Set(layoutNodes.map((node) => node.id));
+    const parentOf = new Map<number, number | null>(layoutNodes.map((n) => [
+      n.id,
+      n.parentId !== null && layoutNodeIds.has(n.parentId) ? n.parentId : null,
+    ]));
 
     const byGroup = new Map<string, number[]>();
-    for (const n of nodes) {
+    for (const n of layoutNodes) {
       const list = byGroup.get(n.group) ?? [];
       list.push(n.id);
       byGroup.set(n.group, list);
@@ -335,9 +510,9 @@ export function createLayoutEngine() {
 
     // 같은 source가 같은 파일의 여러 인스턴스를 렌더해도 한 파일 폭만 예약한다. 서로 다른 직접
     // 자식 파일은 fan-out이므로 폭+group gap을 더한다. `baseFrameDims`만 참조하는 것이 핵심이다.
-    const nodeById = new Map(nodes.map((n) => [n.id, n]));
+    const nodeById = new Map(layoutNodes.map((n) => [n.id, n]));
     const directTargetsBySource = new Map<number, Set<string>>();
-    for (const child of nodes) {
+    for (const child of layoutNodes) {
       if (child.parentId === null) continue;
       const parent = nodeById.get(child.parentId);
       if (!parent || parent.group === child.group) continue;
@@ -351,6 +526,7 @@ export function createLayoutEngine() {
         Math.max(0, targets.size - 1) * GROUP_H_GAP;
       directSlotWidth.set(sourceId, Math.max(NODE_WIDTH, width));
     }
+    for (const layoutId of compactMetaByLayoutId.keys()) directSlotWidth.set(layoutId, COMPACT_SUMMARY_WIDTH);
 
     for (const group of orderedGroups) {
       const ids = byGroup.get(group)!;
@@ -377,7 +553,7 @@ export function createLayoutEngine() {
     // 그룹 waterfall 깊이 — 평면/중첩 양쪽이 쓴다. cross-group 부모 관계에서 루트 그룹으로부터의
     // 최장 경로를 층으로 삼는다. PENDING 버킷은 그래프에서 빼고 항상 맨 아래 층에 둔다.
     const nonPending = orderedGroups.filter((g) => g !== PENDING_GROUP);
-    const { depths, parents: groupParents } = computeGroupDepths(nodes, nonPending);
+    const { depths, parents: groupParents } = computeGroupDepths(layoutNodes, nonPending);
     let maxDepth = 0;
     for (const d of depths.values()) maxDepth = Math.max(maxDepth, d);
     const pendingBand = maxDepth + 1;
@@ -438,22 +614,25 @@ export function createLayoutEngine() {
       // Strict waterfall(ADR-0089): 파일 그룹이 아니라 "실제 source 컴포넌트 → 자식 그룹
       // 서브트리" 단위로 폭을 아래에서 위로 예약한다. 각 child 그룹은 대표 parent group 안의
       // 첫 실제 source를 선택한다. 다중 부모/공유 그룹은 기존 레인 예외로 남긴다.
-      const nodeById = new Map(nodes.map((n) => [n.id, n]));
+      const nodeById = new Map(layoutNodes.map((n) => [n.id, n]));
       const sameGroupChildren = new Set<number>();
-      for (const n of nodes) {
+      for (const n of layoutNodes) {
         if (n.parentId === null) continue;
         const parent = nodeById.get(n.parentId);
         if (parent?.group === n.group) sameGroupChildren.add(parent.id);
       }
       const primarySourceOf = new Map<string, number>();
-      for (const child of nodes) {
+      for (const child of layoutNodes) {
         if (child.parentId === null || primarySourceOf.has(child.group)) continue;
         const parent = nodeById.get(child.parentId);
         if (!parent || parent.group === child.group) continue;
         if (primaryOf.get(child.group) !== parent.group || isLaned(child.group)) continue;
-        // leaf source만 자체 슬롯을 넓힐 수 있다. non-leaf source는 기존 tidy-tree 중심을
-        // 유지하며, 관계선은 그 source 중심을 fallback anchor로 쓴다.
-        if (!sameGroupChildren.has(parent.id)) primarySourceOf.set(child.group, parent.id);
+        // Strict waterfall에서는 leaf source만 자체 슬롯을 넓힌다. 하지만 밀집 projection은
+        // 실제 parent Fiber의 직접 fan-out을 접는 기능이므로, parent가 자기 그룹 안에
+        // 자식을 갖더라도 source 후보에서 제외하면 안 된다.
+        if (opts?.compact || !sameGroupChildren.has(parent.id)) {
+          primarySourceOf.set(child.group, parent.id);
+        }
       }
       const strictChildrenBySource = new Map<number, string[]>();
       for (const [parentGroup, children] of primaryChildren) {
@@ -467,7 +646,8 @@ export function createLayoutEngine() {
         }
       }
 
-      const strictChildrenForGroup = (g: string) => (primaryChildren.get(g) ?? []).filter((c) => !isLaned(c));
+      const strictChildrenForGroup = (g: string) =>
+        (primaryChildren.get(g) ?? []).filter((child) => !isLaned(child));
       let strictSpan = new Map<string, number>();
       const computeStrictSpans = (): Map<string, number> => {
         const spans = new Map<string, number>();
@@ -499,6 +679,7 @@ export function createLayoutEngine() {
             Math.max(0, children.length - 1) * GROUP_H_GAP;
           strictSlotWidth.set(source, Math.max(NODE_WIDTH, width));
         }
+        for (const layoutId of compactMetaByLayoutId.keys()) strictSlotWidth.set(layoutId, COMPACT_SUMMARY_WIDTH);
         nodePositions.clear();
         for (const group of orderedGroups) {
           const ids = byGroup.get(group)!;
@@ -525,7 +706,7 @@ export function createLayoutEngine() {
 
       // strict 수렴 뒤의 실제 source x로 앵커를 다시 만든다. 공유 레인 정렬에도 이 순서를 쓴다.
       const anchorsByPair = new Map<string, number[]>();
-      for (const child of nodes) {
+      for (const child of layoutNodes) {
         if (child.parentId === null) continue;
         const parent = nodeById.get(child.parentId);
         if (!parent || parent.group === child.group) continue;
@@ -729,7 +910,7 @@ export function createLayoutEngine() {
             width: dim.width,
             height: dim.height,
           },
-          nodeIds: dim.ids,
+          nodeIds: dim.ids.filter((id) => originalById.has(id)),
           // shared 플래그(레인 배지·해치)는 실제 공유 컨테이너(다중부모)에만. 레인 자식은 컨테이너의
           // 내용물이라 일반 프레임으로 레인에 놓인다.
           ...(sharedGroups.has(g) ? { shared: true, parentCount: groupParents.get(g)?.size } : {}),
@@ -746,7 +927,7 @@ export function createLayoutEngine() {
       // ── 폴더 단위 2단 중첩(ADR-0053) — 파일 그룹을 상위 폴더로 묶는다. 폴더 프레임(바깥)이
       //    파일 프레임(기존 그룹)을 감싸고, 파일 프레임이 컴포넌트를 감싼다. 모든 frame은 월드 좌표. ──
       const groupPathOf = new Map<string, string>();
-      for (const n of nodes) {
+      for (const n of layoutNodes) {
         if (n.groupPath && !groupPathOf.has(n.group)) groupPathOf.set(n.group, n.groupPath);
       }
       const folderKeyOf = (group: string): string | null => {
@@ -850,7 +1031,7 @@ export function createLayoutEngine() {
             groups.push({
               group: g,
               frame: { x: up.x + fp.x, y: up.y + fp.y, width: dim.width, height: dim.height },
-              nodeIds: dim.ids,
+              nodeIds: dim.ids.filter((id) => originalById.has(id)),
               parentFolder: f,
             });
           }
@@ -860,7 +1041,7 @@ export function createLayoutEngine() {
           groups.push({
             group: g,
             frame: { x: up.x, y: up.y, width: dim.width, height: dim.height },
-            nodeIds: dim.ids,
+            nodeIds: dim.ids.filter((id) => originalById.has(id)),
           });
         }
       }
@@ -874,7 +1055,13 @@ export function createLayoutEngine() {
       if (!byGroup.has(key)) internalCache.delete(key);
     }
 
-    return { groups, folders, nodePositions };
+    const compactSummaries: CompactSummaryLayout[] = [...compactMetaByLayoutId].flatMap(([layoutId, meta]) => {
+      const position = nodePositions.get(layoutId);
+      return position ? [{ id: `summary:${meta.sourceId}`, ...meta, position }] : [];
+    });
+    const compactControls = [...compactControlBySource.values()];
+
+    return { groups, folders, nodePositions, compactSummaries, compactControls };
   }
 
   return { computeLayout };

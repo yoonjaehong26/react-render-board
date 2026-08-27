@@ -5,6 +5,7 @@ import { NODE_HEIGHT, NODE_WIDTH, type LayoutEngine, type Rect } from './layout'
 import { colorIndexForGroup } from './groupColor';
 import type { BorderMode } from './roughStyle';
 import type { RoleMarker } from './roleMarkers';
+import type { HostDetail } from './hostDetails';
 
 // 라우트 진입점 판별(ADR-0028 도형 어휘 — 6각형). RenderNode 스키마를 건드리지 않고, 이미
 // 있는 그룹 경로(= 그 노드의 groupHint가 resolve된 값, groups.ts)가 Next.js App Router의
@@ -45,6 +46,13 @@ export interface ComponentNodeData extends Record<string, unknown> {
   sharedUses?: string[];
   /** 칩 클릭 시 인라인 peek이 보여줄, 각 공유 컨테이너의 멤버 컴포넌트 이름들(그룹 키 → 이름 배열). */
   sharedMembers?: Record<string, string[]>;
+  /** raw host를 그래프 노드로 늘어놓지 않고 선택한 composite에만 보이는 tag ×N 상세(ADR-0093). */
+  hostDetails?: HostDetail[];
+  hostDetailsOpen?: boolean;
+  /** 밀집 모드의 합성 카드. 원본 Fiber가 아니라 부모의 넓은 직접 자식 가지를 대표한다. */
+  compactSummary?: { directChildCount: number; descendantCount: number; onToggle: () => void };
+  /** 펼친 뒤에도 source 카드에 남는 "다시 요약" 제어. */
+  compactControl?: { directChildCount: number; onToggle: () => void };
 }
 
 export interface GroupNodeData extends Record<string, unknown> {
@@ -119,12 +127,22 @@ export interface ToFlowOptions {
   colorMode?: BorderMode;
   /** 폴더 단위 2단 중첩(ADR-0053). true면 파일 그룹을 상위 폴더 프레임으로 묶는다. 기본 false. */
   nestFolders?: boolean;
+  /** composite id별 raw host 요약. 기본 구조 projection에는 host 노드를 넣지 않는다. */
+  hostDetailsByComposite?: ReadonlyMap<number, HostDetail[]>;
+  /** host 상세를 열어 둘 선택 composite id. */
+  hostDetailNodeId?: number | null;
+  /** 기본 strict waterfall과 별개인, 실제 DOM/컴포넌트 트리의 압축 배치 projection. */
+  compactMode?: boolean;
+  compactExpandedSources?: ReadonlySet<number>;
+  onToggleCompactSource?: (sourceId: number) => void;
 }
 
 export function toFlow(
   nodes: VisibleNode[],
   engine: LayoutEngine,
-  {
+  options: ToFlowOptions,
+): { flowNodes: Node[]; flowEdges: Edge[] } {
+  const {
     shouldExpandGroup,
     highlightedNodeId = null,
     matchedIds,
@@ -133,10 +151,19 @@ export function toFlow(
     onToggleGroupCollapse,
     colorMode = 'light',
     nestFolders = false,
-  }: ToFlowOptions,
-): { flowNodes: Node[]; flowEdges: Edge[] } {
-  const { groups, folders, nodePositions } = engine.computeLayout(nodes, { nestFolders });
+    hostDetailsByComposite,
+    hostDetailNodeId = null,
+    compactMode = false,
+    compactExpandedSources,
+    onToggleCompactSource,
+  } = options;
+  const { groups, folders, nodePositions, compactSummaries, compactControls } = engine.computeLayout(nodes, {
+    nestFolders,
+    compact: compactMode,
+    compactExpandedSources,
+  });
   const byId = new Map(nodes.map((n) => [n.id, n]));
+  const compactControlBySource = new Map(compactControls.map((control) => [control.sourceId, control]));
   // 공유 UI 레인(pillar ②): 다중 부모라 아래 레인으로 빠진 그룹들.
   const sharedGroupSet = new Set(groups.filter((g) => g.shared).map((g) => g.group));
   // 사용처 인라인 칩(pillar ②): 상시 긴 선 대신, 공유 컨테이너를 렌더하는 부모 노드에 "→X 공유"
@@ -169,6 +196,7 @@ export function toFlow(
   const flowNodes: Node[] = [];
   const expandedIds = new Set<number>();
   const renderedGroups = new Set<string>();
+  const expandedGroups = new Set<string>();
 
   // 폴더 프레임(ADR-0053) — 파일 그룹보다 먼저 push해야 React Flow의 부모-먼저 규칙을 만족한다
   // (중첩 그룹의 parentId=folder:<path>가 이미 존재하도록). 폴더 그룹핑이 꺼져 있으면 folders는
@@ -251,6 +279,7 @@ export function toFlow(
     });
 
     if (!expanded) continue;
+    expandedGroups.add(g.group);
 
     for (const id of g.nodeIds) {
       if (filtering && !matchedIds!.has(id)) continue; // 그룹 안에서도 매치 안 된 개별 노드는 뺀다
@@ -290,10 +319,51 @@ export function toFlow(
           sharedMembers: sharedUsesByParent.has(n.id)
             ? Object.fromEntries([...sharedUsesByParent.get(n.id)!].map((g) => [g, sharedGroupMembers.get(g) ?? []]))
             : undefined,
+          hostDetails: hostDetailsByComposite?.get(n.id),
+          hostDetailsOpen: hostDetailNodeId === n.id,
+          compactControl: compactExpandedSources?.has(n.id) && compactControlBySource.has(n.id)
+            ? {
+                directChildCount: compactControlBySource.get(n.id)!.directChildCount,
+                onToggle: () => onToggleCompactSource?.(n.id),
+              }
+            : undefined,
         } satisfies ComponentNodeData,
       });
       expandedIds.add(id);
     }
+  }
+
+  // ADR-0093: 합성 카드도 부모와 같은 파일 프레임 안에 배치한다. 그래서 기본 waterfall의
+  // 방향은 보존하면서, 폭을 만드는 직접 자식 가지들만 한 장으로 줄어든다.
+  for (const summary of compactSummaries) {
+    if (!expandedGroups.has(summary.group)) continue;
+    flowNodes.push({
+      id: summary.id,
+      type: 'component',
+      parentId: `group:${summary.group}`,
+      extent: 'parent',
+      position: summary.position,
+      width: 240,
+      height: NODE_HEIGHT,
+      style: { width: 240, height: NODE_HEIGHT },
+      data: {
+        displayName: '자식 관계 요약',
+        kind: 'composite',
+        isAnonymous: false,
+        crossGroup: false,
+        pending: false,
+        highlighted: false,
+        matched: false,
+        colorIndex: colorIndexForGroup(summary.group),
+        isRouteEntry: false,
+        colorMode,
+        compactSummary: {
+          directChildCount: summary.directChildCount,
+          descendantCount: summary.descendantCount,
+          onToggle: () => onToggleCompactSource?.(summary.sourceId),
+        },
+      } satisfies ComponentNodeData,
+    });
   }
 
   // 간선 클러터 감쇠(ADR-0029 결정 #4, 연구문서 7절 a·b). 배선(경로 모양)이 아니라 표현
@@ -329,7 +399,7 @@ export function toFlow(
   // → 확대해서 부모 도메인이 화면 밖으로 나가도 "저쪽 도메인에서 들어오는 연결"이 계속 보인다
   //   (예전엔 이때 크로스-그룹 간선이 DOM에서 통째로 사라져, 지도 모드에서 보이던 연결이 확대하면
   //   없어지는 버그가 있었다).
-  const flowEdges: Edge[] = nodes
+  const componentEdges: Edge[] = nodes
     .filter((n) => n.parentId !== null && expandedIds.has(n.id))
     .flatMap((n): Edge[] => {
       const parent = byId.get(n.parentId!)!;
@@ -399,5 +469,23 @@ export function toFlow(
       return [{ ...base, className, zIndex: 1 }];
     });
 
-  return { flowNodes, flowEdges };
+  const compactSummaryEdges: Edge[] = compactSummaries.flatMap((summary): Edge[] => {
+    const sourceNode = byId.get(summary.sourceId);
+    if (!sourceNode || !expandedGroups.has(summary.group)) return [];
+    const sourceColorIndex = sourceNode.group === PENDING_GROUP ? undefined : colorIndexForGroup(sourceNode.group);
+    const targetColorIndex = summary.group === PENDING_GROUP ? undefined : colorIndexForGroup(summary.group);
+    const parentPalette = sourceColorIndex === undefined ? '' : ` edge-parent-palette-${sourceColorIndex}`;
+    const source = expandedIds.has(summary.sourceId) ? String(summary.sourceId) : `group:${sourceNode.group}`;
+    if (!renderedGroups.has(sourceNode.group)) return [];
+    return [{
+      id: `${summary.sourceId}->${summary.id}`,
+      source,
+      target: summary.id,
+      className: `edge-compact-summary${parentPalette}`,
+      data: { sourceColorIndex, targetColorIndex, colorMode },
+      zIndex: 1,
+    }];
+  });
+
+  return { flowNodes, flowEdges: [...componentEdges, ...compactSummaryEdges] };
 }

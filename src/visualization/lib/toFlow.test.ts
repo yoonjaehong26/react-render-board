@@ -497,3 +497,51 @@ describe('toFlow with nestFolders', () => {
     expect(flowNodes.find((n) => n.id === 'group:Panel.tsx')!.parentId).toBeUndefined();
   });
 });
+
+describe('toFlow compact projection', () => {
+  it('keeps the strict group structure and actual edges when no local summary is needed', () => {
+    const nodes = [vnode(1, 'A'), vnode(2, 'A', 1), vnode(3, 'B', 2)];
+    const { flowNodes, flowEdges } = toFlow(nodes, createLayoutEngine(), {
+      shouldExpandGroup: () => true,
+      compactMode: true,
+    });
+
+    expect(flowNodes.filter((node) => node.type === 'group')).toHaveLength(2);
+    expect(flowNodes.filter((node) => node.type === 'component').map((node) => node.id).sort()).toEqual(['1', '2', '3']);
+    expect(flowEdges.map((edge) => edge.id).sort()).toEqual(['1->2', '2->3']);
+    expect(flowEdges.some((edge) => String(edge.className).includes('compact-summary'))).toBe(false);
+  });
+
+  it('summarizes one parent source fan-out, not an arbitrary file group', () => {
+    // 가장 넓어지는 형태는 한 파일 안에서 부모가 많은 직접 자식을 렌더하는 경우다.
+    const nodes = [vnode(1, 'Root'), vnode(2, 'Root', 1)];
+    for (let index = 0; index < 13; index++) nodes.push(vnode(index + 3, 'Root', 2));
+
+    const { flowNodes, flowEdges } = toFlow(nodes, createLayoutEngine(), {
+      shouldExpandGroup: () => true,
+      compactMode: true,
+    });
+
+    const summary = flowNodes.find((node) => node.id === 'summary:2')!;
+    expect((summary.data as ComponentNodeData).compactSummary).toMatchObject({ directChildCount: 13, descendantCount: 13 });
+    expect(flowNodes.some((node) => node.id === 'group:Root')).toBe(true);
+    expect(flowNodes.some((node) => node.id === '3')).toBe(false);
+    expect(flowEdges.some((edge) => edge.id === '2->summary:2')).toBe(true);
+    expect((flowNodes.find((node) => node.id === '2')!.data as ComponentNodeData).compactControl).toBeUndefined();
+  });
+
+  it('restores only the selected summary source to strict waterfall', () => {
+    const nodes = [vnode(1, 'Root'), vnode(2, 'Root', 1)];
+    for (let index = 0; index < 4; index++) nodes.push(vnode(index + 3, 'Root', 2));
+
+    const { flowNodes } = toFlow(nodes, createLayoutEngine(), {
+      shouldExpandGroup: () => true,
+      compactMode: true,
+      compactExpandedSources: new Set([2]),
+    });
+
+    expect(flowNodes.some((node) => node.id === 'summary:2')).toBe(false);
+    expect(flowNodes.filter((node) => node.type === 'component').map((node) => node.id).sort()).toEqual(['1', '2', '3', '4', '5', '6']);
+    expect((flowNodes.find((node) => node.id === '2')!.data as ComponentNodeData).compactControl).toMatchObject({ directChildCount: 4 });
+  });
+});

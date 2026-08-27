@@ -100,3 +100,4 @@
 | [0090](0090-stable-parent-child-edges-across-zoom.md) | 확대율과 무관한 실제 부모–자식 간선 — 지도는 프레임 개요만, 컴포넌트가 보이는 모든 확대율에는 같은 실제 parent→child 간선만. 회색 파일 집계선·구조 모드는 제거 | 채택됨(구현, ADR-0084 대체) |
 | [0091](0091-adaptive-panel-layout-and-detached-board.md) | 적응형 패널 배치 + 분리 보드 — MiniMap 크기 계약 복구, overlay 기본 유지 + 선언적 `layoutTarget` 한정 reserve-space, 상/하/좌/우 도킹, Alt+클릭 가림 최소 배치·대형 대상 포커스 레일, Chromium Document PiP 분리/폴백 | 채택됨(구현) |
 | [0092](0092-toggleable-and-draggable-target-billboard.md) | 전광판 표시 토글 + 위치 기억 — FAB의 독립 토글은 target card 생성/선택 흐름과 분리, 고정 선택 카드만 이동 핸들로 드래그, 표시 여부·0~1 화면 비율 위치를 저장하고 hover 미리보기의 비간섭 계약은 유지 | 채택됨(구현) |
+| [0093](0093-compact-projection-and-host-detail.md) | strict waterfall 기반 밀집 projection + 국소 host 상세 — 첫 구조 층·단일 자식 체인은 유지하고, 파일별 가로 폭 예산을 넘긴 깊은 직접 자식 가지부터 Summary 카드로 접어 공간을 회수. 카드 펼침 뒤 같은 source에서 재요약 가능. raw host는 선택 컴포넌트의 tag ×N popover로만 표시 | 채택됨(구현) |

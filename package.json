@@ -76,6 +76,7 @@
     "verify:edge-lineage": "node scripts/verify-edge-lineage.mjs",
     "verify:edge-frame-fallback": "node scripts/verify-edge-frame-fallback.mjs",
     "verify:edge-routing": "node scripts/verify-edge-routing.mjs",
+    "verify:compact": "node scripts/verify-compact-projection.mjs",
     "verify:init": "node scripts/verify-init.mjs",
     "verify:init-next": "node scripts/verify-init-next.mjs",
     "verify:init-next-canvas": "node scripts/verify-init-next-canvas.mjs",

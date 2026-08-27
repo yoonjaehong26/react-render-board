@@ -104,6 +104,11 @@
   );
 }
 
+.group-node__handle {
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* 도메인별 커스텀 팔레트 (groupColor.ts) — 인덱스 순서는 그 파일의 PALETTE 배열과 반드시
    일치해야 한다(하나를 바꾸면 다른 쪽도 같이 바꿀 것). 그룹 프레임은 rough-border 대상이
    아니라(컴포넌트 노드 섹션 참고) 그냥 border-color로 표현한다. */
@@ -264,10 +269,97 @@
 .component-node--palette-6 { background-color: #db27771a; }
 .component-node--palette-7 { background-color: #e11d481a; }
 
+/* ADR-0093: 밀집 모드는 파일 프레임을 바꾸지 않고, 폭을 만드는 부모의 직접 자식 가지를
+   같은 파일 안의 한 장의 카드로 접는다. 카드 전체가 "이 부분만 strict로 펼치기" 제어다. */
+.component-node--compact-summary {
+  background-color: #fff7ed;
+}
+.component-node__compact-summary-button {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  gap: 2px 8px;
+  border: 0;
+  background: transparent;
+  color: #9a3412;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.component-node__compact-summary-title {
+  font-weight: 800;
+}
+.component-node__compact-summary-copy {
+  grid-column: 1;
+  font-size: 9px;
+  color: #b45309;
+  white-space: nowrap;
+}
+.component-node__compact-summary-open {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  font-size: 18px;
+}
+.component-node__compact-control {
+  border: 1px solid #fdba74;
+  border-radius: 999px;
+  background: #fffbeb;
+  color: #9a3412;
+  padding: 3px 7px;
+  font: 700 10px ui-monospace, monospace;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.component-node__compact-control:hover { background: #ffedd5; }
+body.rrb-dark-mode .component-node--compact-summary { background-color: #431407; }
+body.rrb-dark-mode .component-node__compact-summary-button { color: #fed7aa; }
+body.rrb-dark-mode .component-node__compact-summary-copy { color: #fdba74; }
+body.rrb-dark-mode .component-node__compact-control {
+  border-color: #9a3412;
+  background: #431407;
+  color: #fed7aa;
+}
+
 .component-node__name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ADR-0093: raw host는 캔버스 노드로 추가하지 않는다. 선택한 component 하나에만 NodeToolbar
+   포탈로 tag ×N 요약을 띄워, 상세를 볼 수 있으면서도 waterfall 배치/다른 그룹을 침범하지 않는다. */
+.component-node__host-detail {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 360px;
+  padding: 5px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fffbeb;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.16);
+  color: #475569;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.component-node__host-detail-title {
+  color: #92400e;
+  font-weight: 700;
+}
+.component-node__host-detail-item {
+  padding-left: 5px;
+  border-left: 1px solid #d6d3d1;
+}
+body.rrb-dark-mode .component-node__host-detail {
+  border-color: #475569;
+  background: #292524;
+  color: #cbd5e1;
+}
+body.rrb-dark-mode .component-node__host-detail-title {
+  color: #fbbf24;
 }
 
 /* 리스트 접기(ADR-0046) "×N" 배지 — 대표 노드가 실은 같은 형제 N개를 접은 것임을 알린다.

@@ -52,6 +52,7 @@ import { ContextMenu, type ContextMenuState } from './components/ContextMenu';
 import { SemanticZoomController, MAP_MODE_THRESHOLD } from './components/SemanticZoomController';
 import { GroupLabelDeclutter } from './components/GroupLabelDeclutter';
 import { shouldSuppressMapModeDetail } from './lib/mapModeDetail';
+import { deriveHostDetails } from './lib/hostDetails';
 // props 흐름 추적 + 변경 잔상 (ADR-0032) — 아래 "ADR-0032" 주석이 붙은 코드 조각들이 이 기능이다.
 import { PropsPanel } from './components/PropsPanel';
 import {
@@ -266,6 +267,18 @@ function BoardContent({
       return next;
     });
   };
+  // ADR-0093: 기본 strict waterfall을 유지한 폭 제한 모드. 넓은 서브트리만 명시적인 국소
+  // 요약카드로 접고, 사용자가 카드를 열면 그 부분만 strict waterfall으로 되돌린다.
+  const [compactMode, setCompactMode] = useState(false);
+  const [compactExpandedSources, setCompactExpandedSources] = useState<Set<number>>(new Set());
+  const toggleCompactSource = (sourceId: number) => {
+    setCompactExpandedSources((previous) => {
+      const next = new Set(previous);
+      if (next.has(sourceId)) next.delete(sourceId);
+      else next.add(sourceId);
+      return next;
+    });
+  };
 
   // ── props 흐름 추적 + 변경 잔상 (ADR-0032) 상태 ─────────────────────────────
   // 선택된 노드(=props 패널이 열린 노드). 클릭 시점에 store.getFiber로 memoizedProps를
@@ -322,6 +335,9 @@ function BoardContent({
     const sample = sampleId !== undefined ? store.getFiber(sampleId) : undefined;
     return deriveBoundaryMemberships(sample);
   }, [snapshot, store]);
+  // host는 기본 그래프 projection에서 항상 빼고, 필요할 때만 선택한 composite의 tag ×N 상세로
+  // 보여 준다. raw host 수가 outer waterfall frame 폭·간선 배선에 영향을 줄 수 없게 분리한다.
+  const hostDetailsByComposite = useMemo(() => deriveHostDetails(snapshot.nodes), [snapshot.nodes]);
 
   const {
     flowNodes,
@@ -338,7 +354,7 @@ function BoardContent({
     useMemo(() => {
     // 리스트 접기(ADR-0045): normalize가 만든 화면 노드 위에서 같은 종류 형제 N개(리스트)를
     // 대표 하나 + "×N"으로 접는다. 데이터/인터랙션은 그대로(대표는 실제 fiber id 유지).
-    const visible = coalesceListSiblings(normalizeForCanvas(snapshot.nodes, { includeHostNodes }));
+    const visible = coalesceListSiblings(normalizeForCanvas(snapshot.nodes, { includeHostNodes: false }));
     // PENDING_GROUP은 groupHint가 아직 비동기로 안 채워졌을 뿐인 "임시" 상태라, 이 그룹의
     // 등장/소멸만으로 카메라를 다시 맞추면 안 된다 — 실제 그룹 집합 변화만 추적한다.
     const groupNames = new Set(visible.map((n) => n.group).filter((g) => g !== PENDING_GROUP));
@@ -402,6 +418,11 @@ function BoardContent({
       // 스코프로 못 바꿔 data로 내려줘야 한다. colorMode를 useMemo 의존성에도 추가한다.
       colorMode,
       nestFolders, // 폴더 단위 2단 중첩(ADR-0053) — useMemo 의존성에도 추가.
+      hostDetailsByComposite,
+      hostDetailNodeId: includeHostNodes ? selectedNodeId : null,
+      compactMode,
+      compactExpandedSources,
+      onToggleCompactSource: toggleCompactSource,
     });
     // 경계 프레임(도형 어휘, ADR-0028) — 포탈/Suspense/에러 바운더리를 이름표 붙은 박스로 두른다.
     // 렌더된 컴포넌트 노드의 바운딩 박스에서 프레임을 만들고, 각 그룹 프레임 바로 뒤에 끼워 넣어
@@ -460,6 +481,10 @@ function BoardContent({
     filterToMatches,
     manuallyCollapsedGroups,
     colorMode,
+    hostDetailsByComposite,
+    selectedNodeId,
+    compactMode,
+    compactExpandedSources,
     boundaryMemberships, // ADR-0028: 경계 프레임
     trackedIds, // ADR-0032: 추적 대상 그룹 강제 확장 반영
   ]);
@@ -1145,7 +1170,7 @@ function BoardContent({
                   checked={includeHostNodes}
                   onChange={(e) => onIncludeHostNodesChange(e.target.checked)}
                 />
-                host 노드(div/span 등) 표시
+                host 상세(div/span 등)
               </label>
               <label className="toolbar__checkbox">
                 <input type="checkbox" checked={filterToMatches} onChange={(e) => setFilterToMatches(e.target.checked)} />
@@ -1162,6 +1187,10 @@ function BoardContent({
               <label className="toolbar__checkbox">
                 <input type="checkbox" checked={nestFolders} onChange={(e) => setNestFolders(e.target.checked)} />
                 폴더로 묶기
+              </label>
+              <label className="toolbar__checkbox">
+                <input type="checkbox" checked={compactMode} onChange={(e) => setCompactMode(e.target.checked)} />
+                밀집 모드
               </label>
               <button
                 type="button"

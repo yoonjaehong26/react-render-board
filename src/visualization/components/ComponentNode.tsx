@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Handle, NodeToolbar, Position, type NodeProps } from '@xyflow/react';
 import type { ComponentNodeData } from '../lib/toFlow';
 import { nodeBorderImage, ROUGH_FILL_MATCHED, ROUGH_FILL_HIGHLIGHTED } from '../lib/roughStyle';
 import { colorIndexForGroup, paletteHex } from '../lib/groupColor';
@@ -22,6 +22,10 @@ export function ComponentNode({ id, data }: NodeProps) {
     coalescedCount,
     sharedUses,
     sharedMembers,
+    hostDetails,
+    hostDetailsOpen,
+    compactSummary,
+    compactControl,
   } = data as ComponentNodeData;
   // 공유 UI 칩 클릭 시 인라인 peek(접힌 실제 인스턴스 펼쳐보기) 토글. 어느 공유 그룹의 peek을 열었는지.
   const [openPeek, setOpenPeek] = useState<string | null>(null);
@@ -53,6 +57,7 @@ export function ComponentNode({ id, data }: NodeProps) {
   if (tracked) classes.push('component-node--tracked'); // prop 참조 추적 하이라이트(ADR-0032)
   if (lineageState === 'off') classes.push('component-node--lineage-off'); // hover 혈통 밖 → 흐리게
   else if (lineageState === 'on') classes.push('component-node--lineage-on'); // hover 혈통 안 → 강조
+  if (compactSummary) classes.push('component-node--compact-summary');
   if (colorIndex !== undefined) classes.push(`component-node--palette-${colorIndex}`);
 
   // Excalidraw풍 손그림 테두리(roughStyle.ts, ADR-0030) — 고정 크기라 미리 계산해 둔 정적
@@ -65,6 +70,32 @@ export function ComponentNode({ id, data }: NodeProps) {
   const border = nodeBorderImage(kind, colorMode, isRouteEntry, colorIndex);
   const emphasisFill = highlighted ? ROUGH_FILL_HIGHLIGHTED : matched ? ROUGH_FILL_MATCHED : null;
   const backgroundImage = emphasisFill ? `${border}, ${emphasisFill}` : border;
+
+  if (compactSummary) {
+    return (
+      <div className={classes.join(' ')} style={{ backgroundImage }}>
+        <Handle type="target" position={Position.Top} />
+        <button
+          type="button"
+          className="component-node__compact-summary-button nodrag"
+          aria-label="밀집 요약 펼치기"
+          title="이 부모의 직접 자식 가지를 strict waterfall으로 펼치기"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            compactSummary.onToggle();
+          }}
+        >
+          <span className="component-node__compact-summary-title">자식 관계 요약</span>
+          <span className="component-node__compact-summary-copy">
+            직접 자식 {compactSummary.directChildCount}개 · 하위 컴포넌트 {compactSummary.descendantCount}개
+          </span>
+          <span className="component-node__compact-summary-open" aria-hidden>▸</span>
+        </button>
+        <Handle type="source" position={Position.Bottom} />
+      </div>
+    );
+  }
 
   return (
     <div className={classes.join(' ')} style={{ backgroundImage }}>
@@ -127,8 +158,41 @@ export function ComponentNode({ id, data }: NodeProps) {
           })}
         </span>
       )}
+      {/* host는 구조 간선·레이아웃에 참여시키지 않는다. 사용자가 host 상세를 켠 상태에서 선택한
+          컴포넌트 하나에만 포탈 popover로 tag ×N을 보여, 수백 wrapper가 다른 그룹과 겹치는 일을
+          막는다(ADR-0093). */}
+      {hostDetailsOpen && hostDetails && hostDetails.length > 0 && (
+        <NodeToolbar nodeId={id} isVisible position={Position.Bottom} offset={8} style={{ zIndex: 1000 }}>
+          <div className="component-node__host-detail nodrag" aria-label={`${displayName} host 상세`}>
+            <span className="component-node__host-detail-title">host 상세</span>
+            {hostDetails.map(({ tag, count }) => (
+              <span key={tag} className="component-node__host-detail-item">
+                {tag} ×{count}
+              </span>
+            ))}
+          </div>
+        </NodeToolbar>
+      )}
+      {/* 요약 카드를 펼쳐도 접기 제어가 사라지지 않는다. 같은 부모 source에서 compact ↔ strict를
+          왕복할 수 있어, 카드가 사라진 뒤 되돌릴 길이 없던 UX를 피한다. */}
+      {compactControl && (
+        <NodeToolbar nodeId={id} isVisible position={Position.Bottom} offset={5} style={{ zIndex: 1000 }}>
+          <button
+            type="button"
+            className="component-node__compact-control nodrag"
+            aria-label="밀집 요약으로 접기"
+            title={`직접 자식 ${compactControl.directChildCount}개를 다시 요약`}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              compactControl.onToggle();
+            }}
+          >
+            자식 {compactControl.directChildCount}개 요약 ▾
+          </button>
+        </NodeToolbar>
+      )}
       <Handle type="source" position={Position.Bottom} />
     </div>
   );
 }
-

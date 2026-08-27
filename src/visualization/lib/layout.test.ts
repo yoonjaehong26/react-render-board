@@ -45,6 +45,40 @@ describe('createLayoutEngine / computeLayout', () => {
     expect(p2.x).not.toBe(p3.x);
   });
 
+  it('summarizes a wide direct fan-out even when its source also has same-file children', () => {
+    const engine = createLayoutEngine();
+    // DemoApp처럼 한 파일 안에서 많은 직접 자식을 렌더하는 경우가 실제 폭 병목이다.
+    const nodes = [vnode(1, 'Root'), vnode(2, 'Root', 1)];
+    for (let index = 0; index < 13; index++) nodes.push(vnode(index + 3, 'Root', 2));
+
+    const normal = engine.computeLayout(nodes);
+    const compact = engine.computeLayout(nodes, { compact: true });
+    const normalRoot = normal.groups.find((group) => group.group === 'Root')!;
+    const root = compact.groups.find((group) => group.group === 'Root')!;
+    const summary = compact.compactSummaries.find((item) => item.sourceId === 2)!;
+
+    expect(root.nodeIds).toEqual([1, 2]);
+    expect(summary).toMatchObject({ directChildCount: 13, descendantCount: 13, sourceId: 2, group: 'Root' });
+    expect(summary.position.x).toBeGreaterThanOrEqual(0);
+    expect(root.frame.width).toBeLessThan(normalRoot.frame.width);
+    expect(compact.nodePositions.has(3)).toBe(false);
+    expect(compact.groups).toHaveLength(1);
+  });
+
+  it('keeps a small two-child branch visible but summarizes two wide descendant branches', () => {
+    const engine = createLayoutEngine();
+    const small = [vnode(1, 'Root'), vnode(2, 'Root', 1), vnode(3, 'Root', 2), vnode(4, 'Root', 2)];
+    expect(engine.computeLayout(small, { compact: true }).compactSummaries).toEqual([]);
+
+    const wide = [vnode(1, 'Root'), vnode(2, 'Root', 1), vnode(3, 'Root', 2), vnode(4, 'Root', 2)];
+    for (let index = 0; index < 3; index++) wide.push(vnode(index + 5, 'Root', 3));
+    for (let index = 0; index < 3; index++) wide.push(vnode(index + 8, 'Root', 4));
+
+    expect(engine.computeLayout(wide, { compact: true }).compactSummaries).toEqual([
+      expect.objectContaining({ sourceId: 2, directChildCount: 2, descendantCount: 8 }),
+    ]);
+  });
+
   it('keeps known groups in their original relative order and appends newly-seen groups after them', () => {
     const engine = createLayoutEngine();
     const call1 = engine.computeLayout([vnode(1, 'A'), vnode(2, 'B')]);
