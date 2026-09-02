@@ -6,9 +6,13 @@
 
 English | **[한국어](README.ko.md)**
 
-> A **dev-only** tool that visualizes your React app's **live render tree** as a box-and-line diagram on a Figma-like board.
+> Understand an unfamiliar React codebase as a **live visual map** — a dev-only board for its running component tree.
 
-Instead of React DevTools' indented list view, it shows your running component structure as a **spatially arranged node diagram**. The goal: someone landing in a new codebase can grasp the whole structure at a glance.
+Instead of React DevTools' indented list view, it shows your running component structure as a **spatially arranged node diagram**. Open the board, select a component or an element on screen, and move between the live UI and its render structure.
+
+https://github.com/user-attachments/assets/895df882-2aef-436d-9dac-2c5eee707181
+
+**[Try the live demo](https://guileless-pika-2b8bc5.netlify.app/)** · Built for onboarding, code review, architecture exploration, and giving an AI assistant an unambiguous UI target.
 
 ```bash
 npm install --save-dev react-render-board   # postinstall detects your bundler and wires everything up
@@ -51,11 +55,6 @@ npm run dev                                   # a board button appears at the bo
 Several teams have tried the "live render tree + Figma-style canvas" combination (React-Sight, Realize, Reactron, …) — all unmaintained today. The niche is currently empty. Background research: [`docs/research/prior-art.md`](docs/research/prior-art.md) (Korean).
 
 **Target user**: not the veteran who debugs daily, but **someone entering a new codebase** — onboarding, code review, architecture documentation, teaching new hires.
-
-<!--
-Demo placeholder — put screenshots/GIFs here:
-![Board overview](docs/assets/overview.gif)
--->
 
 ---
 
@@ -107,7 +106,7 @@ npm run dev
 
 Right after install, a `postinstall` hook detects your bundler and wires the config **automatically**. Just run `npm run dev` and a board button appears at the bottom-right of your app.
 
-The auto-setup only touches config files (never your app source), only runs when react-render-board is a **direct** dependency of your project, and backs up any pre-existing file it can't restore via git to `<file>.rrb-bak` before editing. To skip it entirely, set `RRB_SKIP_POSTINSTALL=1` and run [`npx react-render-board init`](#manual-setup-init) yourself when ready.
+The auto-setup only runs when react-render-board is a **direct** dependency of your project. It edits bundler configuration for Vite, webpack, and Rspack; Next.js/Turbopack needs a small dev-only connection in the root `layout.tsx`. It backs up any pre-existing file it can't restore via git to `<file>.rrb-bak` before editing. To skip it entirely, set `RRB_SKIP_POSTINSTALL=1` and run [`npx react-render-board init`](#manual-setup-init) yourself when ready.
 
 ### pnpm
 
@@ -129,7 +128,7 @@ If auto-setup was skipped or you want to re-check:
 npx react-render-board init
 ```
 
-`init` (automatic or manual) detects your bundler and configures it. After that, click the button at the bottom-right of your running app to open a docked panel with the live render tree. **It never touches your app's source code** (config files only) and never ships to production.
+`init` (automatic or manual) detects your bundler and configures it. After that, click the button at the bottom-right of your running app to open a docked panel with the live render tree. Vite, webpack, and Rspack change configuration only; Next.js/Turbopack also adds a dev-only connection to the root `layout.tsx`. It never ships to production.
 
 ---
 
@@ -142,6 +141,7 @@ npx react-render-board init
 | **Vite** | Adds a plugin to `plugins` in `vite.config` | ① below |
 | **Next.js / Turbopack** | Adds an early `<head>` script + `RenderBoardClient` wiring to the root `layout.tsx` | ② below |
 | **webpack** | Wraps `webpack.config` with `withRenderBoard(...)` | ③ below |
+| **Rspack** | Wraps `rspack.config` with `withRenderBoard(...)` | ③ below |
 
 **① Vite**
 
@@ -169,7 +169,7 @@ const { withRenderBoard } = require('react-render-board/webpack');
 module.exports = withRenderBoard({ /* your existing config */ });
 ```
 
-> Since `0.2.2`, the runtime injects the board's styles itself — no CSS setup needed for any bundler (no css-loader required). If older instructions had you add `import 'react-render-board/style.css'` to your app entry, you can remove it (harmless if left).
+> Rspack uses the same helper. Its early-hook injection requires `html-webpack-plugin`; the built-in `HtmlRspackPlugin` does not expose the compatible hook. Since `0.2.2`, the runtime injects the board's styles itself — no CSS setup needed for any bundler (no css-loader required). If older instructions had you add `import 'react-render-board/style.css'` to your app entry, you can remove it (harmless if left).
 
 ---
 
@@ -264,11 +264,11 @@ Supports **React 18 · 19** (peerDependencies `^18 || ^19`).
 
 ## Project status
 
-🚀 **Published on npm (MIT).** Engine complete (hooking → data → visualization) + one-command `install`→canvas verified on three bundlers (Vite/Turbopack/webpack). 340+ vitest unit tests.
+🚀 **Published on npm (MIT).** Engine complete (hooking → data → visualization) + install→canvas verified across Vite, webpack, Rspack, and Next.js/Turbopack. 400+ Vitest unit tests.
 
 - [x] Tech & UI validation, live MVP, real third-party app verification (excalidraw / berry-admin / shadcn-admin)
 - [x] All 5 identified defects (P0–P4) resolved + test coverage + package prep
-- [x] Install experience: postinstall auto-setup, one command across three bundlers
+- [x] Install experience: postinstall auto-setup, verified across four bundler paths
 - [x] Direction settled: stay open source, real-user feedback first (ADR-0074)
 - [ ] Growing real-world usage + collecting feedback (in progress — issues welcome!)
 

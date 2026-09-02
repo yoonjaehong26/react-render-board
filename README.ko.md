@@ -6,9 +6,13 @@
 
 **[English](README.md)** | 한국어
 
-> React 앱의 **실시간 렌더 트리**를 Figma 같은 보드 위에 박스+선 다이어그램으로 시각화하는 **dev 전용** 도구.
+> 낯선 React 코드베이스를 **실시간 시각 지도**로 이해하는 dev 전용 도구 — 실행 중인 컴포넌트 트리를 보드에 그립니다.
 
-React DevTools의 들여쓰기 리스트 뷰가 아니라, 실행 중인 컴포넌트 구조를 **공간적으로 배치된 노드 다이어그램**으로 보여줍니다. 새 코드베이스에 처음 들어온 사람이 전체 구조를 한눈에 파악하는 것을 목표로 합니다.
+React DevTools의 들여쓰기 리스트 뷰가 아니라, 실행 중인 컴포넌트 구조를 **공간적으로 배치된 노드 다이어그램**으로 보여줍니다. 보드를 열고 컴포넌트나 실제 화면 요소를 선택해, UI와 렌더 구조를 양방향으로 오갈 수 있습니다.
+
+https://github.com/user-attachments/assets/895df882-2aef-436d-9dac-2c5eee707181
+
+**[라이브 데모 체험하기](https://guileless-pika-2b8bc5.netlify.app/)** · 온보딩, 코드 리뷰, 아키텍처 탐색, AI에게 정확한 UI 대상을 전달할 때 유용합니다.
 
 ```bash
 npm install --save-dev react-render-board   # postinstall이 번들러를 감지해 자동 설정
@@ -51,11 +55,6 @@ npm run dev                                   # 앱 우측 하단에 보드 버�
 "실시간 렌더 트리 + Figma식 캔버스"라는 조합은 여러 팀이 시도했지만(React-Sight, Realize, Reactron 등) 모두 유지보수가 끊겼습니다. 이 조합은 현재 시장에서 비어 있습니다. 배경 조사는 [`docs/research/prior-art.md`](docs/research/prior-art.md) 참고.
 
 **대상 사용자**: 매일 디버깅하는 베테랑이 아니라, **새 코드베이스에 처음 들어온 사람** — 온보딩, 코드 리뷰, 아키텍처 문서화, 신규 입사자 교육을 위한 도구입니다.
-
-<!--
-데모 자리표시자 — 스크린샷/GIF를 아래에 넣으세요:
-![보드 개요](docs/assets/overview.gif)
--->
 
 ---
 
@@ -107,7 +106,7 @@ npm run dev
 
 설치 직후 `postinstall`이 번들러를 감지해 설정을 **자동으로** 넣습니다. 그대로 `npm run dev`만 실행하면 앱 우측 하단에 보드 버튼이 뜹니다.
 
-자동 설정은 설정 파일만 건드리고(앱 소스는 절대 안 건드림), react-render-board가 프로젝트의 **직접** 의존성일 때만 실행되며, 기존 파일 중 git으로 복구할 수 없는 것은 수정 전에 `<파일>.rrb-bak`로 백업합니다. 아예 끄려면 `RRB_SKIP_POSTINSTALL=1`을 설정하고 나중에 [`npx react-render-board init`](#수동-설정-init)을 직접 실행하세요.
+자동 설정은 react-render-board가 프로젝트의 **직접** 의존성일 때만 실행됩니다. Vite·webpack·Rspack은 번들러 설정을 수정하고, Next.js/Turbopack은 루트 `layout.tsx`에 작은 dev 전용 연결 코드를 추가합니다. 기존 파일 중 git으로 복구할 수 없는 것은 수정 전에 `<파일>.rrb-bak`로 백업합니다. 아예 끄려면 `RRB_SKIP_POSTINSTALL=1`을 설정하고 나중에 [`npx react-render-board init`](#수동-설정-init)을 직접 실행하세요.
 
 ### pnpm
 
@@ -129,7 +128,7 @@ npm run dev
 npx react-render-board init
 ```
 
-`init`(자동이든 수동이든)이 번들러를 감지해 설정을 구성하고, 실행 후 앱 우측 하단 버튼을 누르면 하단 도킹 패널에 실시간 렌더 트리가 그려집니다. **앱 소스 코드는 한 줄도 건드리지 않으며**(설정 파일만 수정), 프로덕션에는 들어가지 않습니다.
+`init`(자동이든 수동이든)이 번들러를 감지해 설정을 구성하고, 실행 후 앱 우측 하단 버튼을 누르면 하단 도킹 패널에 실시간 렌더 트리가 그려집니다. Vite·webpack·Rspack은 설정 파일만, Next.js/Turbopack은 루트 `layout.tsx`의 dev 전용 연결 코드도 수정합니다. 어느 경우든 프로덕션에는 들어가지 않습니다.
 
 ---
 
@@ -142,6 +141,7 @@ npx react-render-board init
 | **Vite** | `vite.config`의 `plugins`에 플러그인 추가 | 아래 ① |
 | **Next.js / Turbopack** | 루트 `layout.tsx`에 조기 `<head>` 스크립트 + `RenderBoardClient` 배선 | 아래 ② |
 | **webpack** | `webpack.config`를 `withRenderBoard(...)`로 래핑 | 아래 ③ |
+| **Rspack** | `rspack.config`를 `withRenderBoard(...)`로 래핑 | 아래 ③ |
 
 **① Vite**
 
@@ -169,7 +169,7 @@ const { withRenderBoard } = require('react-render-board/webpack');
 module.exports = withRenderBoard({ /* 기존 config */ });
 ```
 
-> 보드 스타일은 `0.2.2`부터 런타임이 스스로 주입합니다 — 어떤 번들러에서도 별도 CSS 설정이 필요 없습니다(css-loader 불필요). 예전 안내로 앱 엔트리에 `import 'react-render-board/style.css'`를 추가했다면 지워도 됩니다(있어도 무해).
+> Rspack도 같은 헬퍼를 씁니다. 단, 조기 훅 주입에는 `html-webpack-plugin`이 필요하며 내장 `HtmlRspackPlugin`은 호환 훅을 제공하지 않습니다. 보드 스타일은 `0.2.2`부터 런타임이 스스로 주입합니다 — 어떤 번들러에서도 별도 CSS 설정이 필요 없습니다(css-loader 불필요). 예전 안내로 앱 엔트리에 `import 'react-render-board/style.css'`를 추가했다면 지워도 됩니다(있어도 무해).
 
 ---
 
@@ -264,11 +264,11 @@ createRoot(overlayHost).render(
 
 ## 프로젝트 상태
 
-🚀 **npm 배포됨 (MIT).** 엔진(훅킹→데이터→시각화) 완성 + 3개 번들러(Vite/Turbopack/webpack) `install`→캔버스 실측 완료. vitest 유닛 테스트 340+개.
+🚀 **npm 배포됨 (MIT).** 엔진(훅킹→데이터→시각화) 완성 + Vite·webpack·Rspack·Next.js/Turbopack에서 `install`→캔버스 실측 완료. Vitest 유닛 테스트 400+개.
 
 - [x] 기술·UI 검증, 라이브 MVP, 실제 제3자 앱 검증(excalidraw / berry-admin / shadcn-admin)
 - [x] 확인된 결함 5건(P0~P4) 해소 + 테스트 커버리지 + 패키지 배포 준비
-- [x] 배포 진입 경험: postinstall 자동 설정 + 3개 번들러 원커맨드
+- [x] 배포 진입 경험: postinstall 자동 설정 + 4개 번들러 경로 실측
 - [x] 방향 확정: 오픈소스 유지 + 실사용자 피드백 우선 (ADR-0074)
 - [ ] 실사용자 확대 + 피드백 수집 (진행 중 — 이슈 환영합니다!)
 
